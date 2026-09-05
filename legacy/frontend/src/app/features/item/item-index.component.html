@@ -1,0 +1,93 @@
+<section class="mb-4">
+  <h1 class="h3 text-black">Productos</h1>
+  <p class="text-muted">Administración del catálogo de productos</p>
+</section>
+
+<!-- Filtros -->
+<section class="mb-4">
+  <div class="card card-body">
+    <div class="d-flex gap-3 flex-wrap align-items-end">
+      <div>
+        <label class="form-label small mb-1">Código</label>
+        <input type="text" class="form-control" style="max-width: 200px;"
+               [value]="fCodigo()" (input)="fCodigo.set($any($event.target).value)">
+      </div>
+      <div>
+        <label class="form-label small mb-1">Nombre</label>
+        <input type="text" class="form-control" style="max-width: 200px;"
+               [value]="fNombre()" (input)="fNombre.set($any($event.target).value)">
+      </div>
+      <div>
+        <label class="form-label small mb-1">Categoría</label>
+        <input type="text" class="form-control" style="max-width: 200px;"
+               [value]="fCategoria()" (input)="fCategoria.set($any($event.target).value)">
+      </div>
+      <div>
+        <label class="form-label small mb-1">Stock</label>
+        <select class="form-select" style="max-width: 200px;"
+                [value]="fStock()" (change)="fStock.set($any($event.target).value)">
+          <option value="">Todo el stock</option>
+          <option value="disponible">Con stock</option>
+          <option value="agotado">Sin stock</option>
+        </select>
+      </div>
+      <button class="btn btn-outline-secondary" (click)="limpiarFiltros()">
+        <i class="bi bi-eraser"></i> Limpiar
+      </button>
+      <a routerLink="/item/create" class="btn btn-dark">
+        <i class="bi bi-plus-lg"></i> Agregar producto
+      </a>
+      <button type="button" class="btn btn-outline-danger" (click)="exportarPdf()">
+        <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
+      </button>
+    </div>
+  </div>
+</section>
+
+@if (cargando()) {
+  <div class="text-center text-muted py-4">
+    <div class="spinner-border" role="status"><span class="visually-hidden">Cargando…</span></div>
+  </div>
+} @else if (error()) {
+  <div class="alert alert-danger" role="alert">{{ error() }}</div>
+} @else {
+  <div class="table-responsive">
+    <table class="table table-hover table-bordered">
+      <thead class="table-dark">
+        <tr>
+          <th>Nombre</th>
+          <th>Código</th>
+          <th>Descripción</th>
+          <th>Categoría</th>
+          <th class="text-end">Precio</th>
+          <th class="text-end">Stock</th>
+          <th class="text-end" style="width: 200px;">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (item of itemsFiltrados(); track item.id) {
+          <tr>
+            <td>{{ item.nombre }}</td>
+            <td>{{ item.codigo }}</td>
+            <td class="text-truncate" style="max-width: 240px;">{{ item.descripcion }}</td>
+            <td>{{ item.categoria }}</td>
+            <td class="text-end">$ {{ item.precio | number:'1.2-2' }}</td>
+            <td class="text-end">{{ item.stock }}</td>
+            <td class="text-end">
+              <a [routerLink]="['/item/edit', item.id]" class="btn btn-sm btn-outline-primary me-1">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <button type="button" class="btn btn-sm btn-outline-danger" (click)="eliminar(item)">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+        } @empty {
+          <tr>
+            <td colspan="7" class="text-center text-muted py-3">No hay productos para mostrar.</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}

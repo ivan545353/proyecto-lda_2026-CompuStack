@@ -1,0 +1,76 @@
+<nav class="navbar navbar-expand-lg bg-white border-bottom">
+  <div class="container-fluid gap-3">
+
+    <!-- Logo -->
+    <a class="navbar-brand" routerLink="/home">
+      <img src="/assets/imagotipo.svg" alt="CompuStack" height="40">
+    </a>
+
+    <!-- Botón responsive -->
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain"
+            aria-controls="navbarMain" aria-expanded="false" aria-label="Abrir menú">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <!-- Contenido del menú -->
+    <div class="collapse navbar-collapse" id="navbarMain">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0 gap-3">
+        <li class="nav-item">
+          <a class="nav-link text-black" routerLink="/home" routerLinkActive="active">Inicio</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-black" routerLink="/item" routerLinkActive="active">Productos</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-black" routerLink="/category" routerLinkActive="active">Categorías</a>
+        </li>
+        @if (auth.esAdmin()) {
+          <li class="nav-item">
+            <a class="nav-link text-black" routerLink="/user" routerLinkActive="active">Usuarios</a>
+          </li>
+        }
+        <li class="nav-item">
+          <a class="nav-link text-black" routerLink="/sale" routerLinkActive="active">Ventas</a>
+        </li>
+      </ul>
+
+      <!-- Dropdown "Mi cuenta" -->
+      <ul class="navbar-nav">
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle text-black" href="#" role="button"
+             data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="bi bi-person-circle"></i> {{ auth.usuario()?.cuenta }}
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li>
+              <a class="dropdown-item" routerLink="/mi-cuenta">
+                <i class="bi bi-person"></i> Mis datos
+              </a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <button class="dropdown-item" type="button" (click)="cerrarSesion()">
+                <i class="bi bi-box-arrow-left"></i> Cerrar sesión
+              </button>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<main class="container my-5">
+  <router-outlet />
+</main>
+
+<footer class="bg-light text-dark border-top mt-5 py-4">
+  <div class="container text-center text-muted small">
+    <p>CompuStack — Sistema de Gestión</p>
+    <p>Alumno: Daniel Ivan Reales</p>
+    <p>Carrera: Ingeniería en Sistemas</p>
+    <p>Asignatura: Desarrollo Web con Angular</p>
+    <p>Año: 2026</p>
+
+  </div>
+</footer>

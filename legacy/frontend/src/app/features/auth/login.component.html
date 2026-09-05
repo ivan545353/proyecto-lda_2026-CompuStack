@@ -1,0 +1,34 @@
+<form class="form-authentication" [formGroup]="form" (ngSubmit)="ingresar()" autocomplete="off">
+  <div class="card card-body m-3 gap-2">
+
+    <div class="d-flex justify-content-center mb-2">
+      <img src="/assets/imagotipo.svg" alt="CompuStack" height="48">
+    </div>
+
+    <div class="mb-3">
+      <label for="usuario" class="form-label">Usuario</label>
+      <input type="text" id="usuario" class="form-control" formControlName="usuario"
+             [class.is-invalid]="form.controls.usuario.touched && form.controls.usuario.invalid">
+      @if (form.controls.usuario.touched && form.controls.usuario.invalid) {
+        <div class="invalid-feedback">Ingresá tu usuario (mínimo 2 caracteres).</div>
+      }
+    </div>
+
+    <div class="mb-3">
+      <label for="contrasena" class="form-label">Contraseña</label>
+      <input type="password" id="contrasena" class="form-control" formControlName="contrasena"
+             [class.is-invalid]="form.controls.contrasena.touched && form.controls.contrasena.invalid">
+      @if (form.controls.contrasena.touched && form.controls.contrasena.invalid) {
+        <div class="invalid-feedback">La contraseña es obligatoria.</div>
+      }
+    </div>
+
+    @if (error()) {
+      <div class="alert alert-danger py-2 mb-2" role="alert">{{ error() }}</div>
+    }
+
+    <button type="submit" class="login-btn btn border-0 text-light" [disabled]="cargando()">
+      {{ cargando() ? 'Ingresando…' : 'Ingresar' }}
+    </button>
+  </div>
+</form>

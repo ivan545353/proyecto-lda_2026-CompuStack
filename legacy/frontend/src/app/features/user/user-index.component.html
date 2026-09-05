@@ -1,0 +1,79 @@
+<section class="mb-4">
+  <h1 class="h3 text-black">Gestión de Usuarios</h1>
+  <p class="text-muted">Administración de cuentas de usuario del sistema</p>
+</section>
+
+<section class="mb-4">
+  <a routerLink="/user/create" class="btn btn-dark">
+    <i class="bi bi-person-plus"></i> Alta de nueva cuenta
+  </a>
+  <button type="button" class="btn btn-outline-danger ms-2" (click)="exportarPdf()">
+    <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
+  </button>
+</section>
+
+<section class="mb-4">
+  <div class="card card-body">
+    <h5 class="card-title">Filtrar usuarios</h5>
+    <div class="d-flex gap-2 flex-wrap">
+      <input type="text" class="form-control" style="max-width: 220px;" placeholder="Filtrar por cuenta"
+             [value]="fCuenta()" (input)="fCuenta.set($any($event.target).value)">
+      <input type="text" class="form-control" style="max-width: 220px;" placeholder="Filtrar por correo"
+             [value]="fCorreo()" (input)="fCorreo.set($any($event.target).value)">
+      <input type="text" class="form-control" style="max-width: 220px;" placeholder="Filtrar por perfil"
+             [value]="fPerfil()" (input)="fPerfil.set($any($event.target).value)">
+    </div>
+  </div>
+</section>
+
+@if (cargando()) {
+  <div class="text-center text-muted py-4">
+    <div class="spinner-border" role="status"><span class="visually-hidden">Cargando…</span></div>
+  </div>
+} @else if (error()) {
+  <div class="alert alert-danger" role="alert">{{ error() }}</div>
+} @else {
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover">
+      <thead class="table-dark">
+        <tr>
+          <th>Usuario</th>
+          <th>Cuenta</th>
+          <th>Perfil</th>
+          <th>Correo</th>
+          <th>Estado</th>
+          <th class="text-end" style="width: 160px;">Opciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (u of usuariosFiltrados(); track u.id) {
+          <tr>
+            <td>{{ u.apellido }}, {{ u.nombres }}</td>
+            <td>{{ u.cuenta }}</td>
+            <td>{{ u.perfil }}</td>
+            <td>{{ u.correo }}</td>
+            <td>
+              @if (u.estado === 1) {
+                <span class="badge text-bg-success">Activo</span>
+              } @else {
+                <span class="badge text-bg-secondary">Inactivo</span>
+              }
+            </td>
+            <td class="text-end">
+              <a [routerLink]="['/user/edit', u.id]" class="btn btn-sm btn-outline-primary me-1">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <button type="button" class="btn btn-sm btn-outline-danger" (click)="eliminar(u)">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+        } @empty {
+          <tr>
+            <td colspan="6" class="text-center text-muted py-3">No hay usuarios para mostrar.</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}

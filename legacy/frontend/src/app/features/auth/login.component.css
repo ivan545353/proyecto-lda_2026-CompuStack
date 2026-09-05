@@ -1,0 +1,33 @@
+/* Centra el login en toda la pantalla (antes lo hacía el <body>) */
+:host {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background-color: #f4f6fa;
+}
+
+.form-authentication {
+    min-width: 290px;
+    width: 500px;
+}
+
+.form-authentication .card {
+    padding-top: 3em;
+    padding-bottom: 3em;
+}
+
+.form-authentication input:focus {
+    border-color: #333333;
+    box-shadow: 0 0 5px #333333;
+}
+
+.login-btn {
+    background-color: #000;
+    /* negro base, igual que el original */
+    transition: background-color 0.3s ease;
+}
+
+.login-btn:hover {
+    background-color: #333333;
+}

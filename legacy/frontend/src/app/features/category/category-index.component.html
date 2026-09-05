@@ -1,0 +1,67 @@
+<section class="mb-4">
+  <h1 class="h3 text-black">Gestión de Categorías</h1>
+  <p class="text-muted">Administración de categorías del sistema</p>
+</section>
+
+<!-- Acciones -->
+<section class="mb-4 d-flex gap-3 flex-wrap">
+  <a routerLink="/category/create" class="btn btn-dark d-flex align-items-center gap-1">
+    <i class="bi bi-plus-lg"></i> Crear nueva categoría
+  </a>
+  <button type="button" class="btn btn-outline-danger d-flex align-items-center gap-1" (click)="exportarPdf()">
+    <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
+  </button>
+</section>
+
+<!-- Filtro -->
+<section class="mb-4">
+  <div class="card card-body">
+    <h5 class="card-title">Filtrar categorías</h5>
+    <input type="text" class="form-control" placeholder="Filtrar por nombre de categoría"
+           [value]="filtro()" (input)="filtro.set($any($event.target).value)">
+  </div>
+</section>
+
+<!-- Estados -->
+@if (cargando()) {
+  <div class="text-center text-muted py-4">
+    <div class="spinner-border" role="status"><span class="visually-hidden">Cargando…</span></div>
+  </div>
+} @else if (error()) {
+  <div class="alert alert-danger" role="alert">{{ error() }}</div>
+} @else {
+  <!-- Tabla -->
+  <section>
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover">
+        <thead class="table-dark">
+          <tr>
+            <th>Nombre</th>
+            <th class="text-end" style="width: 220px;">Opciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (cat of categoriasFiltradas(); track cat.id) {
+            <tr>
+              <td>{{ cat.nombre }}</td>
+              <td class="text-end">
+                <a [routerLink]="['/category/edit', cat.id]" class="btn btn-sm btn-outline-primary me-1">
+                  <i class="bi bi-pencil"></i> Editar
+                </a>
+                <button type="button" class="btn btn-sm btn-outline-danger" (click)="eliminar(cat)">
+                  <i class="bi bi-trash"></i> Eliminar
+                </button>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="2" class="text-center text-muted py-3">
+                No hay categorías para mostrar.
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+}

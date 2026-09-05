@@ -1,0 +1,20 @@
+{
+    "name": "ivan5/app",
+    "description": "Sistema de Gestion",
+    "type": "project",
+    "autoload": {
+        "psr-4": {
+            "app\\": "",
+            "Dompdf\\": "vendor/dompdf/dompdf/src"
+        }
+    },
+    "authors": [
+        {
+            "name": "ivan5453",
+            "email": "ivan545353@gmail.com"
+        }
+    ],
+    "require": {
+        "firebase/php-jwt": "^7.1"
+    }
+}

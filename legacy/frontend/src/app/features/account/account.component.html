@@ -1,0 +1,73 @@
+<section class="mb-4">
+  <h1 class="h3 text-black">Mis datos</h1>
+  <p class="text-muted">Tu información de cuenta y cambio de contraseña</p>
+</section>
+
+@if (error() && !usuario()) {
+  <div class="alert alert-danger" role="alert">{{ error() }}</div>
+}
+
+@if (usuario(); as u) {
+  <div class="row g-4">
+    <!-- Datos -->
+    <div class="col-lg-6">
+      <div class="card card-body h-100">
+        <h5 class="mb-3">Información de la cuenta</h5>
+        <dl class="row mb-0">
+          <dt class="col-sm-4 text-muted fw-normal">Apellido</dt>
+          <dd class="col-sm-8">{{ u.apellido }}</dd>
+          <dt class="col-sm-4 text-muted fw-normal">Nombres</dt>
+          <dd class="col-sm-8">{{ u.nombres }}</dd>
+          <dt class="col-sm-4 text-muted fw-normal">Cuenta</dt>
+          <dd class="col-sm-8">{{ u.cuenta }}</dd>
+          <dt class="col-sm-4 text-muted fw-normal">Correo</dt>
+          <dd class="col-sm-8">{{ u.correo }}</dd>
+          <dt class="col-sm-4 text-muted fw-normal">Perfil</dt>
+          <dd class="col-sm-8"><span class="badge text-bg-secondary">{{ u.perfil }}</span></dd>
+        </dl>
+      </div>
+    </div>
+
+    <!-- Cambio de contraseña -->
+    <div class="col-lg-6">
+      <div class="card card-body h-100">
+        <h5 class="mb-3">Cambiar contraseña</h5>
+        <form [formGroup]="form" (ngSubmit)="cambiarClave()" autocomplete="off">
+          <div class="mb-3">
+            <label for="currentPassword" class="form-label">Contraseña actual</label>
+            <input type="password" class="form-control" id="currentPassword" formControlName="currentPassword"
+                   [class.is-invalid]="form.controls.currentPassword.touched && form.controls.currentPassword.invalid">
+            <div class="invalid-feedback">Ingresá tu contraseña actual.</div>
+          </div>
+
+          <div class="mb-3">
+            <label for="newPassword" class="form-label">Nueva contraseña</label>
+            <input type="password" class="form-control" id="newPassword" formControlName="newPassword"
+                   [class.is-invalid]="form.controls.newPassword.touched && form.controls.newPassword.invalid">
+            <div class="invalid-feedback">Mínimo 8 caracteres.</div>
+          </div>
+
+          <div class="mb-3">
+            <label for="confirmPassword" class="form-label">Confirmar nueva contraseña</label>
+            <input type="password" class="form-control" id="confirmPassword" formControlName="confirmPassword"
+                   [class.is-invalid]="form.controls.confirmPassword.touched && form.errors?.['noCoincide']">
+            @if (form.errors?.['noCoincide'] && form.controls.confirmPassword.touched) {
+              <div class="text-danger small mt-1">Las contraseñas no coinciden.</div>
+            }
+          </div>
+
+          @if (exito()) {
+            <div class="alert alert-success py-2" role="alert">{{ exito() }}</div>
+          }
+          @if (error()) {
+            <div class="alert alert-danger py-2" role="alert">{{ error() }}</div>
+          }
+
+          <button type="submit" class="btn btn-dark" [disabled]="procesando()">
+            {{ procesando() ? 'Guardando…' : 'Cambiar contraseña' }}
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+}

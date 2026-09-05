@@ -1,0 +1,70 @@
+<section class="mb-4">
+  <h1 class="h3 text-black">Editar producto</h1>
+  <p class="text-muted">Visualice y modifique los datos del producto</p>
+</section>
+
+<form [formGroup]="form" (ngSubmit)="actualizar()" class="card card-body" autocomplete="off">
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label for="nombre" class="form-label">Nombre del producto</label>
+      <input type="text" class="form-control" id="nombre" formControlName="nombre"
+             [class.is-invalid]="form.controls.nombre.touched && form.controls.nombre.invalid">
+      <div class="invalid-feedback">Nombre obligatorio (2 a 100 caracteres).</div>
+    </div>
+
+    <div class="col-md-6">
+      <label for="codigo" class="form-label">Código</label>
+      <input type="text" class="form-control" id="codigo" formControlName="codigo"
+             [class.is-invalid]="form.controls.codigo.touched && form.controls.codigo.invalid">
+      <div class="invalid-feedback">El código es obligatorio.</div>
+    </div>
+
+    <div class="col-12">
+      <label for="descripcion" class="form-label">Descripción</label>
+      <textarea class="form-control" id="descripcion" rows="3" formControlName="descripcion"
+                [class.is-invalid]="form.controls.descripcion.touched && form.controls.descripcion.invalid"></textarea>
+      <div class="invalid-feedback">Si la completás, mínimo 10 caracteres.</div>
+    </div>
+
+    <div class="col-md-6">
+      <label for="categoriaId" class="form-label">Categoría</label>
+      <select class="form-select" id="categoriaId" formControlName="categoriaId"
+              [class.is-invalid]="form.controls.categoriaId.touched && form.controls.categoriaId.invalid">
+        <option [ngValue]="null">Seleccione una categoría</option>
+        @for (cat of categorias(); track cat.id) {
+          <option [ngValue]="cat.id">{{ cat.nombre }}</option>
+        }
+      </select>
+      <div class="invalid-feedback">Seleccione una categoría.</div>
+    </div>
+
+    <div class="col-md-3">
+      <label for="precio" class="form-label">Precio ($)</label>
+      <input type="number" class="form-control" id="precio" formControlName="precio" min="0" step="any"
+             [class.is-invalid]="form.controls.precio.touched && form.controls.precio.invalid">
+      <div class="invalid-feedback">Precio obligatorio (mayor a 0).</div>
+    </div>
+
+    <div class="col-md-3">
+      <label for="stock" class="form-label">Stock</label>
+      <input type="number" class="form-control" id="stock" formControlName="stock" min="0"
+             [class.is-invalid]="form.controls.stock.touched && form.controls.stock.invalid">
+      <div class="invalid-feedback">Stock obligatorio (mayor a 0).</div>
+    </div>
+  </div>
+
+  @if (error()) {
+    <div class="alert alert-danger mt-3 mb-0" role="alert">{{ error() }}</div>
+  }
+
+  <div class="mt-4 d-flex flex-wrap gap-2">
+    @if (!editando()) {
+      <button type="button" class="btn btn-primary" (click)="habilitarEdicion()">Editar</button>
+    } @else {
+      <button type="submit" class="btn btn-success" [disabled]="procesando()">Actualizar</button>
+      <button type="button" class="btn btn-secondary" (click)="cancelar()">Cancelar</button>
+    }
+    <a routerLink="/item" class="btn btn-outline-dark">Volver</a>
+    <button type="button" class="btn btn-danger" (click)="eliminar()" [disabled]="procesando()">Eliminar</button>
+  </div>
+</form>

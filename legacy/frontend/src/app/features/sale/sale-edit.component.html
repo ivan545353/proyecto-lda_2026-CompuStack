@@ -1,0 +1,152 @@
+<section class="mb-4">
+  <h1 class="h3 text-black">Editar presupuesto</h1>
+  <p class="text-muted">Modificá los productos o los datos del presupuesto</p>
+</section>
+
+@if (!editable()) {
+  <div class="alert alert-warning" role="alert">{{ error() }}</div>
+  <a [routerLink]="['/sale/detail', id]" class="btn btn-outline-secondary">Volver al detalle</a>
+} @else {
+
+<form [formGroup]="form" autocomplete="off">
+
+  <!-- Cabecera -->
+  <div class="card card-body mb-4">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label for="cliente" class="form-label">Cliente</label>
+        <input type="text" class="form-control" id="cliente" formControlName="cliente"
+               placeholder="Nombre del cliente (opcional)">
+      </div>
+      <div class="col-md-6">
+        <label for="observaciones" class="form-label">Observaciones</label>
+        <input type="text" class="form-control" id="observaciones" formControlName="observaciones"
+               placeholder="Opcional">
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <!-- Buscador -->
+    <div class="col-lg-6">
+      <div class="card card-body h-100">
+        <h5 class="mb-3">Buscar productos</h5>
+        <div class="input-group mb-3">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" class="form-control" placeholder="Nombre o código…"
+                 [value]="busqueda()" (input)="busqueda.set($any($event.target).value)">
+        </div>
+        <div class="list-group" style="max-height: 360px; overflow-y: auto;">
+          @for (item of resultados(); track item.id) {
+            <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+              <div class="flex-grow-1">
+                <div class="fw-medium">{{ item.nombre }}</div>
+                <small class="text-muted">{{ item.codigo }} · $ {{ item.precio | number:'1.2-2' }}</small>
+                <div>
+                  @if (item.stock > 0) {
+                    <span class="badge text-bg-success">Stock: {{ item.stock }}</span>
+                  } @else {
+                    <span class="badge text-bg-danger">Sin stock</span>
+                  }
+                </div>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-dark"
+                      (click)="agregar(item)"
+                      [disabled]="item.stock <= 0 || cantidadEnCarrito(item.id) >= item.stock">
+                <i class="bi bi-plus-lg"></i>
+              </button>
+            </div>
+          } @empty {
+            <div class="text-center text-muted py-3">No se encontraron productos.</div>
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- Carrito -->
+    <div class="col-lg-6">
+      <div class="card card-body h-100">
+        <h5 class="mb-3">Carrito</h5>
+        @if (detalles.length === 0) {
+          <div class="text-center text-muted py-4">
+            <i class="bi bi-cart fs-3 d-block mb-2"></i>
+            Agregá productos desde el buscador.
+          </div>
+        } @else {
+          <div class="table-responsive" formArrayName="detalles">
+            <table class="table align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th style="width: 130px;">Cantidad</th>
+                  <th class="text-end">Subtotal</th>
+                  <th style="width: 40px;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (linea of detalles.controls; track linea.value.productoId) {
+                  <tr [formGroupName]="$index">
+                    <td>
+                      {{ itemDe(linea.value.productoId)?.nombre }}
+                      <div><small class="text-muted">$ {{ precioDe(linea.value.productoId) | number:'1.2-2' }} c/u · stock {{ stockDe(linea.value.productoId) }}</small></div>
+                    </td>
+                    <td>
+                      <input type="number" class="form-control form-control-sm" formControlName="cantidad"
+                             min="1" [max]="stockDe(linea.value.productoId)"
+                             [class.is-invalid]="linea.get('cantidad')?.invalid">
+                    </td>
+                    <td class="text-end">$ {{ subtotalLinea($index) | number:'1.2-2' }}</td>
+                    <td class="text-end">
+                      <button type="button" class="btn btn-sm btn-outline-danger" (click)="quitarLinea($index)">
+                        <i class="bi bi-x-lg"></i>
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  <!-- Totales -->
+  <div class="card card-body my-4">
+    <div class="row justify-content-end g-2">
+      <div class="col-md-4">
+        <div class="d-flex justify-content-between">
+          <span class="text-muted">Subtotal</span>
+          <strong>$ {{ subtotal() | number:'1.2-2' }}</strong>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+          <label for="descuentoPorcentaje" class="text-muted mb-0">Descuento (%)</label>
+          <input type="number" id="descuentoPorcentaje" class="form-control form-control-sm text-end"
+                 style="max-width: 110px;" formControlName="descuentoPorcentaje" min="0" max="100" step="any">
+        </div>
+        <div class="d-flex justify-content-between mt-1">
+          <span class="text-muted small">Descuento aplicado</span>
+          <span class="small">- $ {{ descuentoMonto() | number:'1.2-2' }}</span>
+        </div>
+        <hr>
+        <div class="d-flex justify-content-between fs-5">
+          <span>Total</span>
+          <strong>$ {{ total() | number:'1.2-2' }}</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  @if (error()) {
+    <div class="alert alert-danger" role="alert">{{ error() }}</div>
+  }
+
+  <div class="d-flex gap-2 flex-wrap">
+    <button type="button" class="btn btn-dark" [disabled]="guardando()" (click)="guardar()">
+      {{ guardando() ? 'Guardando…' : 'Guardar cambios' }}
+    </button>
+    <a [routerLink]="['/sale/detail', id]" class="btn btn-outline-secondary">Cancelar</a>
+  </div>
+</form>
+
+}

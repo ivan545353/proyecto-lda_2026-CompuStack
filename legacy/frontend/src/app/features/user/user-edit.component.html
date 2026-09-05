@@ -1,0 +1,87 @@
+<section class="mb-4">
+  <h1 class="h3 text-black">Editar Usuario</h1>
+  <p class="text-muted">Visualice y modifique los datos de la cuenta</p>
+</section>
+
+<form [formGroup]="form" (ngSubmit)="actualizar()" class="card card-body mb-4" autocomplete="off">
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label for="apellido" class="form-label">Apellido</label>
+      <input type="text" class="form-control" id="apellido" formControlName="apellido"
+             [class.is-invalid]="form.controls.apellido.touched && form.controls.apellido.invalid">
+      <div class="invalid-feedback">Apellido obligatorio (solo letras, 2 a 50).</div>
+    </div>
+
+    <div class="col-md-6">
+      <label for="nombres" class="form-label">Nombres</label>
+      <input type="text" class="form-control" id="nombres" formControlName="nombres"
+             [class.is-invalid]="form.controls.nombres.touched && form.controls.nombres.invalid">
+      <div class="invalid-feedback">Nombres obligatorios (solo letras, 2 a 50).</div>
+    </div>
+
+    <div class="col-md-6">
+      <label for="cuenta" class="form-label">Cuenta</label>
+      <input type="text" class="form-control" id="cuenta" formControlName="cuenta"
+             [class.is-invalid]="form.controls.cuenta.touched && form.controls.cuenta.invalid">
+      <div class="invalid-feedback">La cuenta es obligatoria (2 a 50 caracteres).</div>
+    </div>
+
+    <div class="col-md-6">
+      <label for="perfil_id" class="form-label">Perfil</label>
+      <select class="form-select" id="perfil_id" formControlName="perfil_id"
+              [class.is-invalid]="form.controls.perfil_id.touched && form.controls.perfil_id.invalid">
+        <option [ngValue]="null">Seleccione un perfil</option>
+        @for (p of perfiles(); track p.id) {
+          <option [ngValue]="p.id">{{ p.nombre }}</option>
+        }
+      </select>
+      <div class="invalid-feedback">Seleccione un perfil.</div>
+    </div>
+
+    <div class="col-md-6">
+      <label for="correo" class="form-label">Correo</label>
+      <input type="email" class="form-control" id="correo" formControlName="correo"
+             [class.is-invalid]="form.controls.correo.touched && form.controls.correo.invalid">
+      <div class="invalid-feedback">Ingrese un correo válido.</div>
+    </div>
+
+    <div class="col-md-6">
+      <label for="estado" class="form-label">Estado</label>
+      <select class="form-select" id="estado" formControlName="estado">
+        <option [ngValue]="1">Activo</option>
+        <option [ngValue]="0">Inactivo</option>
+      </select>
+    </div>
+
+    <div class="col-md-6">
+      <label for="clave" class="form-label">Nueva clave <span class="text-muted">(opcional)</span></label>
+      <input type="password" class="form-control" id="clave" formControlName="clave"
+             [class.is-invalid]="form.controls.clave.touched && form.controls.clave.invalid"
+             placeholder="Dejar vacío para no cambiar">
+      <div class="invalid-feedback">Si la cambiás, mínimo 8 caracteres.</div>
+    </div>
+
+    <div class="col-md-6">
+      <label for="confirmarClave" class="form-label">Confirmar nueva clave</label>
+      <input type="password" class="form-control" id="confirmarClave" formControlName="confirmarClave">
+      @if (form.errors?.['clavesNoCoinciden'] && form.controls.confirmarClave.touched) {
+        <div class="text-danger small mt-1">Las claves no coinciden.</div>
+      }
+    </div>
+  </div>
+
+  @if (error()) {
+    <div class="alert alert-danger mt-3 mb-0" role="alert">{{ error() }}</div>
+  }
+
+  <div class="mt-4 d-flex flex-wrap gap-2">
+    @if (!editando()) {
+      <button type="button" class="btn btn-primary" (click)="habilitarEdicion()">Editar</button>
+    } @else {
+      <button type="submit" class="btn btn-success" [disabled]="procesando()">Actualizar</button>
+      <button type="button" class="btn btn-secondary" (click)="cancelar()">Cancelar</button>
+    }
+    <a routerLink="/user" class="btn btn-outline-dark">Volver</a>
+    <button type="button" class="btn btn-danger" (click)="eliminar()" [disabled]="procesando()">Eliminar</button>
+  </div>
+</form> 

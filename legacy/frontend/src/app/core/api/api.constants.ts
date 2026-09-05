@@ -1,0 +1,1 @@
+export const API_URL = 'http://localhost/lab_prog_2025_reales_ivan_backend/public/';

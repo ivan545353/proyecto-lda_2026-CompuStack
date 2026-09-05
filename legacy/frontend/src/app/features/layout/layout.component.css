@@ -1,0 +1,16 @@
+/* Resalta el link de la sección activa */
+.navbar-nav .nav-link.active {
+    font-weight: 600;
+    border-bottom: 2px solid #000;
+}
+
+/* El layout ocupa toda la altura para que el footer quede abajo */
+:host {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+main {
+    flex: 1 0 auto;
+}
