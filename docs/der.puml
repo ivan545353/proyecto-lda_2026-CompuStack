@@ -1,0 +1,545 @@
+@startuml DER_Sistema_Tienda_Informatica
+
+hide circle
+skinparam linetype ortho
+skinparam roundcorner 8
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor #34495E
+  ArrowColor #2C3E50
+}
+skinparam note {
+  BackgroundColor #FEF9E7
+  BorderColor #D4AC0D
+}
+
+title Sistema de gestion + tienda online — Modelo de datos\n<<Etapa 2/3>> = fuera del alcance de la Etapa 1
+
+' ============================================================
+' IDENTIDAD
+' ============================================================
+package "Identidad" #EBF5FB {
+
+entity "users" as users {
+  * id : bigint <<PK>>
+  --
+  * email : varchar(150) <<UK>>
+  * password : varchar(255)
+  * rol_id : bigint <<FK>>
+  nombre : varchar(100)
+  apellido : varchar(100)
+  activo : boolean
+  .. controla el inicio de sesion ..
+  email_verified_at : timestamp
+}
+
+entity "roles" as roles {
+  * id : bigint <<PK>>
+  --
+  * nombre : varchar(50) <<UK>>
+  descripcion : varchar(150)
+  * ambito : enum (gestion | tienda)
+  .. decide tienda o sistema de gestion ..
+  * es_sistema : boolean
+  .. protege los roles base del borrado ..
+}
+
+entity "permisos" as permisos {
+  * id : bigint <<PK>>
+  --
+  * clave : varchar(60) <<UK>>
+  .. venta.anular, compra.aprobar ..
+  * modulo : varchar(40)
+  .. agrupador para la pantalla ..
+  descripcion : varchar(150)
+}
+
+entity "rol_permiso" as rolperm {
+  * rol_id : bigint <<PK>> <<FK>>
+  * permiso_id : bigint <<PK>> <<FK>>
+}
+
+entity "clientes" as clientes {
+  * id : bigint <<PK>>
+  --
+  user_id : bigint <<FK>> <<UK>>
+  .. null = cliente de mostrador ..
+  * razon_social : varchar(150)
+  * tipo_doc : enum (dni|cuit|cuil)
+  * nro_doc : varchar(15)
+  * condicion_iva : enum
+  .. define si emite factura A o B ..
+  email : varchar(150)
+  telefono : varchar(30)
+}
+
+entity "empleados" as empleados {
+  * id : bigint <<PK>>
+  --
+  * user_id : bigint <<FK>> <<UK>>
+  * legajo : varchar(20) <<UK>>
+  dni : varchar(15)
+  telefono : varchar(30)
+  fecha_ingreso : date
+  fecha_baja : date
+  .. dato laboral, distinto de users.activo ..
+}
+
+entity "direcciones" as direcciones {
+  * id : bigint <<PK>>
+  --
+  * cliente_id : bigint <<FK>>
+  * calle : varchar(150)
+  numero : varchar(10)
+  piso_depto : varchar(20)
+  * codigo_postal : varchar(10)
+  * localidad : varchar(100)
+  * provincia : varchar(100)
+  es_predeterminada : boolean
+}
+
+}
+
+' ============================================================
+' CATALOGO
+' ============================================================
+package "Catalogo" #E8F8F5 {
+
+entity "categorias" as categorias {
+  * id : bigint <<PK>>
+  --
+  parent_id : bigint <<FK>>
+  .. jerarquia autorreferenciada ..
+  * nombre : varchar(100)
+  slug : varchar(120)
+  peso_default_gramos : int
+  orden : int
+  activo : boolean
+}
+
+entity "marcas" as marcas {
+  * id : bigint <<PK>>
+  --
+  * nombre : varchar(100)
+  slug : varchar(120)
+  logo : varchar(255)
+  activo : boolean
+}
+
+entity "productos" as productos {
+  * id : bigint <<PK>>
+  --
+  * categoria_id : bigint <<FK>>
+  marca_id : bigint <<FK>>
+  proveedor_id : bigint <<FK>>
+  * codigo : varchar(30) <<UK>>
+  * nombre : varchar(150)
+  descripcion : text
+  imagenes : json
+  * precio_lista : decimal(12,2)
+  .. tarjeta / cuotas ..
+  * precio_contado : decimal(12,2)
+  .. efectivo / transferencia / QR ..
+  * alicuota_iva : decimal(4,2)
+  costo_promedio : decimal(12,2)
+  .. ponderado, para el margen ..
+  * stock : int
+  * stock_reservado : int
+  .. checkouts en curso ..
+  * stock_minimo : int
+  * cantidad_reposicion : int
+  peso_gramos : int
+  destacado : boolean
+  activo : boolean
+}
+
+}
+
+' ============================================================
+' STOCK
+' ============================================================
+package "Stock" #FEF5E7 {
+
+entity "movimientos_stock" as movimientos {
+  * id : bigint <<PK>>
+  --
+  * producto_id : bigint <<FK>>
+  * tipo : enum
+  .. venta | devolucion | compra | ajuste ..
+  * cantidad : int
+  .. con signo ..
+  stock_resultante : int
+  origen_type : varchar(50)
+  origen_id : bigint
+  .. polimorfico: venta / OC / comprobante ..
+  usuario_id : bigint <<FK>>
+  motivo : varchar(255)
+  * created_at : timestamp
+}
+
+}
+
+' ============================================================
+' COMPRAS
+' ============================================================
+package "Compras y proveedores" #FDEDEC {
+
+entity "proveedores" as proveedores {
+  * id : bigint <<PK>>
+  --
+  * razon_social : varchar(150)
+  cuit : varchar(15)
+  email : varchar(150)
+  telefono : varchar(30)
+  contacto : varchar(100)
+  * canal_pedido : enum
+  .. email | portal_externo | manual ..
+  portal_url : varchar(255)
+  plazo_entrega_dias : int
+  activo : boolean
+}
+
+entity "ordenes_compra" as oc {
+  * id : bigint <<PK>>
+  --
+  * proveedor_id : bigint <<FK>>
+  * estado : enum
+  .. borrador | aprobada | enviada ..
+  .. recibida_parcial | recibida | cancelada ..
+  total_estimado : decimal(12,2)
+  usuario_creo_id : bigint <<FK>>
+  usuario_aprobo_id : bigint <<FK>>
+  fecha_aprobacion : datetime
+  fecha_envio : datetime
+  observaciones : varchar(255)
+}
+
+entity "orden_compra_lineas" as ocl {
+  * id : bigint <<PK>>
+  --
+  * orden_compra_id : bigint <<FK>>
+  * producto_id : bigint <<FK>>
+  * cantidad_pedida : int
+  * cantidad_recibida : int
+  .. recepcion parcial ..
+  * costo_unitario : decimal(12,2)
+}
+
+}
+
+' ============================================================
+' CARRITO
+' ============================================================
+package "Carrito" #F4ECF7 {
+
+entity "carritos" as carritos <<Etapa 2/3>> {
+  * id : bigint <<PK>>
+  --
+  user_id : bigint <<FK>>
+  session_token : varchar(64)
+  .. permite carrito anonimo ..
+  * estado : enum
+  .. activo | en_checkout ..
+  .. convertido | abandonado ..
+  reservado_hasta : timestamp
+  .. vencimiento de la reserva de stock ..
+}
+
+entity "carrito_lineas" as cl <<Etapa 2/3>> {
+  * id : bigint <<PK>>
+  --
+  * carrito_id : bigint <<FK>>
+  * producto_id : bigint <<FK>>
+  * cantidad : int
+  --
+  UNIQUE (carrito_id, producto_id)
+}
+
+}
+
+' ============================================================
+' VENTAS
+' ============================================================
+package "Ventas" #EAF2F8 {
+
+entity "ventas" as ventas {
+  * id : bigint <<PK>>
+  --
+  * canal : enum (mostrador | online)
+  cliente_id : bigint <<FK>>
+  .. null = consumidor final anonimo ..
+  usuario_id : bigint <<FK>>
+  .. vendedor; null si es online ..
+  * estado : enum
+  .. presupuesto | pendiente_pago | pagada ..
+  .. en_preparacion | despachada | lista_retiro ..
+  .. entregada | cancelada ..
+  .. devuelta_parcial | devuelta ..
+  * modo_entrega : enum (retiro | envio)
+  vale_id : bigint <<FK>>
+  * subtotal : decimal(12,2)
+  * descuento : decimal(12,2)
+  * costo_envio : decimal(12,2)
+  * total : decimal(12,2)
+  observaciones : varchar(255)
+}
+
+entity "venta_lineas" as vl {
+  * id : bigint <<PK>>
+  --
+  * venta_id : bigint <<FK>>
+  * producto_id : bigint <<FK>>
+  descripcion : varchar(150)
+  * cantidad : int
+  * cantidad_devuelta : int
+  .. habilita la devolucion parcial ..
+  * precio_unitario : decimal(12,2)
+  .. congelado ..
+  * alicuota_iva : decimal(4,2)
+  * costo_unitario : decimal(12,2)
+  .. congelado, para el margen ..
+  * neto : decimal(12,2)
+  * iva : decimal(12,2)
+  * total : decimal(12,2)
+}
+
+entity "pagos" as pagos {
+  * id : bigint <<PK>>
+  --
+  * venta_id : bigint <<FK>>
+  * metodo : enum
+  .. efectivo | transferencia | qr | mercadopago ..
+  * monto : decimal(12,2)
+  comision : decimal(12,2)
+  neto_acreditado : decimal(12,2)
+  cuotas : int
+  mp_payment_id : varchar(50) <<UK>>
+  .. idempotencia del webhook ..
+  mp_status : varchar(30)
+  usuario_id : bigint <<FK>>
+  .. cajero que cobro ..
+  * fecha : datetime
+}
+
+entity "vales" as vales <<Etapa 2/3>> {
+  * id : bigint <<PK>>
+  --
+  * codigo : varchar(30) <<UK>>
+  * tipo : enum (porcentaje | envio_gratis)
+  valor : decimal(12,2)
+  monto_minimo : decimal(12,2)
+  * usos_maximos : int
+  * usos_actuales : int
+  vigencia_desde : date
+  vigencia_hasta : date
+  activo : boolean
+}
+
+}
+
+' ============================================================
+' FACTURACION
+' ============================================================
+package "Facturacion (AFIP)" #FDF2E9 {
+
+entity "comprobantes" as comp <<Etapa 2/3>> {
+  * id : bigint <<PK>>
+  --
+  * venta_id : bigint <<FK>>
+  * tipo : enum
+  .. factura_a | factura_b ..
+  .. nota_credito_a | nota_credito_b ..
+  * punto_venta : smallint
+  .. 1 = mostrador, 2 = online ..
+  * numero : int
+  comprobante_asociado_id : bigint <<FK>>
+  .. la NC referencia su factura ..
+  * fecha_emision : date
+  * neto : decimal(12,2)
+  * iva : decimal(12,2)
+  * total : decimal(12,2)
+  cae : varchar(14)
+  cae_vencimiento : date
+  * estado : enum
+  .. pendiente | autorizado | rechazado ..
+  afip_respuesta : json
+  motivo : varchar(255)
+  --
+  UNIQUE (tipo, punto_venta, numero)
+}
+
+entity "comprobante_lineas" as compl <<Etapa 2/3>> {
+  * id : bigint <<PK>>
+  --
+  * comprobante_id : bigint <<FK>>
+  producto_id : bigint <<FK>>
+  * descripcion : varchar(150)
+  * cantidad : int
+  * precio_unitario : decimal(12,2)
+  * alicuota_iva : decimal(4,2)
+  * neto : decimal(12,2)
+  * iva : decimal(12,2)
+  * total : decimal(12,2)
+}
+
+}
+
+' ============================================================
+' LOGISTICA Y CONTENIDO
+' ============================================================
+package "Logistica y contenido" #F2F4F4 {
+
+entity "envios" as envios <<Etapa 2/3>> {
+  * id : bigint <<PK>>
+  --
+  * venta_id : bigint <<FK>> <<UK>>
+  * calle : varchar(150)
+  .. direccion copiada, no referenciada ..
+  numero : varchar(10)
+  piso_depto : varchar(20)
+  * codigo_postal : varchar(10)
+  * localidad : varchar(100)
+  * provincia : varchar(100)
+  * costo : decimal(12,2)
+  zipnova_envio_id : varchar(50)
+  tracking_url : varchar(255)
+  * estado : varchar(30)
+  fecha_despacho : datetime
+}
+
+entity "banners" as banners <<Etapa 2/3>> {
+  * id : bigint <<PK>>
+  --
+  * imagen : varchar(255)
+  link : varchar(255)
+  orden : int
+  visible_desde : date
+  visible_hasta : date
+  activo : boolean
+}
+
+}
+
+' ============================================================
+' RELACIONES
+' ============================================================
+
+roles        ||--|{  users       : "clasifica"
+roles        ||--o{  rolperm     : "otorga"
+permisos     ||--o{  rolperm     : "se otorga en"
+
+users        ||--o|  clientes    : "si ambito = tienda"
+users        ||--o|  empleados   : "si ambito = gestion"
+users        ||--o{  ventas      : "vende (mostrador)"
+users        ||--o{  pagos       : "cobra"
+users        ||--o{  movimientos : "registra"
+users        ||--o{  carritos    : "posee"
+users        ||--o{  oc          : "crea / aprueba"
+
+clientes     ||--o{  direcciones : "tiene"
+clientes     ||--o{  ventas      : "compra"
+
+categorias   ||--o{  categorias  : "padre de"
+categorias   ||--o{  productos   : "agrupa"
+marcas       ||--o{  productos   : "identifica"
+proveedores  ||--o{  productos   : "provee"
+
+productos    ||--o{  movimientos : "se mueve en"
+productos    ||--o{  cl          : "aparece en"
+productos    ||--o{  vl          : "se vende en"
+productos    ||--o{  ocl         : "se compra en"
+productos    ||--o{  compl       : "se factura en"
+
+proveedores  ||--o{  oc          : "recibe"
+oc           ||--|{  ocl         : "detalla"
+
+carritos     ||--|{  cl          : "contiene"
+carritos     ||--o|  ventas      : "se convierte en"
+
+ventas       ||--|{  vl          : "detalla"
+ventas       ||--o{  pagos       : "se cobra con"
+ventas       ||--o{  comp        : "se factura con"
+ventas       ||--o|  envios      : "se despacha con"
+vales        ||--o{  ventas      : "descuenta en"
+
+comp         ||--|{  compl       : "detalla"
+comp         ||--o{  comp        : "NC acredita a factura"
+
+' ============================================================
+' NOTAS
+' ============================================================
+
+note as N_alcance
+  **Alcance de la Etapa 1**
+  Se crean 17 tablas: identidad y permisos,
+  catalogo, stock, compras y ventas.
+
+  Las marcadas <<Etapa 2/3>> se crean
+  cuando llegue su modulo. Las de Etapa 1
+  ya incluyen todas sus columnas y todos
+  los valores de sus ENUM, para no tener
+  que reescribir tablas mas adelante.
+end note
+
+note bottom of roles
+  Los permisos son claves nombradas
+  (venta.anular, compra.aprobar), no
+  banderas CRUD por modulo.
+
+  El modelo anterior tenia 4 flags por
+  modulo y toda accion fuera del CRUD
+  caia en can_update por defecto: un
+  vendedor podia anular ventas cobradas.
+  Aca lo que no se asigna, no se puede.
+end note
+
+note bottom of proveedores
+  El canal de pedido desacopla el proceso
+  interno del medio de entrega:
+  el sistema siempre genera la OC en borrador
+  y el administrativo la aprueba. Solo cambia
+  como llega al proveedor (mail automatico,
+  portal externo o export manual).
+  Por eso no hace falta un rol de proveedor.
+end note
+
+note bottom of comp
+  El comprobante es inmutable una vez que
+  tiene CAE. Nada se borra: una anulacion o
+  devolucion se resuelve emitiendo una nota
+  de credito asociada a la factura original.
+
+  La NC lleva su propio detalle en
+  comprobante_lineas, por eso puede cubrir
+  solo parte de la venta. El saldo devuelto
+  se acumula en venta_lineas.cantidad_devuelta.
+end note
+
+note bottom of empleados
+  users guarda credenciales, nombre y rol.
+  Los datos particulares cuelgan del satelite
+  que corresponda: clientes o empleados.
+
+  Invariante: rol != 'cliente' si y solo si
+  existe la fila en empleados.
+
+  El cargo queda en users.rol y no aca, para
+  que la autorizacion no necesite un join
+  en cada request.
+end note
+
+note bottom of movimientos
+  Kardex: el stock deja de ser una columna
+  que se pisa. Cada movimiento queda con su
+  origen, su usuario y su fecha.
+end note
+
+note bottom of ventas
+  El stock se descuenta una sola vez, al
+  entrar en estado "pagada". En online la
+  transicion la dispara el webhook de
+  Mercado Pago, nunca el cliente.
+end note
+
+@enduml
