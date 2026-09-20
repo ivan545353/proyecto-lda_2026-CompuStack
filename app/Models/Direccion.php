@@ -10,7 +10,6 @@ class Direccion extends Model
 {
     use HasFactory;
 
-    // Sin esto Eloquent buscaría la tabla 'direccions'.
     protected $table = 'direcciones';
 
     protected $fillable = [

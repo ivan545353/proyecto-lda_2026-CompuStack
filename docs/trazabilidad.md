@@ -26,9 +26,9 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 | Componente original | Función | Componente Laravel | Estado |
 |---|---|---|---|
 | `RouterHandlerMiddleware` | Resuelve controlador y acción por convención | `routes/web.php` con rutas explícitas y verbos HTTP | Pendiente |
-| `AuthenticationHandlerMiddleware` | Valida el JWT del header | Middleware `auth` con guard de sesión | Pendiente |
-| `AuthorizationHandlerMiddleware` | Consulta `permisos` por módulo y acción | Policies + Gates contra permisos nombrados | Pendiente |
-| `ExceptionHandlerMiddleware` | Captura excepciones y arma el JSON de error | `bootstrap/app.php` (`withExceptions`) | Pendiente |
+| `AuthenticationHandlerMiddleware` | Valida el JWT del header | Middleware `auth` con guard de sesión | Migrado |
+| `AuthorizationHandlerMiddleware` | Consulta `permisos` por módulo y acción | Policies + Gates contra permisos nombrados | Migrado |
+| `ExceptionHandlerMiddleware` | Captura excepciones y arma el JSON de error | `bootstrap/app.php` (`withExceptions`) | Migrado |
 | `CorsHandlerMiddleware` | Cabeceras CORS para Angular | Descartado: con Blade el origen es el mismo | Descartado |
 
 > `AuthorizationHandlerMiddleware` es el origen del hallazgo crítico C-2 de la auditoría (fallback a `can_update` para toda acción no mapeada). Su reemplazo debe ser deny-by-default.
@@ -49,7 +49,7 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 |---|---|---|---|
 | `base/BaseController.php` | Contrato común de controlador | `App\Http\Controllers\Controller` | Pendiente |
 | `base/InterfaceController.php` | Interfaz CRUD | Convención de resource controller | Pendiente |
-| `AuthenticationController.php` | Login, logout, `getCurrent` | `AuthController` con sesión | Pendiente |
+| `AuthenticationController.php` | Login, logout, `getCurrent` | `AuthController` con sesión | Migrado |
 | `CategoryController.php` | CRUD de categorías | `CategoriaController` (resource) | Pendiente |
 | `ItemController.php` | CRUD de productos | `ProductoController` (resource) | Pendiente |
 | `UserController.php` | CRUD de usuarios, cambio de clave, perfiles | `UsuarioController` + `PerfilController` | Pendiente |
@@ -62,7 +62,7 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 | Componente original | Función | Componente Laravel | Estado |
 |---|---|---|---|
 | `base/InterfaceService.php` | Contrato de servicio | Sin equivalente directo | Pendiente |
-| `AuthenticationService.php` | Verifica credenciales y emite JWT | `AuthController` + guard de sesión | Pendiente |
+| `AuthenticationService.php` | Verifica credenciales y emite JWT | `AuthController` + guard de sesión | Migrado |
 | `CategoryService.php` | Validaciones de categoría | `CategoriaService` (adelgazado) | Pendiente |
 | `ItemService.php` | Validaciones de producto | `ProductoService` (adelgazado) | Pendiente |
 | `UserService.php` | Validaciones de usuario, hash de clave | `UsuarioService` (adelgazado) | Pendiente |
@@ -92,7 +92,7 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 | Componente original | Función | Componente Laravel | Estado |
 |---|---|---|---|
 | `base/InterfaceDto.php` | Contrato de DTO | Sin equivalente directo | Pendiente |
-| `LoginDto.php` | Credenciales de acceso | `LoginRequest` | Pendiente |
+| `LoginDto.php` | Credenciales de acceso | `LoginRequest` | Migrado |
 | `CategoryDto.php` | Validación y transporte | `CategoriaRequest` + modelo | Pendiente |
 | `ItemDto.php` | Validación y transporte | `ProductoRequest` + modelo | Pendiente |
 | `UserDto.php` | Validación y transporte | `UsuarioRequest` + modelo | Pendiente |
@@ -106,8 +106,8 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 
 | Componente original | Función | Componente Laravel | Estado |
 |---|---|---|---|
-| `features/auth/` | Pantalla de login | `resources/views/auth/` | Pendiente |
-| `features/layout/` | Barra de navegación y estructura | `resources/views/layouts/app.blade.php` | Pendiente |
+| `features/auth/` | Pantalla de login | `resources/views/auth/` | Migrado |
+| `features/layout/` | Barra de navegación y estructura | `resources/views/layouts/app.blade.php` | Migrado |
 | `features/home/` | Panel con contadores | `resources/views/dashboard/` con datos agregados en servidor | Pendiente |
 | `features/category/` | Listado y formulario de categorías | `resources/views/categorias/` | Pendiente |
 | `features/item/` | Listado y formulario de productos | `resources/views/productos/` | Pendiente |
@@ -143,7 +143,7 @@ Módulos nuevos de la Etapa 1. No hay componente que migrar; se construyen desde
 | Proveedores | Migración, modelo `Proveedor`, controlador, vistas | Pendiente |
 | Órdenes de compra | Migraciones, modelos `OrdenCompra` y `OrdenCompraLinea`, servicio de reposición | Pendiente |
 | Roles y permisos | Migraciones `roles`, `permisos`, `rol_permiso`, controlador, vistas, Gates | Pendiente |
-| Marcas | Migración, modelo `Marca`, controlador, vistas | Pendiente |
+| Marcas | Migración, modelo `Marca`, controlador, vistas | Migrado |
 | Movimientos de stock | Migración, modelo `MovimientoStock`, servicio de kardex | Pendiente |
 | Categorías jerárquicas | Ampliación de `Categoria` con `parent_id` | Pendiente |
 

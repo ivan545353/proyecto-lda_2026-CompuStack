@@ -14,7 +14,7 @@ Universidad Nacional de la Patagonia Austral — Unidad Académica Caleta Olivia
 |---|---|---|
 | 0 | Repositorio y línea base | Completada |
 | 1 | Proyecto Laravel, esquema de datos y seeders | Completada |
-| 2 | Autenticación, roles y permisos | Pendiente |
+| 2 | Autenticación, roles y permisos | Completada |
 | 3 | Catálogo: categorías, marcas, productos | Pendiente |
 | 4 | Usuarios, clientes y empleados | Pendiente |
 | 5 | Proveedores, compras y stock | Pendiente |
@@ -22,9 +22,9 @@ Universidad Nacional de la Patagonia Austral — Unidad Académica Caleta Olivia
 | 7 | Panel de métricas y exportación a PDF | Pendiente |
 | 8 | Cierre: pruebas, seguridad, documentación | Pendiente |
 
-Al cierre de la Fase 1 el sistema tiene **base de datos y datos ficticios, sin
-interfaz**: las pantallas empiezan en la Fase 2. `php artisan serve` levanta el
-proyecto pero todavía no hay rutas propias.
+Al cierre de la Fase 2 el sistema tiene **acceso funcionando**: login con sesión,
+control de permisos por rol y la pantalla de administración de roles. Los módulos
+de negocio empiezan en la Fase 3.
 
 ## Propósito
 
@@ -171,12 +171,14 @@ Para volver a una base limpia con datos ficticios:
 ```bash
 php artisan migrate:fresh --seed
 ```
-
+La aplicación queda en `http://localhost:8000` y redirige al login. No hay
+registro público: las cuentas las crea un administrador.
 ## Pruebas
 
 ```bash
 php artisan test
 ```
+
 
 Las pruebas usan **MariaDB**, no sqlite en memoria: verifican tipos de columna y
 valores de `ENUM` consultando `information_schema`, y sqlite no tiene `ENUM` ni
@@ -191,6 +193,12 @@ Cubierto hasta ahora:
 - `pagos.mp_payment_id` tiene índice único (idempotencia de webhooks).
 - Toda tabla del dominio lleva marcas de tiempo.
 - Asignación de permisos por rol, incluida la regresión del hallazgo C-2.
+- Login con credenciales válidas, inválidas, cuenta inactiva y rol de ámbito tienda.
+- Desconexión automática al deshabilitar un usuario en curso.
+- Límite de intentos y regeneración del identificador de sesión.
+- Denegación por defecto: una acción sin permiso definido no se concede a nadie.
+- Módulo de roles: permiso implícito de ver, rol de gestión sin permisos,
+  protección de los roles de sistema y del rol propio.
 
 El rollback se verifica a mano, porque `RefreshDatabase` envuelve cada prueba en
 una transacción y el DDL de MySQL provoca commits implícitos:
@@ -215,6 +223,12 @@ Prácticas aplicadas:
   `stock_reservado` y `costo_promedio`: sólo los modifica el servicio de stock,
   y siempre dejando movimiento en el kardex.
 - **Todo importe en `decimal`.** Un test recorre la base entera y falla si
+- **El estado de la cuenta se revalida en cada request**, no sólo al ingresar.
+  Deshabilitar a un usuario lo desconecta en su próxima acción.
+- **El ámbito se lee de la tabla `roles`, nunca del nombre del rol.** Renombrar un
+  rol no cambia lo que puede hacer nadie.
+- **El login no revela qué cuentas existen.** Mismo mensaje para correo
+  inexistente y contraseña incorrecta, con límite de cinco intentos por minuto.
   aparece una columna en punto flotante.
 
 Hallazgos de la auditoría cerrados hasta esta fase:
@@ -226,8 +240,11 @@ Hallazgos de la auditoría cerrados hasta esta fase:
 | A-18 · Numeración de ventas frágil | `venta_numeracion` descartada; la numeración fiscal la gobierna AFIP |
 | M-19 · Sin trazabilidad temporal | `created_at` / `updated_at` en toda tabla del dominio |
 | M-20 · Permisos CRUD insuficientes | Permisos como claves nombradas con pivote a roles |
-| C-1 · Hashes de contraseña expuestos | `$hidden` en `User` (se completa en la Fase 4) |
-| A-13 · Stock sin kardex | Tabla `movimientos_stock` creada (el servicio llega en la Fase 5) |
+| C-1 · Hashes de contraseña expuestos | `$hidden` en `User`; entrada por Form Request y salida por el modelo (se completa en la Fase 4) |
+| C-2 · Fallback permisivo en la autorización | `Gate::before` concede sólo lo asignado; sin regla definida, deniega. Con test de regresión |
+| A-5 · El token no se podía revocar | Sesión en servidor y revalidación de `activo` en cada request |
+| A-6 · Sin límite de intentos en el login | `throttle:5,1` |
+| M-33 · Control de acceso por nombre de rol en el front | Las vistas usan `@can` sobre permisos; el ámbito sale de `roles.ambito` |
 
 El listado completo de hallazgos está en `docs/auditoria.md`.
 
@@ -235,13 +252,28 @@ El listado completo de hallazgos está en `docs/auditoria.md`.
 
 ```
 app/
+├── Exceptions/             ReglaDeNegocioException
+├── Http/
+│   ├── Controllers/        traducen HTTP ↔ servicio, sin lógica de negocio
+│   ├── Middleware/         VerificarUsuarioActivo, VerificarAmbitoGestion
+│   └── Requests/           validación de entrada
 ├── Models/                 Eloquent, con $table declarado explícitamente
-└── ...                     Http/, Services/ y Support/ se pueblan desde la Fase 2
+├── Providers/              registro de Gates
+└── Services/               lógica de negocio (RolService)
 
 database/
 ├── migrations/             17 migraciones de la Etapa 1, en orden de dependencia
 ├── seeders/                roles y permisos, administrador, datos ficticios
 └── factories/
+
+resources/
+├── js/                     Bootstrap y comportamiento de los formularios
+├── scss/                   Bootstrap + estilos heredados del sistema original
+└── views/
+    ├── layouts/            app (con navbar y footer) y auth (pantalla completa)
+    ├── partials/           navbar, footer, alertas, resumen de errores
+    ├── auth/               login
+    └── roles/              index y formulario de permisos
 
 docs/                       auditoría, modelo de datos, planes, trazabilidad, DER
 legacy/                     sistema original congelado (ver legacy/README.md)
@@ -271,6 +303,13 @@ Decisiones de esta fase que conviene tener presentes al leer el código:
   nombrados; la tercera desaparece porque la numeración fiscal la gobierna AFIP.
 - **Los datos ficticios reproducen el catálogo del sistema original**, descartando
   las filas de prueba que el original no validaba.
+  - **El identificador de acceso pasó de `cuenta` a `email`.** La tabla original
+  tenía las dos columnas y el login usaba la primera. El modelo nuevo unifica en
+  `email`, que ya era único y sirve además para recuperar la contraseña.
+- **La autorización dejó de deducirse del nombre del controlador.** El middleware
+  original resolvía el módulo con `ucfirst($controller)` contra la tabla
+  `modulos`: renombrar un controlador rompía los permisos en silencio. Ahora cada
+  ruta declara el permiso que exige.
 
 ## Documentación
 

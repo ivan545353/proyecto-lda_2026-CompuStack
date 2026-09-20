@@ -41,7 +41,32 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * Un usuario de gestión que tiene exactamente el permiso indicado, y nada más.
+ *
+ * Crea un rol descartable en vez de reutilizar los de sistema: así el test
+ * verifica el permiso que nombra y no hereda otros por accidente.
+ */
+function usuarioCon(string ...$claves): \App\Models\User
 {
-    // ..
+    $rol = \App\Models\Rol::create([
+        'nombre'     => 'Prueba '.\Illuminate\Support\Str::random(8),
+        'ambito'     => 'gestion',
+        'es_sistema' => false,
+    ]);
+
+    $rol->permisos()->sync(
+        \App\Models\Permiso::whereIn('clave', $claves)->pluck('id')
+    );
+
+    return \App\Models\User::factory()->create(['rol_id' => $rol->id]);
 }
+
+/**
+ * Un usuario con rol de Administrador para pruebas que requieren privilegios completos.
+ */
+function admin(): \App\Models\User
+{
+    return \App\Models\User::factory()->conRol('Administrador')->create();
+}
+
