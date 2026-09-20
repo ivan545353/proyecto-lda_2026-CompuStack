@@ -8,13 +8,19 @@ use Illuminate\Database\Seeder;
 use RuntimeException;
 
 /**
- * Fuente de verdad de qué puede hacer cada rol.
+ * Define los permisos del sistema y qué tiene cada rol.
  *
- * Los permisos son claves nombradas, no banderas CRUD por módulo. El sistema
- * original tenía cuatro flags por (perfil, módulo) y toda acción fuera del CRUD
- * caía en un `?? "can_update"`: por eso un vendedor podía anular ventas cobradas
- * teniendo can_delete = 0 (hallazgo C-2). Acá lo que no está asignado, no se
- * puede hacer.
+ * Es la fuente de verdad de la autorización. Cada clave que se agregue acá
+ * queda disponible para Gate y para la directiva @can.
+ *
+ * El resolver aborta con excepción si una clave no existe, en vez de ignorarla.
+ * Un permiso mal escrito no se concede ni pasa desapercibido: rompe el seeder.
+ *
+ * El rol Cliente se crea sin permisos de gestión a propósito: su ámbito es
+ * tienda y en la Etapa 1 no hay tienda. Está para que el modelo esté completo.
+ *
+ * Métodos:
+ *   run()  crea permisos, roles y la asignación entre ambos
  */
 class RolPermisoSeeder extends Seeder
 {
