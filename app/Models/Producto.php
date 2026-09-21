@@ -2,13 +2,44 @@
 
 namespace App\Models;
 
+use App\Support\Like;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Producto del catálogo.
+ *
+ * Respecto del original (nombre, código, descripción, categoría, precio, stock)
+ * suma dos precios, alícuota de IVA, costo promedio, stock mínimo, cantidad de
+ * reposición, imágenes y marca. Todo importe es decimal: el original tenía
+ * productos.precio en float(12,2) y acumulaba error de redondeo (A-17).
+ *
+ * stock, stock_reservado y costo_promedio no son asignables en masa: sólo los
+ * mueve el StockService (Fase 5), dejando un movimiento en el kardex.
+ *
+ * Scopes (uno por filtro del listado; la correspondencia con el parámetro de
+ * la URL está declarada acá y en ProductoFiltroRequest):
+ *   ?q=             → buscar($texto)          código o nombre contiene
+ *   ?categoria_id=  → deCategoria($id)        categoría exacta, sin subcategorías
+ *   ?marca_id=      → deMarca($id)            marca exacta
+ *   ?estado=        → conEstado($estado)      activos | inactivos
+ *   ?stock=         → conStock($stock)        disponible | agotado | critico
+ *
+ * Fuera del listado:
+ *   stockCritico()  lo reusan la reposición automática (Fase 5) y el panel (Fase 7)
+ *
+ * Todo lo relativo a stock se calcula sobre el DISPONIBLE (stock menos lo
+ * reservado), que es la misma definición que usa la reposición automática. Si
+ * el filtro y el job usaran definiciones distintas, dirían cosas distintas
+ * sobre el mismo producto.
+ */
 class Producto extends Model
 {
     use HasFactory;
+
+    private const DISPONIBLE = '(productos.stock - productos.stock_reservado)';
 
     protected $table = 'productos';
 
@@ -19,43 +50,26 @@ class Producto extends Model
         'peso_gramos', 'destacado', 'activo',
     ];
 
-    // Valores iniciales en memoria, iguales a los DEFAULT de la migración.
-    //
-    // Sin esto, un modelo recién creado tiene stock = null (la columna no es
-    // asignable en masa, así que el valor lo pone la base y el objeto no se
-    // entera). El accesor stock_disponible restaría dos nulls y devolvería 0:
-    // un número inventado. Declarar el default acá mantiene el objeto y la
-    // fila diciendo lo mismo desde el primer momento.
     protected $attributes = [
         'stock'           => 0,
         'stock_reservado' => 0,
         'costo_promedio'  => 0,
     ];
 
-    // stock, stock_reservado y costo_promedio NO están en $fillable a
-    // propósito: sólo los modifica el StockService (Fase 5), y siempre dejando
-    // un movimiento en el kardex. Con $fillable declarado, todo lo que no
-    // figura ahí queda fuera de la asignación masiva; un $guarded además sería
-    // código muerto, porque Eloquent no lo consulta cuando $fillable no está
-    // vacío.
-    //
-    // Es la misma idea que en el sistema original faltaba: ItemDto tomaba el
-    // body completo y el DAO lo escribía entero (hallazgos C-3 y M-31).
-
     protected function casts(): array
     {
         return [
-            'imagenes'        => 'array',
-            'precio_lista'    => 'decimal:2',
-            'precio_contado'  => 'decimal:2',
-            'alicuota_iva'    => 'decimal:2',
-            'costo_promedio'  => 'decimal:2',
-            'destacado'       => 'boolean',
-            'activo'          => 'boolean',
-            'stock'           => 'integer',
-            'stock_reservado' => 'integer',
-            'stock_minimo'    => 'integer',
+            'imagenes'            => 'array',
+            'precio_lista'        => 'decimal:2',
+            'precio_contado'      => 'decimal:2',
+            'alicuota_iva'        => 'decimal:2',
+            'costo_promedio'      => 'decimal:2',
+            'stock'               => 'integer',
+            'stock_reservado'     => 'integer',
+            'stock_minimo'        => 'integer',
             'cantidad_reposicion' => 'integer',
+            'destacado'           => 'boolean',
+            'activo'              => 'boolean',
         ];
     }
 
@@ -77,5 +91,62 @@ class Producto extends Model
     public function getStockDisponibleAttribute(): int
     {
         return $this->stock - $this->stock_reservado;
+    }
+
+    // ------------------------------------------------------------------
+    // Filtros
+    // ------------------------------------------------------------------
+
+    public function scopeBuscar(Builder $query, ?string $texto): Builder
+    {
+        return $query->when(filled($texto), function (Builder $query) use ($texto) {
+            $patron = Like::contiene($texto);
+
+            return $query->where(fn (Builder $query) => $query
+                ->where('nombre', 'like', $patron)
+                ->orWhere('codigo', 'like', $patron));
+        });
+    }
+
+    /** Categoría exacta: los productos de sus subcategorías no se incluyen. */
+    public function scopeDeCategoria(Builder $query, int|string|null $id): Builder
+    {
+        return $query->when(
+            ctype_digit((string) $id),
+            fn (Builder $query) => $query->where('categoria_id', (int) $id),
+        );
+    }
+
+    public function scopeDeMarca(Builder $query, int|string|null $id): Builder
+    {
+        return $query->when(
+            ctype_digit((string) $id),
+            fn (Builder $query) => $query->where('marca_id', (int) $id),
+        );
+    }
+
+    public function scopeConEstado(Builder $query, ?string $estado): Builder
+    {
+        return match ($estado) {
+            'activos'   => $query->where('activo', true),
+            'inactivos' => $query->where('activo', false),
+            default     => $query,
+        };
+    }
+
+    public function scopeConStock(Builder $query, ?string $stock): Builder
+    {
+        return match ($stock) {
+            'disponible' => $query->whereRaw(self::DISPONIBLE.' > 0'),
+            'agotado'    => $query->whereRaw(self::DISPONIBLE.' <= 0'),
+            'critico'    => $query->stockCritico(),
+            default      => $query,
+        };
+    }
+
+
+    public function scopeStockCritico(Builder $query): Builder
+    {
+        return $query->whereRaw(self::DISPONIBLE.' <= productos.stock_minimo');
     }
 }
