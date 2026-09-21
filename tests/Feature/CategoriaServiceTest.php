@@ -68,3 +68,38 @@ test('una categoria sin dependencias se borra', function () {
     expect($this->service->eliminar($categoria))->toBeTrue();
     $this->assertModelMissing($categoria);
 });
+
+test('los padres posibles excluyen a la propia categoria y a sus descendientes', function () {
+    $raiz = Categoria::factory()->create();
+    $hija = Categoria::factory()->hijaDe($raiz)->create();
+    $otra = Categoria::factory()->create();
+
+    $ids = $this->service->padresPosibles($raiz)->pluck('id')->all();
+
+    expect($ids)->toContain($otra->id)
+        ->and(in_array($raiz->id, $ids, true))->toBeFalse()
+        ->and(in_array($hija->id, $ids, true))->toBeFalse();
+});
+
+test('los padres posibles excluyen a las del ultimo nivel', function () {
+    $n1 = Categoria::factory()->create();
+    $n2 = Categoria::factory()->hijaDe($n1)->create();
+    $n3 = Categoria::factory()->hijaDe($n2)->create();
+
+    $ids = $this->service->padresPosibles()->pluck('id')->all();
+
+    expect($ids)->toContain($n1->id)->toContain($n2->id)
+        ->and(in_array($n3->id, $ids, true))->toBeFalse();
+});
+
+test('el padre actual se ofrece aunque este inactivo, y las demas inactivas no', function () {
+    $padre        = Categoria::factory()->inactiva()->create();
+    $hija         = Categoria::factory()->hijaDe($padre)->create();
+    $otraInactiva = Categoria::factory()->inactiva()->create();
+
+    $ids = $this->service->padresPosibles($hija)->pluck('id')->all();
+
+    // Si el padre actual faltara, guardar la hija sin tocar nada la mudaría a la raíz.
+    expect(in_array($padre->id, $ids, true))->toBeTrue()
+        ->and(in_array($otraInactiva->id, $ids, true))->toBeFalse();
+});

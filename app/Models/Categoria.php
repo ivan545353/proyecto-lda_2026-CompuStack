@@ -152,6 +152,27 @@ class Categoria extends Model
         return $nivel;
     }
 
+        /**
+     * Nivel calculado sobre las relaciones ya cargadas, sin consultar la base.
+     *
+     * Para listas: con with('padre.padre') alcanza para conocer el nivel de
+     * cualquier categoría del árbol, porque no hay más de tres. nivel() hace
+     * una consulta por llamada y en un selector de cincuenta opciones serían
+     * cincuenta consultas.
+     */
+    public function nivelCargado(): int
+    {
+        $nivel  = 1;
+        $actual = $this->padre;
+
+        while ($actual !== null && $nivel < self::PROFUNDIDAD_MAXIMA) {
+            $nivel++;
+            $actual = $actual->padre;
+        }
+
+        return $nivel;
+    }
+
     /**
      * "Componentes › Placas de video".
      *

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Categoria;
 use App\Support\Slug;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Reglas de negocio de categorías.
@@ -78,5 +79,37 @@ class CategoriaService
         DB::transaction(fn () => $categoria->delete());
 
         return true;
+    }
+
+    /**
+     * Categorías que se pueden elegir como padre de $categoria (null en el alta).
+     *
+     * Es comodidad, no control: el control es CategoriaRequest, que rechaza
+     * igual una petición armada a mano. Esto evita ofrecer opciones que después
+     * se van a rechazar.
+     *
+     * Excluye la propia categoría, sus descendientes (ciclo), las inactivas y
+     * las que dejarían el subárbol por debajo del nivel máximo. El padre ACTUAL
+     * se ofrece aunque esté inactivo: si no apareciera en el select, el
+     * formulario se abriría con "Ninguna" seleccionado y al guardar la
+     * categoría se mudaría a la raíz sin que nadie lo pidiera.
+     *
+     * @return Collection<int, Categoria>
+     */
+    public function padresPosibles(?Categoria $categoria = null): Collection
+    {
+        $excluir = $categoria ? [$categoria->id, ...$categoria->idsDescendientes()] : [];
+        $altura  = $categoria?->alturaSubarbol() ?? 1;
+
+        return Categoria::query()
+            ->with('padre.padre')
+            ->where(fn ($query) => $query
+                ->where('activo', true)
+                ->when($categoria?->parent_id, fn ($query, $padreActual) => $query->orWhere('id', $padreActual)))
+            ->whereKeyNot($excluir)
+            ->get()
+            ->filter(fn (Categoria $opcion) => $opcion->nivelCargado() + $altura <= Categoria::PROFUNDIDAD_MAXIMA)
+            ->sortBy('ruta', SORT_NATURAL | SORT_FLAG_CASE)
+            ->values();
     }
 }
