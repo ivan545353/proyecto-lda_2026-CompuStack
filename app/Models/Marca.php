@@ -8,22 +8,22 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * Marca comercial de los productos. Módulo nuevo: no existe en el sistema
- * original, donde la marca era parte del nombre del producto.
- *
- * El modelo tiene relaciones y scopes de consulta, nada más. La validación
- * vive en MarcaRequest y las reglas de negocio en MarcaService.
- *
- * Scopes (un scope por filtro del listado, con el MISMO nombre que el
- * parámetro de la URL):
- *   buscar($texto)      nombre contiene
- *   conEstado($estado)  activas | inactivas | sin filtrar
- *
- * Que el scope y el parámetro se llamen igual es la corrección directa del
- * hallazgo A-24: el ItemController original enviaba `categoriaId` y el ItemDao
- * leía `categoria`, así que ningún filtro se aplicaba. Sin tests, el bug
- * sobrevivió a la versión final del sistema.
- */
+    * Marca comercial de los productos. Módulo nuevo: no existe en el sistema
+    * original, donde la marca era parte del nombre del producto.
+    *
+    * El modelo tiene relaciones y scopes de consulta, nada más. La validación
+    * vive en MarcaRequest y las reglas de negocio en MarcaService.
+    *
+    * Scopes (uno por filtro del listado; la correspondencia con el parámetro de
+    * la URL está declarada acá y en MarcaFiltroRequest):
+    *   ?q=       → buscar($texto)      nombre contiene
+    *   ?estado=  → conEstado($estado)  activas | inactivas | sin filtrar
+    *
+    * Tener el contrato escrito en los dos extremos es la corrección del hallazgo
+    * A-24: el ItemController original enviaba `categoriaId` y el ItemDao leía
+    * `categoria`, y no había ningún lugar donde constara cuál era el correcto.
+    * Sin tests, el bug sobrevivió a la versión final del sistema.
+*/
 class Marca extends Model
 {
     use HasFactory;
