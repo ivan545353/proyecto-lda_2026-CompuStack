@@ -41,6 +41,24 @@ class Producto extends Model
 
     private const DISPONIBLE = '(productos.stock - productos.stock_reservado)';
 
+    /**
+     * Alícuotas de IVA admitidas, con su texto para la pantalla.
+     *
+     * La clave está escrita como la devuelve la base con el cast decimal:2
+     * ('21.00', no 21 ni '21'). La usan el Request para validar y la vista
+     * para armar el selector, así que las dos comparan exactamente lo mismo.
+     * Con Rule::in([0, 10.5, 21]), '21.00' no coincidiría con '21' y ningún
+     * producto existente se podría volver a guardar.
+     *
+     */
+    public const ALICUOTAS_IVA = [
+        '21.00' => '21 %',
+        '10.50' => '10,5 %',
+        '0.00'  => '0 % (exento)',
+    ];
+
+    public const MAX_IMAGENES = 5;
+
     protected $table = 'productos';
 
     protected $fillable = [
