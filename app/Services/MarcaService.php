@@ -7,6 +7,7 @@ use App\Support\Slug;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 /**
  * Reglas de negocio de marcas.
@@ -38,12 +39,21 @@ class MarcaService
     {
         $ruta = $logo?->store(self::CARPETA, 'public');
 
-        return DB::transaction(fn () => Marca::create([
-            'nombre' => $datos['nombre'],
-            'slug'   => Slug::unicoPara(Marca::class, $datos['nombre']),
-            'activo' => $datos['activo'],
-            'logo'   => $ruta,
-        ]));
+        try {
+            return DB::transaction(fn () => Marca::create([
+                'nombre' => $datos['nombre'],
+                'slug'   => Slug::unicoPara(Marca::class, $datos['nombre']),
+                'activo' => $datos['activo'],
+                'logo'   => $ruta,
+            ]));
+        } catch (Throwable $e) {
+            // La base rechazó el alta: el logo recién subido queda sin dueño.
+            if ($ruta !== null) {
+                Storage::disk('public')->delete($ruta);
+            }
+
+            throw $e;
+        }
     }
 
     public function actualizar(Marca $marca, array $datos, ?UploadedFile $logo = null, bool $quitarLogo = false): Marca
@@ -51,26 +61,35 @@ class MarcaService
         $logoAnterior = $marca->logo;
         $rutaNueva    = $logo?->store(self::CARPETA, 'public');
 
-        $actualizado = DB::transaction(function () use ($marca, $datos, $rutaNueva, $quitarLogo) {
-            $cambioElNombre = $marca->nombre !== $datos['nombre'];
+        try {
+            $actualizado = DB::transaction(function () use ($marca, $datos, $rutaNueva, $quitarLogo) {
+                $cambioElNombre = $marca->nombre !== $datos['nombre'];
 
-            $marca->update([
-                'nombre' => $datos['nombre'],
-                // Sólo se recalcula si cambió el nombre: regenerarlo siempre
-                // haría que guardar sin tocar nada corriera el sufijo.
-                'slug'   => $cambioElNombre
-                    ? Slug::unicoPara(Marca::class, $datos['nombre'], $marca->id)
-                    : $marca->slug,
-                'activo' => $datos['activo'],
-                'logo'   => match (true) {
-                    $rutaNueva !== null => $rutaNueva,
-                    $quitarLogo         => null,
-                    default             => $marca->logo,
-                },
-            ]);
+                $marca->update([
+                    'nombre' => $datos['nombre'],
+                    // Sólo se recalcula si cambió el nombre: regenerarlo siempre
+                    // haría que guardar sin tocar nada corriera el sufijo.
+                    'slug'   => $cambioElNombre
+                        ? Slug::unicoPara(Marca::class, $datos['nombre'], $marca->id)
+                        : $marca->slug,
+                    'activo' => $datos['activo'],
+                    'logo'   => match (true) {
+                        $rutaNueva !== null => $rutaNueva,
+                        $quitarLogo         => null,
+                        default             => $marca->logo,
+                    },
+                ]);
 
-            return $marca->fresh();
-        });
+                return $marca->fresh();
+            });
+        } catch (Throwable $e) {
+            // La base rechazó la actualización: el logo nuevo subido queda huérfano.
+            if ($rutaNueva !== null) {
+                Storage::disk('public')->delete($rutaNueva);
+            }
+
+            throw $e;
+        }
 
         // El archivo se borra DESPUÉS del commit. El sistema de archivos no
         // participa de la transacción: si la borráramos adentro y el commit
