@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Support\Like;
 
 /**
     * Marca comercial de los productos. Módulo nuevo: no existe en el sistema
@@ -47,17 +48,12 @@ class Marca extends Model
      *
      * Sin texto no filtra: un buscador vacío muestra todo, no cero resultados.
      *
-     * Los comodines de LIKE se escapan. El binding de PDO protege de la
-     * inyección, pero no del significado: quien escribe "100%" en el buscador
-     * espera buscar ese texto, no traer la tabla entera.
+     * Los comodines de LIKE son texto literal (ver App\Support\Like).
      */
     public function scopeBuscar(Builder $query, ?string $texto): Builder
     {
-        return $query->when(filled($texto), function (Builder $query) use ($texto) {
-            $patron = addcslashes(trim($texto), '%_\\');
-
-            return $query->where('nombre', 'like', "%{$patron}%");
-        });
+        return $query->when(filled($texto), fn (Builder $query) => $query
+            ->where('nombre', 'like', Like::contiene($texto)));
     }
 
     /**

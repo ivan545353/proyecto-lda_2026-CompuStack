@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Support\Like;
 
 /**
  * Categoría del catálogo, con jerarquía por autorreferencia
@@ -74,14 +75,11 @@ class Categoria extends Model
     // Filtros
     // ------------------------------------------------------------------
 
-    /** Igual que en Marca: sin texto no filtra, y los comodines de LIKE son texto literal. */
+    // Los comodines de LIKE son texto literal (ver App\Support\Like).
     public function scopeBuscar(Builder $query, ?string $texto): Builder
     {
-        return $query->when(filled($texto), function (Builder $query) use ($texto) {
-            $patron = addcslashes(trim($texto), '%_\\');
-
-            return $query->where('nombre', 'like', "%{$patron}%");
-        });
+        return $query->when(filled($texto), fn (Builder $query) => $query
+            ->where('nombre', 'like', Like::contiene($texto)));
     }
 
     public function scopeConEstado(Builder $query, ?string $estado): Builder
