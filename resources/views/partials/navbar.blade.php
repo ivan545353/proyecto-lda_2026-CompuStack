@@ -29,6 +29,14 @@
                     </li>
                 @endcan
 
+                @can('categoria.ver')
+                    <li class="nav-item">
+                        <a class="nav-link text-black {{ request()->routeIs('categorias.*') ? 'active' : '' }}"
+                            href="{{ route('categorias.index') }}"
+                            @if (request()->routeIs('categorias.*')) aria-current="page" @endif>Categorías</a>
+                    </li>
+                @endcan
+
                 @can('marca.ver')
                     <li class="nav-item">
                         <a class="nav-link text-black {{ request()->routeIs('marcas.*') ? 'active' : '' }}"

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\MarcaController;
 use App\Http\Controllers\RolController;
+use App\Http\Controllers\CategoriaController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -70,6 +71,25 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->middleware('can:marca.eliminar')
         ->name('marcas.destroy');
 
+            // Catálogo — categorías
+    Route::get('/categorias', [CategoriaController::class, 'index'])
+        ->middleware('can:categoria.ver')->name('categorias.index');
+
+    Route::get('/categorias/crear', [CategoriaController::class, 'create'])
+        ->middleware('can:categoria.crear')->name('categorias.create');
+
+    Route::post('/categorias', [CategoriaController::class, 'store'])
+        ->middleware('can:categoria.crear')->name('categorias.store');
+
+    Route::get('/categorias/{categoria}/editar', [CategoriaController::class, 'edit'])
+        ->middleware('can:categoria.editar')->name('categorias.edit');
+
+    Route::put('/categorias/{categoria}', [CategoriaController::class, 'update'])
+        ->middleware('can:categoria.editar')->name('categorias.update');
+
+    Route::delete('/categorias/{categoria}', [CategoriaController::class, 'destroy'])
+        ->middleware('can:categoria.eliminar')->name('categorias.destroy');
+        
     // Administración — Roles y permisos
     Route::get('/roles', [RolController::class, 'index'])
         ->middleware('can:rol.ver')
