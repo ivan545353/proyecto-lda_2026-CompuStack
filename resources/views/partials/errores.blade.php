@@ -4,7 +4,7 @@
 
         <div>
             <p class="fw-semibold mb-1">
-                No se pudo guardar. Revisá {{ $errors->count() === 1 ? 'este punto' : 'estos puntos' }}:
+                No se pudo guardar. Revisá {{ $errors->count() === 1 ? 'este punto' : 'los siguientes puntos' }}:
             </p>
 
             <ul class="mb-0 ps-3">

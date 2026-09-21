@@ -10,7 +10,7 @@
         <div>
             <h1 class="h3 mb-1">{{ $esEdicion ? "Editar «{$marca->nombre}»" : 'Nueva marca' }}</h1>
             <p class="text-body-secondary small mb-0">
-                La dirección web (slug) de la marca se genera automáticamente a partir del nombre.
+                Los campos con <span class="text-danger" aria-hidden="true">*</span> son obligatorios.
             </p>
         </div>
     </div>

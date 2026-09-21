@@ -95,14 +95,13 @@ class CategoriaRequest extends FormRequest
         // Regla 2: ni ella misma ni una descendiente.
         if ($categoria !== null) {
             if ($padre->id === $categoria->id) {
-                $fallar('Una categoría no puede ser su propio padre.');
+                $fallar('Una categoría no puede estar dentro de sí misma.');
 
                 return;
             }
 
             if (in_array($padre->id, $categoria->idsDescendientes(), true)) {
-                $fallar("«{$padre->nombre}» está dentro de esta categoría: elegirla como padre formaría un ciclo.");
-
+                    $fallar("«{$padre->nombre}» es una subcategoría de esta, así que no puede contenerla.");
                 return;
             }
         }
@@ -114,7 +113,7 @@ class CategoriaRequest extends FormRequest
         $cambiaDePadre = $categoria === null || $categoria->parent_id !== $padre->id;
 
         if ($cambiaDePadre && ! $padre->activo) {
-            $fallar("«{$padre->nombre}» está inactiva: no puede recibir subcategorías.");
+                 $fallar("«{$padre->nombre}» está inactiva. Activala primero o elegí otra.");
 
             return;
         }
@@ -124,10 +123,10 @@ class CategoriaRequest extends FormRequest
 
         if ($padre->nivel() + $altura > Categoria::PROFUNDIDAD_MAXIMA) {
             $fallar(sprintf(
-                'Con «%s» como padre, la categoría%s quedaría por debajo del nivel %d, que es el máximo.',
-                $padre->nombre,
-                $altura > 1 ? ' o alguna de sus subcategorías' : '',
+                'Las categorías se pueden agrupar hasta en %d niveles. Dentro de «%s», esta categoría%s pasaría ese límite.',
                 Categoria::PROFUNDIDAD_MAXIMA,
+                $padre->nombre,
+                $altura > 1 ? ', junto con sus subcategorías,' : '',
             ));
         }
     }
@@ -138,11 +137,22 @@ class CategoriaRequest extends FormRequest
             'nombre.required'  => 'La categoría necesita un nombre.',
             'nombre.min'       => 'El nombre debe tener al menos 2 caracteres.',
             'nombre.max'       => 'El nombre no puede superar los 100 caracteres.',
-            'nombre.unique'    => 'Ya existe una categoría con ese nombre en el mismo nivel.',
-            'parent_id.exists' => 'La categoría padre elegida no existe.',
+            'nombre.unique'    => 'Ya existe una categoría con ese nombre en el mismo grupo.',
+            'parent_id.exists' => 'La categoría elegida ya no existe. Recargá y elegí otra.',
             'orden.integer'    => 'El orden debe ser un número entero.',
             'orden.min'        => 'El orden no puede ser negativo.',
             'orden.max'        => 'El orden no puede superar 9999.',
+        ];
+    }
+
+    /** Cómo se nombra cada campo en los mensajes que no están en messages(). */
+    public function attributes(): array
+    {
+        return [
+            'nombre'    => 'nombre',
+            'parent_id' => 'categoría en la que está',
+            'orden'     => 'orden',
+            'activo'    => 'estado',
         ];
     }
 }

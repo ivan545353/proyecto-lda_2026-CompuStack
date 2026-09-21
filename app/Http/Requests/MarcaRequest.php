@@ -80,4 +80,13 @@ class MarcaRequest extends FormRequest
             'logo.max'        => 'El logo no puede superar los 512 KB.',
         ];
     }
+
+    public function attributes(): array
+    {
+        return [
+            'nombre' => 'nombre',
+            'logo'   => 'logo',
+            'activo' => 'estado',
+        ];
+    }
 }

@@ -45,7 +45,7 @@ class MarcaFiltroRequest extends FormRequest
         throw new HttpResponseException(
             redirect()->route('marcas.index')->with(
                 'error',
-                'La dirección tenía un filtro que no existe. Se muestra el listado completo.'
+                'Ese filtro no es válido. Se muestran todas las marcas.'
             )
         );
     }
