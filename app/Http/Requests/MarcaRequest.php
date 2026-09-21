@@ -28,20 +28,9 @@ class MarcaRequest extends FormRequest
         return true;   // la ruta exige marca.crear o marca.editar
     }
 
-    /**
-     * Normalizar no es corregir: recortar espacios de los bordes no cambia lo
-     * que el usuario quiso escribir. Un nombre de sólo espacios queda en cadena
-     * vacía y lo rechaza `required` con su mensaje, que es justo lo contrario
-     * de lo que hacía el setter original.
-     *
-     * El checkbox sin marcar no viaja en el POST. Sin esta línea, desactivar
-     * una marca sería imposible: la ausencia del campo se leería como "no lo
-     * cambies".
-     */
     protected function prepareForValidation(): void
     {
         $this->merge([
-            'nombre' => trim((string) $this->input('nombre')),
             'activo' => $this->boolean('activo'),
         ]);
     }

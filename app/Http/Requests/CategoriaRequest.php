@@ -41,15 +41,9 @@ class CategoriaRequest extends FormRequest
         return true;   // la ruta exige categoria.crear o categoria.editar
     }
 
-    /**
-     * parent_id no se toca: el middleware ConvertEmptyStringsToNull de
-     * Laravel ya convierte la opción vacía del select ("Ninguna, es de primer
-     * nivel") en null antes de llegar acá.
-     */
     protected function prepareForValidation(): void
     {
         $this->merge([
-            'nombre' => trim((string) $this->input('nombre')),
             'orden'  => $this->input('orden') ?? 0,
             'activo' => $this->boolean('activo'),
         ]);
