@@ -1,8 +1,10 @@
 <?php
 
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\MarcaController;
 use App\Http\Controllers\RolController;
 use Illuminate\Support\Facades\Route;
+
 /*
 |--------------------------------------------------------------------------
 | Rutas web
@@ -20,8 +22,11 @@ use Illuminate\Support\Facades\Route;
 |   auth + gestion   todo el sistema de gestión
 |
 */
+
+// Redirección inicial
 Route::redirect('/', '/panel');
 
+// Autenticación pública
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'mostrarLogin'])->name('login');
 
@@ -30,16 +35,45 @@ Route::middleware('guest')->group(function () {
         ->name('login.attempt');
 });
 
+// Cierre de sesión
 Route::post('/logout', [AuthController::class, 'logout'])
     ->middleware('auth')
     ->name('logout');
 
+// Sistema de gestión
 Route::middleware(['auth', 'gestion'])->group(function () {
-    // Provisional. La Fase 7 lo reemplaza por el panel de métricas real.
+    // Panel de control (provisional; la Fase 7 lo reemplaza por métricas reales)
     Route::view('/panel', 'panel.index')->name('panel');
 
+    // Catálogo — Marcas
+    Route::get('/marcas', [MarcaController::class, 'index'])
+        ->middleware('can:marca.ver')
+        ->name('marcas.index');
+
+    Route::get('/marcas/crear', [MarcaController::class, 'create'])
+        ->middleware('can:marca.crear')
+        ->name('marcas.create');
+
+    Route::post('/marcas', [MarcaController::class, 'store'])
+        ->middleware('can:marca.crear')
+        ->name('marcas.store');
+
+    Route::get('/marcas/{marca}/editar', [MarcaController::class, 'edit'])
+        ->middleware('can:marca.editar')
+        ->name('marcas.edit');
+
+    Route::put('/marcas/{marca}', [MarcaController::class, 'update'])
+        ->middleware('can:marca.editar')
+        ->name('marcas.update');
+
+    Route::delete('/marcas/{marca}', [MarcaController::class, 'destroy'])
+        ->middleware('can:marca.eliminar')
+        ->name('marcas.destroy');
+
+    // Administración — Roles y permisos
     Route::get('/roles', [RolController::class, 'index'])
-    ->middleware('can:rol.ver')->name('roles.index');
+        ->middleware('can:rol.ver')
+        ->name('roles.index');
 
     Route::middleware('can:rol.editar')->group(function () {
         Route::get('/roles/crear', [RolController::class, 'create'])->name('roles.create');
