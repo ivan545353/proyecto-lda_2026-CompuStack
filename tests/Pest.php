@@ -70,3 +70,15 @@ function admin(): \App\Models\User
     return \App\Models\User::factory()->conRol('Administrador')->create();
 }
 
+/**
+ * Hace la petición con el verbo indicado. Los GET van sin cuerpo; el resto
+ * lleva $datos. La usan los datasets de permisos de cada módulo, que recorren
+ * todas las rutas con el mismo test.
+ */
+function pedirRuta($test, string $metodo, string $url, array $datos = [])
+{
+    return $metodo === 'get'
+        ? $test->get($url)
+        : $test->{$metodo}($url, $datos);
+}
+

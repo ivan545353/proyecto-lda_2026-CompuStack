@@ -42,12 +42,7 @@ dataset('rutas de marcas', [
 
 const PERMISOS_MARCA = ['marca.ver', 'marca.crear', 'marca.editar', 'marca.eliminar'];
 
-function pedirRuta($test, string $metodo, string $url)
-{
-    return $metodo === 'get'
-        ? $test->get($url)
-        : $test->{$metodo}($url, ['nombre' => 'Marca de prueba', 'activo' => 1]);
-}
+
 
 test('ningun otro permiso del modulo habilita la ruta', function (string $metodo, string $ruta, string $permiso, bool $conMarca) {
     $marca = Marca::factory()->create();
@@ -55,15 +50,14 @@ test('ningun otro permiso del modulo habilita la ruta', function (string $metodo
 
     $otros = array_values(array_diff(PERMISOS_MARCA, [$permiso]));
 
-    pedirRuta($this->actingAs(usuarioCon(...$otros)), $metodo, $url)->assertForbidden();
+    pedirRuta($this->actingAs(usuarioCon(...$otros)), $metodo, $url, ['nombre' => 'Marca de prueba', 'activo' => 1])->assertForbidden();
 })->with('rutas de marcas');
 
 test('el permiso de la ruta alcanza para pasar', function (string $metodo, string $ruta, string $permiso, bool $conMarca) {
     $marca = Marca::factory()->create();
     $url   = $conMarca ? route($ruta, $marca) : route($ruta);
 
-    $respuesta = pedirRuta($this->actingAs(usuarioCon($permiso)), $metodo, $url);
-
+    $respuesta = pedirRuta($this->actingAs(usuarioCon($permiso)), $metodo, $url, ['nombre' => 'Marca de prueba', 'activo' => 1]);
     expect($respuesta->status())->not->toBe(403);
 })->with('rutas de marcas');
 
