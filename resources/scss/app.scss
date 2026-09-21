@@ -1,3 +1,14 @@
+// Tipografía global: Nunito
+@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300..900;1,300..900&display=swap');
+
+// Variables Sass de Bootstrap (deben definirse antes de importar Bootstrap)
+$font-family-sans-serif: 'Nunito', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", sans-serif;
+$pagination-color: #1a1a1a;
+$pagination-hover-color: #000;
+$pagination-active-bg: #1a1a1a;
+$pagination-active-border-color: #1a1a1a;
+$pagination-focus-box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.25);
+
 @import "bootstrap/scss/bootstrap";
 @import "bootstrap-icons/font/bootstrap-icons.css";
 
@@ -5,6 +16,21 @@
     --cs-fondo-auth: #f4f6fa;
     --cs-acento: #1a1a1a;
     --cs-acento-hover: #000;
+}
+
+body {
+    font-family: $font-family-sans-serif;
+}
+
+// Paginador con la estética negra del sistema en lugar del celeste por defecto
+.pagination {
+    --bs-pagination-color: var(--cs-acento);
+    --bs-pagination-hover-color: var(--cs-acento-hover);
+    --bs-pagination-focus-color: var(--cs-acento-hover);
+    --bs-pagination-focus-box-shadow: 0 0 0 .2rem rgba(0, 0, 0, .25);
+    --bs-pagination-active-color: #fff;
+    --bs-pagination-active-bg: var(--cs-acento);
+    --bs-pagination-active-border-color: var(--cs-acento);
 }
 
 // El link de la sección activa: peso y subrayado, nunca sólo color

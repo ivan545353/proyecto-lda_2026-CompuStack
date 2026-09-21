@@ -13,10 +13,6 @@
                 La dirección web (slug) de la marca se genera automáticamente a partir del nombre.
             </p>
         </div>
-
-        <a href="{{ route('marcas.index') }}" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver al listado
-        </a>
     </div>
 
     {{-- Resumen general de errores de validación --}}
