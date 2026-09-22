@@ -6,6 +6,11 @@ use App\Models\Producto;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use App\Models\Categoria;
+use App\Models\Marca;
+use App\Models\Proveedor;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Throwable;
 
 /**
@@ -36,12 +41,6 @@ class ProductoService
 {
     private const CARPETA = 'productos';
 
-    /**
-     * Tablas que referencian a un producto. Es la lista de "dónde quedó
-     * registrado que este producto existió". Cuando existan los modelos de
-     * las Fases 5 y 6 se pueden reemplazar por relaciones; la lista sigue
-     * siendo la misma.
-     */
     private const REFERENCIAS = ['venta_lineas', 'orden_compra_lineas', 'movimientos_stock'];
 
     /** @param  array<int, UploadedFile>  $imagenes */
@@ -97,8 +96,6 @@ class ProductoService
             throw $e;
         }
 
-        // Después del commit: si se borraran antes y el commit fallara, la
-        // fila quedaría apuntando a archivos que ya no existen.
         $this->borrarArchivos($quitar);
 
         return $actualizado;
@@ -122,6 +119,37 @@ class ProductoService
         $this->borrarArchivos($imagenes);
 
         return true;
+    }
+
+    /**
+     * Opciones de los selectores del formulario: las activas, más la que el
+     * producto ya tiene aunque se haya desactivado.
+     *
+     * Mismo criterio que ProductoRequest::referenciaActiva() y que
+     * CategoriaService::padresPosibles(): si la actual no apareciera, el
+     * selector se abriría en otra opción y guardar sin tocar nada le
+     * cambiaría la marca, la categoría o el proveedor al producto.
+     *
+     * @return array{categorias: Collection, marcas: Collection, proveedores: Collection}
+     */
+    public function opciones(?Producto $producto = null): array
+    {
+        return [
+            'categorias' => $this->activasOActual(Categoria::query()->with('padre.padre'), $producto?->categoria_id)
+                ->sortBy('ruta', SORT_NATURAL | SORT_FLAG_CASE)
+                ->values(),
+            'marcas'      => $this->activasOActual(Marca::query()->orderBy('nombre'), $producto?->marca_id),
+            'proveedores' => $this->activasOActual(Proveedor::query()->orderBy('razon_social'), $producto?->proveedor_id),
+        ];
+    }
+
+    private function activasOActual(Builder $query, ?int $actual): Collection
+    {
+        return $query
+            ->where(fn ($query) => $query
+                ->where('activo', true)
+                ->when($actual, fn ($query, $id) => $query->orWhere('id', $id)))
+            ->get();
     }
 
     private function debeConservarse(Producto $producto): bool

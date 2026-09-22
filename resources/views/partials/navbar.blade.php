@@ -29,21 +29,38 @@
                     </li>
                 @endcan
 
-                @can('categoria.ver')
-                    <li class="nav-item">
-                        <a class="nav-link text-black {{ request()->routeIs('categorias.*') ? 'active' : '' }}"
-                            href="{{ route('categorias.index') }}"
-                            @if (request()->routeIs('categorias.*')) aria-current="page" @endif>Categorías</a>
+                @canany(['producto.ver', 'categoria.ver', 'marca.ver'])
+                    @php($enCatalogo = request()->routeIs('productos.*', 'categorias.*', 'marcas.*'))
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle text-black {{ $enCatalogo ? 'active' : '' }}" href="#"
+                            role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Catálogo
+                        </a>
+                        <ul class="dropdown-menu">
+                            @can('producto.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('productos.*') ? 'active' : '' }}"
+                                        href="{{ route('productos.index') }}"
+                                        @if (request()->routeIs('productos.*')) aria-current="page" @endif>Productos</a>
+                                </li>
+                            @endcan
+                            @can('categoria.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('categorias.*') ? 'active' : '' }}"
+                                        href="{{ route('categorias.index') }}"
+                                        @if (request()->routeIs('categorias.*')) aria-current="page" @endif>Categorías</a>
+                                </li>
+                            @endcan
+                            @can('marca.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('marcas.*') ? 'active' : '' }}"
+                                        href="{{ route('marcas.index') }}"
+                                        @if (request()->routeIs('marcas.*')) aria-current="page" @endif>Marcas</a>
+                                </li>
+                            @endcan
+                        </ul>
                     </li>
-                @endcan
-
-                @can('marca.ver')
-                    <li class="nav-item">
-                        <a class="nav-link text-black {{ request()->routeIs('marcas.*') ? 'active' : '' }}"
-                            href="{{ route('marcas.index') }}"
-                            @if (request()->routeIs('marcas.*')) aria-current="page" @endif>Marcas</a>
-                    </li>
-                @endcan
+                @endcanany
 
                 {{-- Cada módulo nuevo se suma acá dentro de su correspondiente @can --}}
             </ul>

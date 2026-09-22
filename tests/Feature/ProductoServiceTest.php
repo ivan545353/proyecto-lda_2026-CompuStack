@@ -2,6 +2,7 @@
 
 use App\Models\Categoria;
 use App\Models\Producto;
+use App\Models\Marca;
 use App\Services\ProductoService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -160,4 +161,16 @@ test('un producto con historial se desactiva aunque no tenga stock', function ()
 
     expect($this->service->eliminar($producto))->toBeFalse();
     $this->assertModelExists($producto);
+});
+
+test('las opciones incluyen la marca actual aunque este inactiva, y no otras inactivas', function () {
+    $actual   = Marca::factory()->inactiva()->create();
+    $otra     = Marca::factory()->inactiva()->create();
+    $activa   = Marca::factory()->create();
+    $producto = Producto::factory()->create(['marca_id' => $actual->id]);
+
+    $ids = $this->service->opciones($producto)['marcas']->pluck('id')->all();
+
+    expect($ids)->toContain($actual->id)->toContain($activa->id)
+        ->and(in_array($otra->id, $ids, true))->toBeFalse();
 });

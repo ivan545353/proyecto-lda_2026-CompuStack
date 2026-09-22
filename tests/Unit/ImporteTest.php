@@ -43,3 +43,8 @@ test('formatea para mostrar en un campo', function () {
         ->and(Importe::paraFormulario(null))->toBe('')
         ->and(Importe::paraFormulario('mil'))->toBe('mil');
 });
+
+test('muestra importes con el signo pesos', function () {
+    expect(Importe::pesos('1500.5'))->toBe('$ 1.500,50')
+        ->and(Importe::pesos(null))->toBe('$ 0,00');
+});

@@ -67,4 +67,10 @@ final class Importe
             ? number_format((float) $valor, 2, ',', '.')
             : (string) $valor;
     }
+
+    /** "1500.5" → "$ 1.500,50", para mostrar un importe en pantalla. */
+    public static function pesos(mixed $valor): string
+    {
+        return '$ '.self::paraFormulario($valor ?? 0);
+    }
 }

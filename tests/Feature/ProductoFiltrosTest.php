@@ -59,16 +59,29 @@ test('buscar trata los comodines como texto', function () {
 
 // --- Categoría, marca y estado --------------------------------------------
 
-test('deCategoria devuelve la categoria exacta, sin sus subcategorias', function () {
+test('deCategoria incluye los productos de todas sus subcategorias', function () {
+    // Componentes › Almacenamiento › Discos SSD, y otra rama aparte
     $almacenamiento = Categoria::factory()->create();
     $ssd            = Categoria::factory()->hijaDe($almacenamiento)->create();
+    $nvme           = Categoria::factory()->hijaDe($ssd)->create();
+    $otra           = Categoria::factory()->create();
 
     Producto::factory()->create(['categoria_id' => $almacenamiento->id]);
     Producto::factory()->create(['categoria_id' => $ssd->id]);
+    Producto::factory()->create(['categoria_id' => $nvme->id]);
+    Producto::factory()->create(['categoria_id' => $otra->id]);
 
-    // Es la decisión del contrato de filtros: categoría exacta, sin recursión.
-    expect(Producto::deCategoria($almacenamiento->id)->count())->toBe(1)
-        ->and(Producto::deCategoria((string) $ssd->id)->count())->toBe(1);
+    // Buscar en Almacenamiento trae toda la rama, no sólo lo cargado en ella.
+    expect(Producto::deCategoria($almacenamiento->id)->count())->toBe(3)
+        ->and(Producto::deCategoria((string) $ssd->id)->count())->toBe(2)
+        ->and(Producto::deCategoria($nvme->id)->count())->toBe(1);
+});
+
+test('deCategoria con una categoria que no existe no devuelve nada', function () {
+    Producto::factory()->count(2)->create();
+
+    // Si la ignorara, mostraría el catálogo entero como si fuera "Todas".
+    expect(Producto::deCategoria(99999)->count())->toBe(0);
 });
 
 test('deMarca devuelve solo los de esa marca', function () {

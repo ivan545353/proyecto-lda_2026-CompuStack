@@ -56,8 +56,7 @@
 
     {{-- Tabla de marcas --}}
     <div class="card border-0 shadow-sm">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
+        <table class="table table-hover align-middle mb-0">
                 <caption class="visually-hidden">Listado de marcas del catálogo</caption>
                 <thead class="table-light">
                     <tr>
@@ -135,7 +134,6 @@
                 </tbody>
             </table>
         </div>
-    </div>
 
     {{-- Resumen de resultados y controles de paginación --}}
     @if ($marcas->total() > 0)

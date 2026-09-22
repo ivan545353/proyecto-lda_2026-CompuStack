@@ -57,6 +57,7 @@ class ProductoRequest extends FormRequest
             'stock_minimo'        => $this->input('stock_minimo') ?? 0,
             'cantidad_reposicion' => $this->input('cantidad_reposicion') ?? 0,
             'activo'              => $this->boolean('activo'),
+            
         ]);
     }
 

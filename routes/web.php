@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\MarcaController;
 use App\Http\Controllers\RolController;
 use App\Http\Controllers\CategoriaController;
+use App\Http\Controllers\ProductoController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -71,7 +72,26 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->middleware('can:marca.eliminar')
         ->name('marcas.destroy');
 
-            // Catálogo — categorías
+    // Catálogo — productos
+    Route::get('/productos', [ProductoController::class, 'index'])
+        ->middleware('can:producto.ver')->name('productos.index');
+
+    Route::get('/productos/crear', [ProductoController::class, 'create'])
+        ->middleware('can:producto.crear')->name('productos.create');
+
+    Route::post('/productos', [ProductoController::class, 'store'])
+        ->middleware('can:producto.crear')->name('productos.store');
+
+    Route::get('/productos/{producto}/editar', [ProductoController::class, 'edit'])
+        ->middleware('can:producto.editar')->name('productos.edit');
+
+    Route::put('/productos/{producto}', [ProductoController::class, 'update'])
+        ->middleware('can:producto.editar')->name('productos.update');
+
+    Route::delete('/productos/{producto}', [ProductoController::class, 'destroy'])
+        ->middleware('can:producto.eliminar')->name('productos.destroy');
+
+    // Catálogo — categorías
     Route::get('/categorias', [CategoriaController::class, 'index'])
         ->middleware('can:categoria.ver')->name('categorias.index');
 

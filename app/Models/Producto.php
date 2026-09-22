@@ -26,7 +26,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *   ?marca_id=      → deMarca($id)            marca exacta
  *   ?estado=        → conEstado($estado)      activos | inactivos
  *   ?stock=         → conStock($stock)        disponible | agotado | critico
- *
+ *   ?categoria_id=  → deCategoria($id)        la categoría y todas sus subcategorías
+ * 
  * Fuera del listado:
  *   stockCritico()  lo reusan la reposición automática (Fase 5) y el panel (Fase 7)
  *
@@ -34,6 +35,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * reservado), que es la misma definición que usa la reposición automática. Si
  * el filtro y el job usaran definiciones distintas, dirían cosas distintas
  * sobre el mismo producto.
+ * 
  */
 class Producto extends Model
 {
@@ -126,13 +128,37 @@ class Producto extends Model
         });
     }
 
-    /** Categoría exacta: los productos de sus subcategorías no se incluyen. */
+    /**
+     * La categoría y todas sus subcategorías.
+     *
+     * Los productos viven en las hojas del árbol (Discos SSD, no
+     * Almacenamiento). Filtrar sólo la categoría exacta devolvía vacío
+     * justamente en las categorías que más se usan para buscar.
+     *
+     * No es el mismo criterio que el filtro ?parent_id= del listado de
+     * categorías, que muestra sólo las hijas directas: aquel es navegación
+     * (se baja de a un nivel), este es búsqueda ("¿qué tengo de
+     * almacenamiento?").
+     *
+     * Cuesta como mucho cuatro consultas, porque el árbol no pasa de tres
+     * niveles (Categoria::PROFUNDIDAD_MAXIMA).
+     */
     public function scopeDeCategoria(Builder $query, int|string|null $id): Builder
     {
-        return $query->when(
-            ctype_digit((string) $id),
-            fn (Builder $query) => $query->where('categoria_id', (int) $id),
-        );
+        if (! ctype_digit((string) $id)) {
+            return $query;
+        }
+
+        $categoria = Categoria::find((int) $id);
+
+        // Una categoría inexistente filtra y no devuelve nada. Ignorarla
+        // mostraría el catálogo entero, como si el usuario hubiera elegido
+        // "Todas".
+        if ($categoria === null) {
+            return $query->whereRaw('0 = 1');
+        }
+
+        return $query->whereIn('categoria_id', [$categoria->id, ...$categoria->idsDescendientes()]);
     }
 
     public function scopeDeMarca(Builder $query, int|string|null $id): Builder
