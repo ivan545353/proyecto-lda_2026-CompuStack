@@ -11,6 +11,8 @@ $pagination-focus-box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.25);
 
 @import "bootstrap/scss/bootstrap";
 @import "bootstrap-icons/font/bootstrap-icons.css";
+@import "tom-select/dist/css/tom-select.bootstrap5.css";
+@import "selects-buscables";
 
 :root {
     --cs-fondo-auth: #f4f6fa;
@@ -88,4 +90,11 @@ body {
     background-color: var(--bs-secondary-bg);
     padding: .1rem .35rem;
     border-radius: .2rem;
+}
+
+// El ítem activo de un desplegable
+.dropdown-item.active,
+.dropdown-item:active {
+    background-color: var(--cs-acento);
+    color: #fff;
 }
