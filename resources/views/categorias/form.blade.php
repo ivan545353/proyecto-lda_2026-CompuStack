@@ -44,14 +44,12 @@
 
             <div class="col-12 col-md-6">
                 <label for="parent_id" class="form-label">Está dentro de</label>
-                <select class="form-select @error('parent_id') is-invalid @enderror" id="parent_id" name="parent_id"
+                <select class="form-select @error('parent_id') is-invalid @enderror"
+                    id="parent_id" name="parent_id" data-buscable="jerarquia"
                     aria-describedby="ayudaPadre @error('parent_id') errorPadre @enderror">
                     <option value="">Ninguna (es una categoría principal)</option>
-                    @foreach ($padres as $opcion)
-                        <option value="{{ $opcion->id }}" @selected((string) old('parent_id', $categoria->parent_id) === (string) $opcion->id)>
-                            {{ $opcion->ruta }}{{ $opcion->activo ? '' : ' (inactiva)' }}
-                        </option>
-                    @endforeach
+                    <x-opciones-categoria :categorias="$padres"
+                        :seleccionada="old('parent_id', $categoria->parent_id)" />
                 </select>
                 <div id="ayudaPadre" class="form-text">
                     @if ($esEdicion && $categoria->hijas_count > 0)

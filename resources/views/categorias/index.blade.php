@@ -50,14 +50,10 @@
 
             <div class="col-12 col-sm-6 col-md-3">
                 <label for="parent_id" class="form-label">Mostrar</label>
-                <select class="form-select" id="parent_id" name="parent_id">
+                <select class="form-select" id="parent_id" name="parent_id" data-buscable="jerarquia">
                     <option value="">Todas</option>
                     <option value="raiz" @selected(request('parent_id') === 'raiz')>Solo categorías principales</option>
-                    @foreach ($padresConHijas as $opcion)
-                        <option value="{{ $opcion->id }}" @selected(request('parent_id') == $opcion->id)>
-                            Subcategorías de {{ $opcion->ruta }}
-                        </option>
-                    @endforeach
+                    <x-opciones-categoria :categorias="$padresConHijas" :seleccionada="request('parent_id')" prefijo="Subcategorías de " />
                 </select>
             </div>
 
@@ -85,91 +81,89 @@
     </form>
 
     <div class="card border-0 shadow-sm">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <caption class="visually-hidden">Listado de categorías del catálogo</caption>
-                <thead class="table-light">
+        <table class="table table-hover align-middle mb-0">
+            <caption class="visually-hidden">Listado de categorías del catálogo</caption>
+            <thead class="table-light">
+                <tr>
+                    <th scope="col">Nombre</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col" class="text-center">Subcategorías</th>
+                    <th scope="col" class="text-center d-none d-md-table-cell">Productos</th>
+                    <th scope="col" class="text-end">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse ($categorias as $categoria)
                     <tr>
-                        <th scope="col">Nombre</th>
-                        <th scope="col">Estado</th>
-                        <th scope="col" class="text-center">Subcategorías</th>
-                        <th scope="col" class="text-center d-none d-md-table-cell">Productos</th>
-                        <th scope="col" class="text-end">Acciones</th>
+                        <td>
+                            <span class="fw-semibold">{{ $categoria->nombre }}</span>
+                            {{-- La ruta completa sólo si no está a la vista en la miga de pan. --}}
+                            @if ($categoria->padre && !$padreFiltrado)
+                                <div class="text-body-secondary small">{{ $categoria->padre->ruta }}</div>
+                            @endif
+                        </td>
+
+                        <td>
+                            <span class="badge {{ $categoria->activo ? 'text-bg-dark' : 'text-bg-secondary' }}">
+                                {{ $categoria->activo ? 'Activa' : 'Inactiva' }}
+                            </span>
+                        </td>
+
+                        <td class="text-center">
+                            @if ($categoria->hijas_count > 0)
+                                <a href="{{ route('categorias.index', ['parent_id' => $categoria->id]) }}"
+                                    class="link-dark fw-semibold"
+                                    aria-label="Ver las {{ $categoria->hijas_count }} subcategorías de {{ $categoria->nombre }}">
+                                    {{ $categoria->hijas_count }} <i class="bi bi-chevron-right small"
+                                        aria-hidden="true"></i>
+                                </a>
+                            @else
+                                <span class="text-body-secondary" aria-hidden="true">—</span>
+                                <span class="visually-hidden">Ninguna</span>
+                            @endif
+                        </td>
+
+                        <td class="text-center d-none d-md-table-cell">{{ $categoria->productos_count }}</td>
+
+                        <td class="text-end text-nowrap">
+                            @can('categoria.editar')
+                                <a href="{{ route('categorias.edit', $categoria) }}" class="btn btn-sm btn-outline-dark"
+                                    aria-label="Editar {{ $categoria->nombre }}">
+                                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                                    <span class="d-none d-md-inline">Editar</span>
+                                </a>
+                            @endcan
+
+                            @can('categoria.eliminar')
+                                @php($dependencias = $categoria->hijas_count + $categoria->productos_count)
+                                <form method="POST" action="{{ route('categorias.destroy', $categoria) }}" class="d-inline"
+                                    onsubmit="return confirm(@js($dependencias > 0 ? "«{$categoria->nombre}» tiene {$categoria->hijas_count} subcategoría(s) y {$categoria->productos_count} producto(s). No se eliminará: se desactivará. ¿Continuar?" : "¿Eliminar la categoría «{$categoria->nombre}»?"));">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button class="btn btn-sm btn-outline-danger"
+                                        aria-label="Eliminar {{ $categoria->nombre }}">
+                                        <i class="bi bi-trash" aria-hidden="true"></i>
+                                    </button>
+                                </form>
+                            @endcan
+                        </td>
                     </tr>
-                </thead>
-                <tbody>
-                    @forelse ($categorias as $categoria)
-                        <tr>
-                            <td>
-                                <span class="fw-semibold">{{ $categoria->nombre }}</span>
-                                {{-- La ruta completa sólo si no está a la vista en la miga de pan. --}}
-                                @if ($categoria->padre && !$padreFiltrado)
-                                    <div class="text-body-secondary small">{{ $categoria->padre->ruta }}</div>
-                                @endif
-                            </td>
-
-                            <td>
-                                <span class="badge {{ $categoria->activo ? 'text-bg-dark' : 'text-bg-secondary' }}">
-                                    {{ $categoria->activo ? 'Activa' : 'Inactiva' }}
-                                </span>
-                            </td>
-
-                            <td class="text-center">
-                                @if ($categoria->hijas_count > 0)
-                                    <a href="{{ route('categorias.index', ['parent_id' => $categoria->id]) }}"
-                                        class="link-dark fw-semibold"
-                                        aria-label="Ver las {{ $categoria->hijas_count }} subcategorías de {{ $categoria->nombre }}">
-                                        {{ $categoria->hijas_count }} <i class="bi bi-chevron-right small"
-                                            aria-hidden="true"></i>
-                                    </a>
-                                @else
-                                    <span class="text-body-secondary" aria-hidden="true">—</span>
-                                    <span class="visually-hidden">Ninguna</span>
-                                @endif
-                            </td>
-
-                            <td class="text-center d-none d-md-table-cell">{{ $categoria->productos_count }}</td>
-
-                            <td class="text-end text-nowrap">
-                                @can('categoria.editar')
-                                    <a href="{{ route('categorias.edit', $categoria) }}" class="btn btn-sm btn-outline-dark"
-                                        aria-label="Editar {{ $categoria->nombre }}">
-                                        <i class="bi bi-pencil" aria-hidden="true"></i>
-                                        <span class="d-none d-md-inline">Editar</span>
-                                    </a>
-                                @endcan
-
-                                @can('categoria.eliminar')
-                                    @php($dependencias = $categoria->hijas_count + $categoria->productos_count)
-                                    <form method="POST" action="{{ route('categorias.destroy', $categoria) }}"
-                                        class="d-inline" onsubmit="return confirm(@js($dependencias > 0 ? "«{$categoria->nombre}» tiene {$categoria->hijas_count} subcategoría(s) y {$categoria->productos_count} producto(s). No se eliminará: se desactivará. ¿Continuar?" : "¿Eliminar la categoría «{$categoria->nombre}»?"));">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button class="btn btn-sm btn-outline-danger"
-                                            aria-label="Eliminar {{ $categoria->nombre }}">
-                                            <i class="bi bi-trash" aria-hidden="true"></i>
-                                        </button>
-                                    </form>
-                                @endcan
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="5" class="text-center text-body-secondary py-4">
-                                @if (request()->hasAny(['q', 'estado']))
-                                    Ninguna categoría coincide con el filtro.
-                                    <a href="{{ route('categorias.index') }}">Ver todas</a>.
-                                @elseif ($padreFiltrado)
-                                    «{{ $padreFiltrado->nombre }}» no tiene subcategorías.
-                                @else
-                                    Todavía no hay categorías cargadas.
-                                @endif
-                            </td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
+                @empty
+                    <tr>
+                        <td colspan="5" class="text-center text-body-secondary py-4">
+                            @if (request()->hasAny(['q', 'estado']))
+                                Ninguna categoría coincide con el filtro.
+                                <a href="{{ route('categorias.index') }}">Ver todas</a>.
+                            @elseif ($padreFiltrado)
+                                «{{ $padreFiltrado->nombre }}» no tiene subcategorías.
+                            @else
+                                Todavía no hay categorías cargadas.
+                            @endif
+                        </td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
     </div>
 
     @if ($categorias->total() > 0)
