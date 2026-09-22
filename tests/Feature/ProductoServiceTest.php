@@ -81,35 +81,72 @@ test('si la base rechaza el alta, las imagenes subidas se borran', function () {
 
 // --- Edición --------------------------------------------------------------
 
-test('editar quita y agrega imagenes conservando el orden', function () {
-    $primera  = UploadedFile::fake()->image('1.png')->store('productos', 'public');
-    $segunda  = UploadedFile::fake()->image('2.png')->store('productos', 'public');
-    $producto = Producto::factory()->create(['imagenes' => [$primera, $segunda]]);
 
-    $editado = $this->service->actualizar(
-        $producto,
-        ($this->datos)(),
-        [UploadedFile::fake()->image('3.png')],
-        [$primera],
-    );
+test('el orden decide que imagenes quedan, en que orden y cual es la principal', function () {
+    $a = UploadedFile::fake()->image('a.png')->store('productos', 'public');
+    $b = UploadedFile::fake()->image('b.png')->store('productos', 'public');
+    $c = UploadedFile::fake()->image('c.png')->store('productos', 'public');
+    $producto = Producto::factory()->create(['imagenes' => [$a, $b, $c]]);
 
-    // Quitada la primera, la segunda pasa a ser la principal.
-    expect($editado->imagenes)->toHaveCount(2)
-        ->and($editado->imagenes[0])->toBe($segunda);
+    $editado = $this->service->actualizar($producto, ($this->datos)(), [UploadedFile::fake()->image('nueva.png')], [
+        ['tipo' => 'nueva',  'indice' => 0],
+        ['tipo' => 'actual', 'ruta' => $c],
+        ['tipo' => 'actual', 'ruta' => $a],
+    ]);
 
-    Storage::disk('public')->assertMissing($primera);
-    Storage::disk('public')->assertExists($editado->imagenes[1]);
+    // La nueva queda como principal, C pasa antes que A, y B se quitó.
+    expect($editado->imagenes)->toHaveCount(3)
+        ->and($editado->imagenes[1])->toBe($c)
+        ->and($editado->imagenes[2])->toBe($a);
+
+    Storage::disk('public')->assertExists($editado->imagenes[0]);
+    Storage::disk('public')->assertMissing($b);
 });
 
-test('editar no borra archivos ajenos al producto aunque se pidan', function () {
-    // Segunda defensa contra el recorrido de directorios: aunque algo se
-    // saltee la validación del Request, el servicio sólo borra lo que el
-    // producto tiene.
+test('un orden vacio quita todas las imagenes', function () {
+    // Es la razón del formato JSON: un orden[] vacío no enviaría ningún
+    // campo, y el servidor no distinguiría "quitá todas" de "no las tocaste".
+    $a        = UploadedFile::fake()->image('a.png')->store('productos', 'public');
+    $producto = Producto::factory()->create(['imagenes' => [$a]]);
+
+    $editado = $this->service->actualizar($producto, ($this->datos)(), [], []);
+
+    expect($editado->imagenes)->toBeNull();
+    Storage::disk('public')->assertMissing($a);
+});
+
+test('sin orden se conservan las actuales y las nuevas van al final', function () {
+    // Sin JavaScript, o desde la API sin orden: se puede agregar, no reordenar.
+    $a        = UploadedFile::fake()->image('a.png')->store('productos', 'public');
+    $producto = Producto::factory()->create(['imagenes' => [$a]]);
+
+    $editado = $this->service->actualizar($producto, ($this->datos)(), [UploadedFile::fake()->image('b.png')]);
+
+    expect($editado->imagenes)->toHaveCount(2)
+        ->and($editado->imagenes[0])->toBe($a);
+});
+
+test('un archivo nuevo que el orden no usa no se guarda', function () {
+    $producto = $this->service->crear(($this->datos)(), [UploadedFile::fake()->image('a.png')], []);
+
+    expect($producto->imagenes)->toBeNull()
+        ->and(Storage::disk('public')->allFiles('productos'))->toBe([]);
+});
+
+test('el orden no puede hacer pasar un archivo ajeno por imagen del producto ni borrarlo', function () {
     Storage::disk('public')->put('config/secreto.txt', 'no borrar');
-    $producto = Producto::factory()->create(['imagenes' => null]);
+    $a        = UploadedFile::fake()->image('a.png')->store('productos', 'public');
+    $producto = Producto::factory()->create(['imagenes' => [$a]]);
 
-    $this->service->actualizar($producto, ($this->datos)(), [], ['config/secreto.txt', '../../.env']);
+    $editado = $this->service->actualizar($producto, ($this->datos)(), [], [
+        ['tipo' => 'actual', 'ruta' => 'config/secreto.txt'],
+        ['tipo' => 'actual', 'ruta' => '../../.env'],
+        ['tipo' => 'actual', 'ruta' => $a],
+    ]);
 
+    // Las rutas ajenas se ignoran: la lista queda sólo con la imagen propia,
+    // y el archivo ajeno sigue en su lugar.
+    expect($editado->imagenes)->toBe([$a]);
     Storage::disk('public')->assertExists('config/secreto.txt');
 });
 

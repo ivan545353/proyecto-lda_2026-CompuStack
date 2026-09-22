@@ -27,6 +27,9 @@ use Illuminate\Validation\Rules\Exists;
  *   referenciaActiva()      exists, y activo sólo si el valor cambia
  *   limiteDeImagenes()      entre las que quedan y las nuevas, no más de 5
  *   messages() / attributes()
+ *   limiteSinOrden()        sin orden: actuales + nuevas, no más de 5
+ *   elementoDeOrden()       cada elemento del orden existe
+ *   ordenDeImagenes()       el orden validado, como estructura para el servicio
  */
 class ProductoRequest extends FormRequest
 {
@@ -57,7 +60,10 @@ class ProductoRequest extends FormRequest
             'stock_minimo'        => $this->input('stock_minimo') ?? 0,
             'cantidad_reposicion' => $this->input('cantidad_reposicion') ?? 0,
             'activo'              => $this->boolean('activo'),
-            
+            // El orden llega como JSON en un solo campo (ver ordenDeImagenes).
+            // Si no se puede leer, queda en false y lo rechaza la regla array:
+            // nunca se interpreta un JSON roto como "sin orden".
+            ...($this->has('imagenes_orden') ? ['orden' => $this->decodificarOrden()] : []),
         ]);
     }
 
@@ -96,16 +102,12 @@ class ProductoRequest extends FormRequest
 
             'activo' => ['required', 'boolean'],
 
-            'imagenes'   => ['nullable', 'array', $this->limiteDeImagenes(...)],
+            'imagenes'   => ['nullable', 'array', 'max:'.Producto::MAX_IMAGENES, $this->limiteSinOrden(...)],
             'imagenes.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:1024'],
 
-            // Sólo se pueden quitar imágenes que el producto TIENE. Sin esta
-            // regla, alguien podría mandar quitar_imagenes[]=../../.env y el
-            // servicio intentaría borrar ese archivo del disco: es un
-            // recorrido de directorios (path traversal) a través de un
-            // formulario de catálogo.
-            'quitar_imagenes'   => ['nullable', 'array'],
-            'quitar_imagenes.*' => ['string', Rule::in($producto?->imagenes ?? [])],
+            // La lista final de imágenes. Ver ordenDeImagenes().
+            'orden'   => ['nullable', 'array', 'max:'.Producto::MAX_IMAGENES],
+            'orden.*' => ['bail', 'string', 'distinct', $this->elementoDeOrden(...)],
         ];
     }
 
@@ -126,20 +128,87 @@ class ProductoRequest extends FormRequest
             : $regla->where('activo', true);
     }
 
-    /** Las que ya tiene, menos las que se quitan, más las nuevas: no más de MAX_IMAGENES. */
-    private function limiteDeImagenes(string $atributo, mixed $nuevas, Closure $fallar): void
+    /**
+     * Sin orden (JavaScript desactivado, o la API sin ese campo): se conservan
+     * las actuales y las nuevas van al final, así que entre las dos no pueden
+     * pasar de MAX_IMAGENES. Con orden, el límite lo pone la regla max de orden.
+     */
+    private function limiteSinOrden(string $atributo, mixed $nuevas, Closure $fallar): void
     {
-        $actuales = $this->route('producto')?->imagenes ?? [];
-        $quitadas = array_intersect((array) $this->input('quitar_imagenes', []), $actuales);
-        $total    = count($actuales) - count($quitadas) + count((array) $nuevas);
+        if ($this->has('imagenes_orden')) {
+            return;
+        }
+
+        $total = count($this->route('producto')?->imagenes ?? []) + count((array) $nuevas);
 
         if ($total > Producto::MAX_IMAGENES) {
             $fallar(sprintf(
-                'Un producto puede tener hasta %d imágenes. Con estas quedaría con %d: quitá alguna de las actuales o subí menos.',
+                'Un producto puede tener hasta %d imágenes. Con estas quedaría con %d.',
                 Producto::MAX_IMAGENES,
                 $total,
             ));
         }
+    }
+
+    /**
+     * Cada elemento del orden tiene que referirse a algo que existe: una
+     * imagen que el producto TIENE, o un archivo que viene en esta petición.
+     */
+    private function elementoDeOrden(string $atributo, mixed $valor, Closure $fallar): void
+    {
+        [$tipo, $referencia] = array_pad(explode(':', $valor, 2), 2, '');
+
+        if ($tipo === 'actual') {
+            if (! in_array($referencia, $this->route('producto')?->imagenes ?? [], true)) {
+                $fallar('Se pidió conservar una imagen que el producto no tiene. Recargá la página e intentá de nuevo.');
+            }
+
+            return;
+        }
+
+        if ($tipo === 'nueva') {
+            $cantidad = count($this->file('imagenes', []));
+
+            if (! ctype_digit($referencia) || (int) $referencia >= $cantidad) {
+                $fallar('Falta una de las imágenes nuevas. Volvé a seleccionarla.');
+            }
+
+            return;
+        }
+
+        $fallar('No se pudo leer el orden de las imágenes. Recargá la página e intentá de nuevo.');
+    }
+
+    private function decodificarOrden(): array|false
+    {
+        $orden = json_decode((string) $this->input('imagenes_orden'), true);
+
+        return is_array($orden) && array_is_list($orden) ? $orden : false;
+    }
+
+    /**
+     * El orden final de las imágenes, ya validado, en un formato que no
+     * depende de cómo lo mandó el formulario. null si no se mandó.
+     *
+     * El formato de texto ("actual:…", "nueva:0") es un detalle del
+     * transporte y termina acá: el servicio recibe una estructura, y la
+     * API de la Etapa 3 puede mandarla por otro camino sin tocarlo.
+     *
+     * @return array<int, array{tipo: 'actual', ruta: string}|array{tipo: 'nueva', indice: int}>|null
+     */
+    public function ordenDeImagenes(): ?array
+    {
+        if (! $this->has('imagenes_orden')) {
+            return null;
+        }
+
+        return array_map(function (string $elemento): array {
+            [$tipo, $referencia] = explode(':', $elemento, 2);
+
+            return $tipo === 'actual'
+                ? ['tipo' => 'actual', 'ruta' => $referencia]
+                : ['tipo' => 'nueva', 'indice' => (int) $referencia];
+        }, $this->validated('orden', []));
     }
 
     public function messages(): array
@@ -174,7 +243,10 @@ class ProductoRequest extends FormRequest
             'imagenes.*.image' => 'El archivo :position no es una imagen.',
             'imagenes.*.mimes' => 'La imagen :position tiene que ser JPG, PNG o WEBP.',
             'imagenes.*.max'   => 'La imagen :position supera 1 MB.',
-            'quitar_imagenes.*.in' => 'Se pidió quitar una imagen que el producto no tiene.',
+            'imagenes.max'     => 'Se pueden subir hasta :max imágenes a la vez.',
+            'orden.array'      => 'No se pudo leer el orden de las imágenes. Recargá la página e intentá de nuevo.',
+            'orden.max'        => 'Un producto puede tener hasta :max imágenes.',
+            'orden.*.distinct' => 'Una imagen aparece dos veces. Recargá la página e intentá de nuevo.',
         ];
     }
 
@@ -194,6 +266,7 @@ class ProductoRequest extends FormRequest
             'cantidad_reposicion' => 'cantidad a reponer',
             'activo'              => 'estado',
             'imagenes'            => 'imágenes',
+            'orden' => 'orden de las imágenes',
         ];
     }
 }

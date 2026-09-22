@@ -25,10 +25,12 @@ use Throwable;
  *      formulario lo dice: no es un valor puesto en silencio.
  *   2. stock, stock_reservado y costo_promedio no se tocan nunca desde acá.
  *      Los mueve el StockService (Fase 5), dejando movimiento en el kardex.
- *   3. Las imágenes se guardan antes de la transacción y, si la base rechaza
- *      la operación, se borran. Las que se quitan se borran después del
- *      commit. El disco no participa de la transacción: el orden es lo único
- *      que evita archivos huérfanos o filas que apuntan a archivos borrados.
+ *   3. Las imágenes finales las describe un orden (ver
+ *      ProductoRequest::ordenDeImagenes()): cuáles quedan, en qué orden y
+ *      cuál es la principal. Las nuevas se guardan antes de la transacción
+ *      y se borran si la base rechaza la operación; las que se quitan se
+ *      borran después del commit, y la lista de qué borrar se calcula a
+ *      partir de lo que el producto tiene, nunca de lo que envía el usuario.
  *   4. Un producto referenciado —en ventas, órdenes de compra o el kardex— o
  *      con stock distinto de cero no se borra.
  *
@@ -43,60 +45,58 @@ class ProductoService
 
     private const REFERENCIAS = ['venta_lineas', 'orden_compra_lineas', 'movimientos_stock'];
 
-    /** @param  array<int, UploadedFile>  $imagenes */
-    public function crear(array $datos, array $imagenes = []): Producto
+     /**
+     * @param  array<int, UploadedFile>  $imagenes
+     * @param  array<int, array>|null    $orden  ver ProductoRequest::ordenDeImagenes()
+     */
+    public function crear(array $datos, array $imagenes = [], ?array $orden = null): Producto
     {
-        $rutas = $this->guardarImagenes($imagenes);
+        $nuevas = $this->guardarNuevas($imagenes, $orden);
 
         try {
             return DB::transaction(fn () => Producto::create([
                 ...$this->atributos($datos),
-                'imagenes' => $rutas ?: null,
+                'imagenes' => $this->componerImagenes([], $nuevas, $orden) ?: null,
             ]));
         } catch (Throwable $e) {
-            // La base rechazó el alta: los archivos recién subidos no tienen
-            // a quién pertenecer.
-            $this->borrarArchivos($rutas);
+            $this->borrarArchivos(array_values($nuevas));
 
             throw $e;
         }
     }
 
     /**
-     * @param  array<int, UploadedFile>  $nuevas
-     * @param  array<int, string>        $quitar  rutas de imágenes actuales
+     * @param  array<int, UploadedFile>  $imagenes
+     * @param  array<int, array>|null    $orden  ver ProductoRequest::ordenDeImagenes()
      */
-    public function actualizar(Producto $producto, array $datos, array $nuevas = [], array $quitar = []): Producto
+    public function actualizar(Producto $producto, array $datos, array $imagenes = [], ?array $orden = null): Producto
     {
         $actuales = $producto->imagenes ?? [];
-
-        // Sólo se quitan imágenes que el producto tiene. ProductoRequest ya lo
-        // valida; esta intersección es la segunda defensa, porque este método
-        // borra archivos del disco y no debe depender de que quien lo llama
-        // haya validado bien.
-        $quitar = array_values(array_intersect($quitar, $actuales));
-        $rutas  = $this->guardarImagenes($nuevas);
+        $nuevas   = $this->guardarNuevas($imagenes, $orden);
+        $final    = $this->componerImagenes($actuales, $nuevas, $orden);
 
         try {
-            $actualizado = DB::transaction(function () use ($producto, $datos, $actuales, $quitar, $rutas) {
-                // Las que quedan conservan su orden y las nuevas van al final.
-                // La primera es la principal.
-                $imagenes = [...array_values(array_diff($actuales, $quitar)), ...$rutas];
-
+            $actualizado = DB::transaction(function () use ($producto, $datos, $final) {
                 $producto->update([
                     ...$this->atributos($datos),
-                    'imagenes' => $imagenes ?: null,
+                    'imagenes' => $final ?: null,
                 ]);
 
                 return $producto->fresh();
             });
         } catch (Throwable $e) {
-            $this->borrarArchivos($rutas);
+            $this->borrarArchivos(array_values($nuevas));
 
             throw $e;
         }
 
-        $this->borrarArchivos($quitar);
+        // Se borran las que el producto TENÍA y no quedaron en la lista final.
+        // La lista de archivos a borrar se calcula acá, a partir de lo que el
+        // producto tiene: ningún dato enviado por el usuario llega nunca a
+        // Storage::delete(), así que un "../../.env" no tiene por dónde entrar.
+        // Y va después del commit, porque el disco no participa de la
+        // transacción.
+        $this->borrarArchivos(array_values(array_diff($actuales, $final)));
 
         return $actualizado;
     }
@@ -141,6 +141,68 @@ class ProductoService
             'marcas'      => $this->activasOActual(Marca::query()->orderBy('nombre'), $producto?->marca_id),
             'proveedores' => $this->activasOActual(Proveedor::query()->orderBy('razon_social'), $producto?->proveedor_id),
         ];
+    }
+
+        /**
+     * Guarda en disco sólo los archivos nuevos que el orden usa: un archivo
+     * subido que no figura en la lista final no se guarda, así no queda
+     * huérfano.
+     *
+     * @param  array<int, UploadedFile>  $archivos
+     * @return array<int, string>  ruta guardada, por índice del archivo en la petición
+     */
+    private function guardarNuevas(array $archivos, ?array $orden): array
+    {
+        $usados = $orden === null
+            ? array_keys($archivos)
+            : array_column(array_filter($orden, fn (array $e) => $e['tipo'] === 'nueva'), 'indice');
+
+        $rutas = [];
+
+        foreach ($usados as $indice) {
+            if (isset($archivos[$indice])) {
+                $rutas[$indice] = $archivos[$indice]->store(self::CARPETA, 'public');
+            }
+        }
+
+        return $rutas;
+    }
+
+    /**
+     * La lista final de rutas.
+     *
+     * Sin orden: las actuales como estaban y las nuevas al final.
+     * Con orden: exactamente lo que dice. La primera es la principal.
+     *
+     * @param  array<int, string>  $actuales
+     * @param  array<int, string>  $nuevas  ruta por índice
+     * @return array<int, string>
+     */
+    private function componerImagenes(array $actuales, array $nuevas, ?array $orden): array
+    {
+        if ($orden === null) {
+            return [...$actuales, ...array_values($nuevas)];
+        }
+
+        $final = [];
+
+        foreach ($orden as $elemento) {
+            $ruta = match ($elemento['tipo']) {
+                // Sólo rutas que el producto ya tiene. El Request lo valida;
+                // esta es la segunda defensa, para que un orden armado a mano
+                // no pueda hacer pasar un archivo ajeno por imagen del
+                // producto.
+                'actual' => in_array($elemento['ruta'], $actuales, true) ? $elemento['ruta'] : null,
+                'nueva'  => $nuevas[$elemento['indice']] ?? null,
+                default  => null,
+            };
+
+            if ($ruta !== null && ! in_array($ruta, $final, true)) {
+                $final[] = $ruta;
+            }
+        }
+
+        return $final;
     }
 
     private function activasOActual(Builder $query, ?int $actual): Collection

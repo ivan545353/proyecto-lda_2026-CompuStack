@@ -68,7 +68,11 @@ class ProductoController extends Controller
 
     public function store(ProductoRequest $request): RedirectResponse
     {
-        $producto = $this->service->crear($request->validated(), $request->file('imagenes', []));
+        $producto = $this->service->crear(
+            $request->validated(),
+            $request->file('imagenes', []),
+            $request->ordenDeImagenes(),
+        );
 
         return redirect()->route('productos.index')
             ->with('exito', "Producto «{$producto->nombre}» creado.");
@@ -88,7 +92,7 @@ class ProductoController extends Controller
             $producto,
             $request->validated(),
             $request->file('imagenes', []),
-            $request->input('quitar_imagenes', []),
+            $request->ordenDeImagenes()
         );
 
         return redirect()->route('productos.index')
