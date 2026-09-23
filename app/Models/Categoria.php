@@ -131,6 +131,27 @@ class Categoria extends Model
         return 1 + count($this->nivelesInferiores());
     }
 
+        /**
+     * Qué queda activo dentro de esta categoría: subcategorías y productos de
+     * toda la rama.
+     *
+     * Se usa para avisarle al usuario qué pasa al desactivarla, y para armar
+     * el mensaje del resultado.
+     *
+     * @return array{subcategorias: int, productos: int}
+     */
+    public function contenidoActivo(): array
+    {
+        $rama = [$this->id, ...$this->idsDescendientes()];
+
+        return [
+            'subcategorias' => static::query()->whereIn('id', $rama)->whereKeyNot($this->id)
+                ->where('activo', true)->count(),
+            'productos' => Producto::query()->whereIn('categoria_id', $rama)
+                ->where('activo', true)->count(),
+        ];
+    }
+
     /** Nivel en el árbol. Una raíz es nivel 1. */
     public function nivel(): int
     {

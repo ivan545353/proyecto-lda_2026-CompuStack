@@ -103,3 +103,49 @@ test('el padre actual se ofrece aunque este inactivo, y las demas inactivas no',
     expect(in_array($padre->id, $ids, true))->toBeTrue()
         ->and(in_array($otraInactiva->id, $ids, true))->toBeFalse();
 });
+
+test('desactivar una categoria no toca su contenido por defecto', function () {
+    $padre = Categoria::factory()->create();
+    $hija  = Categoria::factory()->hijaDe($padre)->create();
+    $producto = Producto::factory()->create(['categoria_id' => $hija->id]);
+
+    $this->service->actualizar($padre, ['nombre' => $padre->nombre, 'orden' => 0, 'activo' => false]);
+
+    expect($padre->fresh()->activo)->toBeFalse()
+        ->and($hija->fresh()->activo)->toBeTrue()
+        ->and($producto->fresh()->activo)->toBeTrue();
+});
+
+test('con la opcion, desactivar alcanza a toda la rama', function () {
+    $padre = Categoria::factory()->create();
+    $hija  = Categoria::factory()->hijaDe($padre)->create();
+    $nieta = Categoria::factory()->hijaDe($hija)->create();
+    $producto = Producto::factory()->create(['categoria_id' => $nieta->id]);
+    $ajeno    = Producto::factory()->create();
+
+    $this->service->actualizar($padre, ['nombre' => $padre->nombre, 'orden' => 0, 'activo' => false], desactivarContenido: true);
+
+    expect($hija->fresh()->activo)->toBeFalse()
+        ->and($nieta->fresh()->activo)->toBeFalse()
+        ->and($producto->fresh()->activo)->toBeFalse()
+        ->and($ajeno->fresh()->activo)->toBeTrue();
+});
+
+test('la opcion no hace nada si la categoria queda activa', function () {
+    $categoria = Categoria::factory()->create();
+    $producto  = Producto::factory()->create(['categoria_id' => $categoria->id]);
+
+    $this->service->actualizar($categoria, ['nombre' => 'Otro', 'orden' => 0, 'activo' => true], desactivarContenido: true);
+
+    expect($producto->fresh()->activo)->toBeTrue();
+});
+
+test('contenidoActivo cuenta la rama y no las inactivas', function () {
+    $padre = Categoria::factory()->create();
+    $hija  = Categoria::factory()->hijaDe($padre)->create();
+    Categoria::factory()->hijaDe($padre)->inactiva()->create();
+    Producto::factory()->count(2)->create(['categoria_id' => $hija->id]);
+    Producto::factory()->inactivo()->create(['categoria_id' => $hija->id]);
+
+    expect($padre->contenidoActivo())->toBe(['subcategorias' => 1, 'productos' => 2]);
+});

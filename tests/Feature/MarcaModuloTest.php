@@ -264,3 +264,30 @@ test('una marca con productos se desactiva y el mensaje lo dice', function () {
     $this->assertModelExists($marca);
     expect($marca->fresh()->activo)->toBeFalse();
 });
+
+test('desactivar una marca no desactiva sus productos, y el mensaje lo dice', function () {
+    $marca    = Marca::factory()->create();
+    $producto = Producto::factory()->create(['marca_id' => $marca->id]);
+
+    $this->actingAs(usuarioCon('marca.editar'))
+        ->put(route('marcas.update', $marca), ['nombre' => $marca->nombre])
+        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'siguen activos'));
+
+    expect($producto->fresh()->activo)->toBeTrue();
+});
+
+test('con la opcion, desactivar la marca desactiva sus productos', function () {
+    $marca    = Marca::factory()->create();
+    $producto = Producto::factory()->create(['marca_id' => $marca->id]);
+    $ajeno    = Producto::factory()->create();
+
+    $this->actingAs(usuarioCon('marca.editar'))
+        ->put(route('marcas.update', $marca), [
+            'nombre' => $marca->nombre,
+            'desactivar_productos' => 1,
+        ])
+        ->assertSessionHas('exito');
+
+    expect($producto->fresh()->activo)->toBeFalse()
+        ->and($ajeno->fresh()->activo)->toBeTrue();
+});

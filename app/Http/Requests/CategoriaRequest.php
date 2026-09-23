@@ -74,6 +74,7 @@ class CategoriaRequest extends FormRequest
 
             'orden'  => ['required', 'integer', 'min:0', 'max:9999'],
             'activo' => ['required', 'boolean'],
+            'desactivar_contenido' => ['nullable', 'boolean'],
         ];
     }
 

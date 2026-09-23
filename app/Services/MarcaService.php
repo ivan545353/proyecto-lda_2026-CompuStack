@@ -56,13 +56,18 @@ class MarcaService
         }
     }
 
-    public function actualizar(Marca $marca, array $datos, ?UploadedFile $logo = null, bool $quitarLogo = false): Marca
-    {
+    public function actualizar(
+        Marca $marca,
+        array $datos,
+        ?UploadedFile $logo = null,
+        bool $quitarLogo = false,
+        bool $desactivarProductos = false,
+    ): Marca {
         $logoAnterior = $marca->logo;
         $rutaNueva    = $logo?->store(self::CARPETA, 'public');
 
         try {
-            $actualizado = DB::transaction(function () use ($marca, $datos, $rutaNueva, $quitarLogo) {
+            $actualizado = DB::transaction(function () use ($marca, $datos, $rutaNueva, $quitarLogo, $desactivarProductos) {
                 $cambioElNombre = $marca->nombre !== $datos['nombre'];
 
                 $marca->update([
@@ -79,6 +84,11 @@ class MarcaService
                         default             => $marca->logo,
                     },
                 ]);
+
+                // Misma regla que en categorías: la cascada la pide el usuario.
+                if ($desactivarProductos && ! $datos['activo']) {
+                    $marca->productos()->update(['activo' => false]);
+                }
 
                 return $marca->fresh();
             });

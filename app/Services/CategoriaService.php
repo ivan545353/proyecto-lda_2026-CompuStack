@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Categoria;
 use App\Support\Slug;
+use App\Models\Producto;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -22,9 +23,9 @@ use Illuminate\Database\Eloquent\Collection;
  *      desactiva. Borrarla fallaría por la clave foránea de productos, o peor,
  *      las hijas quedarían convertidas en raíces sin que nadie lo pidiera
  *      (parent_id tiene nullOnDelete).
- *   3. Desactivar no se propaga a las hijas. Desactivar "Componentes" no
- *      apaga en silencio veinte subcategorías: si hace falta, se hace una por
- *      una y queda a la vista.
+ *   3. Desactivar no se propaga solo. La cascada sobre la rama (subcategorías
+ *      y productos) es una opción explícita del formulario: el usuario la
+ *      elige viendo cuántos elementos afecta.
  *
  * Métodos:
  *   crear()       alta
@@ -44,13 +45,15 @@ class CategoriaService
         ]));
     }
 
-    public function actualizar(Categoria $categoria, array $datos): Categoria
+    /**
+     * @param  bool  $desactivarContenido  desactiva también la rama; sólo se
+     *                                     aplica si la categoría queda inactiva
+     */
+    public function actualizar(Categoria $categoria, array $datos, bool $desactivarContenido = false): Categoria
     {
-        return DB::transaction(function () use ($categoria, $datos) {
+        return DB::transaction(function () use ($categoria, $datos, $desactivarContenido) {
             $cambioElNombre = $categoria->nombre !== $datos['nombre'];
 
-            // Se enumeran los campos en lugar de pasar $datos entero: lo que no
-            // está en el formulario (peso_default_gramos) no se toca.
             $categoria->update([
                 'parent_id' => $datos['parent_id'] ?? null,
                 'nombre'    => $datos['nombre'],
@@ -60,6 +63,15 @@ class CategoriaService
                 'orden'     => $datos['orden'],
                 'activo'    => $datos['activo'],
             ]);
+
+            // La cascada es una decisión del usuario, nunca un efecto
+            // automático: desactivar una categoría no puede sacar de la venta
+            // productos con stock sin que nadie lo haya pedido. Y al revés,
+            // reactivarla no los reactiva: el sistema no sabe cuáles estaban
+            // activos antes.
+            if ($desactivarContenido && ! $datos['activo']) {
+                $this->desactivarRama($categoria);
+            }
 
             return $categoria->fresh();
         });
@@ -111,5 +123,14 @@ class CategoriaService
             ->filter(fn (Categoria $opcion) => $opcion->nivelCargado() + $altura <= Categoria::PROFUNDIDAD_MAXIMA)
             ->sortBy('ruta', SORT_NATURAL | SORT_FLAG_CASE)
             ->values();
+    }
+
+    /** Desactiva la categoría, sus subcategorías y los productos de toda la rama. */
+    private function desactivarRama(Categoria $categoria): void
+    {
+        $rama = [$categoria->id, ...$categoria->idsDescendientes()];
+
+        Categoria::whereIn('id', $rama)->update(['activo' => false]);
+        Producto::whereIn('categoria_id', $rama)->update(['activo' => false]);
     }
 }

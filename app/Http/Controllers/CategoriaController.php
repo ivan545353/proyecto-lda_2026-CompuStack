@@ -92,10 +92,15 @@ class CategoriaController extends Controller
 
     public function update(CategoriaRequest $request, Categoria $categoria): RedirectResponse
     {
-        $categoria = $this->service->actualizar($categoria, $request->validated());
+        // Se cuenta ANTES: después del update, la rama ya cambió.
+        $contenido = $categoria->contenidoActivo();
+        $enCascada = $request->boolean('desactivar_contenido') && ! $request->boolean('activo');
+        $seDesactiva = $categoria->activo && ! $request->boolean('activo');
+
+        $categoria = $this->service->actualizar($categoria, $request->validated(), $enCascada);
 
         return redirect()->route('categorias.index', array_filter(['parent_id' => $categoria->parent_id]))
-            ->with('exito', "Categoría «{$categoria->nombre}» actualizada.");
+            ->with('exito', $this->mensaje($categoria, $contenido, $seDesactiva, $enCascada));
     }
 
     public function destroy(Categoria $categoria): RedirectResponse
@@ -108,5 +113,40 @@ class CategoriaController extends Controller
             ->with('exito', $seBorro
                 ? "Categoría «{$nombre}» eliminada."
                 : "«{$nombre}» tiene subcategorías o productos asociados: se desactivó en lugar de eliminarse.");
+    }
+
+    /**
+     * El mensaje dice qué pasó con el contenido de la categoría.
+     *
+     * Desactivar una categoría sin avisar qué queda adentro es un cambio de
+     * estado invisible: el administrativo cree que sacó la línea de venta y
+     * los productos siguen a la venta, o al revés.
+     */
+    private function mensaje(Categoria $categoria, array $contenido, bool $seDesactiva, bool $enCascada): string
+    {
+        $base = "Categoría «{$categoria->nombre}» actualizada.";
+
+        if (! $seDesactiva) {
+            return $base;
+        }
+
+        $partes = array_filter([
+            $contenido['subcategorias'] > 0
+                ? $contenido['subcategorias'].' '.($contenido['subcategorias'] === 1 ? 'subcategoría' : 'subcategorías')
+                : null,
+            $contenido['productos'] > 0
+                ? $contenido['productos'].' '.($contenido['productos'] === 1 ? 'producto' : 'productos')
+                : null,
+        ]);
+
+        if ($partes === []) {
+            return "«{$categoria->nombre}» se desactivó. Ya no se va a ofrecer para cargar productos nuevos.";
+        }
+
+        $listado = implode(' y ', $partes);
+
+        return $enCascada
+            ? "«{$categoria->nombre}» se desactivó junto con {$listado}."
+            : "«{$categoria->nombre}» se desactivó. {$listado} siguen activos y a la venta; la categoría ya no se va a ofrecer para cargar productos nuevos.";
     }
 }

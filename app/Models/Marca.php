@@ -43,6 +43,12 @@ class Marca extends Model
         return $this->hasMany(Producto::class, 'marca_id');
     }
 
+    /** Productos activos de la marca: se muestra antes de desactivarla. */
+    public function productosActivos(): int
+    {
+        return $this->productos()->where('activo', true)->count();
+    }
+
     /**
      * Filtro por nombre.
      *

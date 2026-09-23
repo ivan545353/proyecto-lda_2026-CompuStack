@@ -71,15 +71,25 @@ class MarcaController extends Controller
 
     public function update(MarcaRequest $request, Marca $marca): RedirectResponse
     {
+        $activos     = $marca->productosActivos();
+        $seDesactiva = $marca->activo && ! $request->boolean('activo');
+        $enCascada   = $request->boolean('desactivar_productos') && ! $request->boolean('activo');
+
         $marca = $this->service->actualizar(
             $marca,
             $request->validated(),
             $request->file('logo'),
             $request->boolean('quitar_logo'),
+            $enCascada,
         );
 
-        return redirect()->route('marcas.index')
-            ->with('exito', "Marca «{$marca->nombre}» actualizada.");
+        $mensaje = match (true) {
+            ! $seDesactiva || $activos === 0 => "Marca «{$marca->nombre}» actualizada.",
+            $enCascada => "«{$marca->nombre}» se desactivó junto con sus {$activos} producto(s).",
+            default => "«{$marca->nombre}» se desactivó. Sus {$activos} producto(s) siguen activos y a la venta; la marca ya no se va a ofrecer para productos nuevos.",
+        };
+
+        return redirect()->route('marcas.index')->with('exito', $mensaje);
     }
 
     public function destroy(Marca $marca): RedirectResponse

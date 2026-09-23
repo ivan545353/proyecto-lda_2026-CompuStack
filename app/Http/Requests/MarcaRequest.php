@@ -54,6 +54,7 @@ class MarcaRequest extends FormRequest
             'quitar_logo' => ['nullable', 'boolean'],
 
             'activo' => ['required', 'boolean'],
+            'desactivar_productos' => ['nullable', 'boolean'],
         ];
     }
 
