@@ -15,7 +15,7 @@ Universidad Nacional de la Patagonia Austral — Unidad Académica Caleta Olivia
 | 0 | Repositorio y línea base | Completada |
 | 1 | Proyecto Laravel, esquema de datos y seeders | Completada |
 | 2 | Autenticación, roles y permisos | Completada |
-| 3 | Catálogo: categorías, marcas, productos | Pendiente |
+| 3 | Catálogo: categorías, marcas, productos | Completada |
 | 4 | Usuarios, clientes y empleados | Pendiente |
 | 5 | Proveedores, compras y stock | Pendiente |
 | 6 | Ventas y pagos | Pendiente |
@@ -310,6 +310,26 @@ Decisiones de esta fase que conviene tener presentes al leer el código:
   original resolvía el módulo con `ucfirst($controller)` contra la tabla
   `modulos`: renombrar un controlador rompía los permisos en silencio. Ahora cada
   ruta declara el permiso que exige.
+
+## Trabajo pendiente
+
+Decisiones tomadas a conciencia, con su motivo:
+
+- **Las imágenes nuevas se pierden si el formulario vuelve con un error en
+  otro campo.** El navegador no permite volver a completar un campo de
+  archivo. Resolverlo requiere subir cada imagen apenas se elige, a un
+  almacenamiento temporal, con un endpoint propio y una tarea que limpie lo
+  abandonado. El formulario avisa que hay que volver a elegirlas.
+- **Los selectores con búsqueda cargan todas las opciones en el HTML.** Sirve
+  para categorías, marcas y proveedores. Para productos y clientes en ventas
+  (Fase 6) hace falta buscar en el servidor; el componente está preparado para
+  recibir ese modo.
+- **El bloque de campo se repite en los tres formularios**: etiqueta, campo,
+  ayuda y error. Corresponde un componente Blade `<x-campo>`. No se hizo en la
+  Fase 3 para no mezclar un refactor con módulos nuevos.
+- **El filtro por categoría no recorre subcategorías en el listado de
+  categorías**, a diferencia del de productos. Es deliberado: uno es
+  navegación y el otro es búsqueda.
 
 ## Documentación
 
