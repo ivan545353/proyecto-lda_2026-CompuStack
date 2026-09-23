@@ -50,8 +50,8 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 | `base/BaseController.php` | Contrato común de controlador | `App\Http\Controllers\Controller` | Pendiente |
 | `base/InterfaceController.php` | Interfaz CRUD | Convención de resource controller | Pendiente |
 | `AuthenticationController.php` | Login, logout, `getCurrent` | `AuthController` con sesión | Migrado |
-| `CategoryController.php` | CRUD de categorías | `CategoriaController` (resource) | Pendiente |
-| `ItemController.php` | CRUD de productos | `ProductoController` (resource) | Pendiente |
+| `CategoryController.php` | CRUD de categorías | `CategoriaController` (resource) | Migrado |
+| `ItemController.php` | CRUD de productos | `ProductoController` (resource) | Migrado |
 | `UserController.php` | CRUD de usuarios, cambio de clave, perfiles | `UsuarioController` + `PerfilController` | Pendiente |
 | `SaleController.php` | Ventas, cobros, cambio de estado | `VentaController` + `PagoController` | Pendiente |
 
@@ -63,8 +63,8 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 |---|---|---|---|
 | `base/InterfaceService.php` | Contrato de servicio | Sin equivalente directo | Pendiente |
 | `AuthenticationService.php` | Verifica credenciales y emite JWT | `AuthController` + guard de sesión | Migrado |
-| `CategoryService.php` | Validaciones de categoría | `CategoriaService` (adelgazado) | Pendiente |
-| `ItemService.php` | Validaciones de producto | `ProductoService` (adelgazado) | Pendiente |
+| `CategoryService.php` | Validaciones de categoría | `CategoriaService` (adelgazado) | Migrado |
+| `ItemService.php` | Validaciones de producto | `ProductoService` (adelgazado) | Migrado |
 | `UserService.php` | Validaciones de usuario, hash de clave | `UsuarioService` (adelgazado) | Pendiente |
 | `SaleService.php` | Totales, descuentos, cobros, estados | `VentaService` + `PagoService` + máquina de estados | Pendiente |
 
@@ -78,8 +78,8 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 |---|---|---|---|
 | `base/BaseDao.php` | Conexión, transacciones, `lastInsertId` | `Illuminate\Database\Eloquent\Model` | Pendiente |
 | `base/InterfaceDao.php` | Contrato CRUD | Convención de Eloquent | Pendiente |
-| `CategoryDao.php` | SQL de categorías | Modelo `Categoria` | Pendiente |
-| `ItemDao.php` | SQL de productos | Modelo `Producto` + scopes de filtro | Pendiente |
+| `CategoryDao.php` | SQL de categorías | Modelo `Categoria` | Migrado |
+| `ItemDao.php` | SQL de productos | Modelo `Producto` + scopes de filtro | Migrado |
 | `UserDao.php` | SQL de usuarios, login | Modelo `User` (con `$hidden`) | Pendiente |
 | `SaleDao.php` | SQL de ventas, stock, pagos, numeración | Modelos `Venta`, `VentaLinea`, `Pago`, `MovimientoStock` | Pendiente |
 
@@ -93,8 +93,8 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 |---|---|---|---|
 | `base/InterfaceDto.php` | Contrato de DTO | Sin equivalente directo | Pendiente |
 | `LoginDto.php` | Credenciales de acceso | `LoginRequest` | Migrado |
-| `CategoryDto.php` | Validación y transporte | `CategoriaRequest` + modelo | Pendiente |
-| `ItemDto.php` | Validación y transporte | `ProductoRequest` + modelo | Pendiente |
+| `CategoryDto.php` | Validación y transporte | `CategoriaRequest` + modelo | Migrado |
+| `ItemDto.php` | Validación y transporte | `ProductoRequest` + modelo | Migrado |
 | `UserDto.php` | Validación y transporte | `UsuarioRequest` + modelo | Pendiente |
 | `SaleDto.php` | Validación y transporte | `VentaRequest` + modelo | Pendiente |
 
@@ -109,8 +109,8 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 | `features/auth/` | Pantalla de login | `resources/views/auth/` | Migrado |
 | `features/layout/` | Barra de navegación y estructura | `resources/views/layouts/app.blade.php` | Migrado |
 | `features/home/` | Panel con contadores | `resources/views/dashboard/` con datos agregados en servidor | Pendiente |
-| `features/category/` | Listado y formulario de categorías | `resources/views/categorias/` | Pendiente |
-| `features/item/` | Listado y formulario de productos | `resources/views/productos/` | Pendiente |
+| `features/category/` | Listado y formulario de categorías | `resources/views/categorias/` | Migrado |
+| `features/item/` | Listado y formulario de productos | `resources/views/productos/` | Migrado |
 | `features/user/` | Listado y formulario de usuarios | `resources/views/usuarios/` | Pendiente |
 | `features/sale/` | Ventas, detalle, cobro | `resources/views/ventas/` | Pendiente |
 | `features/account/` | Cambio de clave propia | `resources/views/cuenta/` | Pendiente |
@@ -145,7 +145,7 @@ Módulos nuevos de la Etapa 1. No hay componente que migrar; se construyen desde
 | Roles y permisos | Migraciones `roles`, `permisos`, `rol_permiso`, controlador, vistas, Gates | Pendiente |
 | Marcas | Migración, modelo `Marca`, controlador, vistas | Migrado |
 | Movimientos de stock | Migración, modelo `MovimientoStock`, servicio de kardex | Pendiente |
-| Categorías jerárquicas | Ampliación de `Categoria` con `parent_id` | Pendiente |
+| Categorías jerárquicas | Ampliación de `Categoria` con `parent_id` | Migrado |
 
 ## 11. Descartado del modelo original
 

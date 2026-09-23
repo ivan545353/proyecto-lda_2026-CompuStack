@@ -34,16 +34,19 @@ class ProductoFactory extends Factory
         ];
     }
 
-    /**
-     * El stock no es asignable en masa (sólo lo mueve el StockService, Fase 5).
-     * Para armar datos de prueba se fija directamente sobre el modelo.
-     */
-    public function conStock(int $cantidad): static
+    public function conStock(int $cantidad, int $reservado = 0): static
     {
-        return $this->afterCreating(function ($producto) use ($cantidad) {
-            $producto->stock = $cantidad;
+        return $this->afterCreating(function ($producto) use ($cantidad, $reservado) {
+            $producto->stock           = $cantidad;
+            $producto->stock_reservado = $reservado;
             $producto->save();
         });
+    }
+
+    /** Producto dado de baja. */
+    public function inactivo(): static
+    {
+        return $this->state(fn () => ['activo' => false]);
     }
 
     public function sinStock(): static

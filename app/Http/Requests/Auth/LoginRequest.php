@@ -36,9 +36,9 @@ class LoginRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'email.required'    => 'Ingrese su correo.',
-            'email.email'       => 'El correo no tiene un formato válido.',
-            'password.required' => 'Ingrese su contraseña.',
+            'email.required'    => 'Ingresa tu correo electrónico.',
+            'email.email'       => 'El formato del correo electrónico no es válido.',
+            'password.required' => 'Ingresa tu contraseña.',
         ];
     }
 }

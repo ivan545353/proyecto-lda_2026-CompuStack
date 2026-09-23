@@ -1,0 +1,76 @@
+// Selectores con búsqueda (Tom Select), con el lenguaje visual del sistema
+
+// Mismo foco que el resto de los campos
+.ts-wrapper.focus .ts-control {
+    border-color: var(--cs-acento-hover);
+    box-shadow: 0 0 0 .2rem rgba(0, 0, 0, .25);
+}
+
+.ts-wrapper.is-invalid .ts-control {
+    border-color: var(--bs-form-invalid-border-color);
+}
+
+.ts-dropdown {
+
+    // Más alto que el valor por defecto: con el árbol de categorías, 200px
+    // mostraban cinco opciones y obligaban a hacer scroll para todo
+    .ts-dropdown-content {
+        max-height: 18rem;
+    }
+
+    // Opción bajo el cursor o el teclado: gris claro, texto negro. Se
+    // distingue sin depender del color del acento y conserva el contraste.
+    .active {
+        background-color: var(--bs-secondary-bg);
+        color: var(--bs-body-color);
+    }
+
+    // La opción ya elegida
+    .selected {
+        font-weight: 600;
+    }
+
+    // Coincidencia de la búsqueda: subrayado y negrita en lugar del fondo
+    // amarillo por defecto
+    .highlight {
+        background: none;
+        font-weight: 700;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
+    .dropdown-input {
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+}
+
+// Árbol de categorías: sangría por nivel, principales en negrita
+.ts-opcion-padre {
+    display: none;
+    color: var(--bs-secondary-color);
+}
+
+.ts-nivel-1 {
+    font-weight: 600;
+}
+
+.ts-nivel-2 {
+    padding-left: 1rem;
+}
+
+.ts-nivel-3 {
+    padding-left: 2rem;
+}
+
+// Al buscar, la sangría no tiene sentido (los resultados vienen de ramas
+// distintas): se aplana y aparece el camino de cada uno
+.ts-buscando {
+    .ts-opcion {
+        padding-left: 0;
+        font-weight: normal;
+    }
+
+    .ts-opcion-padre {
+        display: inline;
+    }
+}

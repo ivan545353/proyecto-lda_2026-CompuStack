@@ -19,8 +19,7 @@
     </div>
 
     <div class="card border-0 shadow-sm">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
+        <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                     <tr>
                         <th>Rol</th>
@@ -76,7 +75,6 @@
                 </tbody>
             </table>
         </div>
-    </div>
 
     <div class="mt-3">
         {{ $roles->links() }}

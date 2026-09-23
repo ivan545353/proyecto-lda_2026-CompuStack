@@ -21,4 +21,16 @@ class CategoriaFactory extends Factory
             'activo'              => true,
         ];
     }
+
+    /** Categoría dada de baja. */
+    public function inactiva(): static
+    {
+        return $this->state(fn () => ['activo' => false]);
+    }
+
+    /** Hija de la categoría indicada. */
+    public function hijaDe(\App\Models\Categoria $padre): static
+    {
+        return $this->state(fn () => ['parent_id' => $padre->id]);
+    }
 }

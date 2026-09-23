@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Pagination\Paginator;
 /**
  * Registro de servicios y reglas de autorización.
  *
@@ -39,6 +40,7 @@ class AppServiceProvider extends ServiceProvider
         // CRUD (cobrar, anular, habilitar) heredaba el permiso de actualizar.
         // Un vendedor con can_update sobre el módulo sale podía anular ventas
         // cobradas teniendo can_delete = 0.
+        Paginator::useBootstrapFive();
         Gate::before(function (User $user, string $ability) {
             return $user->tienePermiso($ability) ? true : null;
         });

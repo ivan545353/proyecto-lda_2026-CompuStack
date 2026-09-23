@@ -19,4 +19,10 @@ class MarcaFactory extends Factory
             'activo' => true,
         ];
     }
+
+    /** Marca dada de baja. La baja es lógica: nunca se borra si tiene productos. */
+    public function inactiva(): static
+    {
+        return $this->state(fn () => ['activo' => false]);
+    }
 }
