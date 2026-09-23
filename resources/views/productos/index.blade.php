@@ -117,6 +117,15 @@
                                     · {{ $producto->marca->nombre }}
                                 @endif
                             </div>
+                            {{-- Un producto activo colgando de una categoría o marca inactiva no
+                                 es un error, pero conviene que se vea: suele ser lo que quedó
+                                 pendiente después de discontinuar una línea. --}}
+                            @unless ($producto->categoria->activo)
+                                <span class="badge text-bg-light border text-warning-emphasis">Categoría inactiva</span>
+                            @endunless
+                            @if ($producto->marca && !$producto->marca->activo)
+                                <span class="badge text-bg-light border text-warning-emphasis">Marca inactiva</span>
+                            @endif
                             @unless ($producto->activo)
                                 <span class="badge text-bg-secondary d-md-none">Inactivo</span>
                             @endunless

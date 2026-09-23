@@ -44,12 +44,10 @@
 
             <div class="col-12 col-md-6">
                 <label for="parent_id" class="form-label">Está dentro de</label>
-                <select class="form-select @error('parent_id') is-invalid @enderror"
-                    id="parent_id" name="parent_id" data-buscable="jerarquia"
-                    aria-describedby="ayudaPadre @error('parent_id') errorPadre @enderror">
+                <select class="form-select @error('parent_id') is-invalid @enderror" id="parent_id" name="parent_id"
+                    data-buscable="jerarquia" aria-describedby="ayudaPadre @error('parent_id') errorPadre @enderror">
                     <option value="">Ninguna (es una categoría principal)</option>
-                    <x-opciones-categoria :categorias="$padres"
-                        :seleccionada="old('parent_id', $categoria->parent_id)" />
+                    <x-opciones-categoria :categorias="$padres" :seleccionada="old('parent_id', $categoria->parent_id)" />
                 </select>
                 <div id="ayudaPadre" class="form-text">
                     @if ($esEdicion && $categoria->hijas_count > 0)
@@ -77,14 +75,48 @@
             </div>
 
             <div class="col-12">
+                @php($contenido = $esEdicion ? $categoria->contenidoActivo() : ['subcategorias' => 0, 'productos' => 0])
+
                 <div class="form-check">
-                    <input class="form-check-input" type="checkbox" value="1" id="activo" name="activo"
-                        @checked(old('activo', $categoria->activo ?? true))>
+                    <input class="form-check-input interruptor-activo" type="checkbox" value="1" id="activo"
+                        name="activo" @checked(old('activo', $categoria->activo ?? true))>
                     <label class="form-check-label" for="activo">Categoría activa</label>
                     <div class="form-text">
                         Una categoría inactiva no se ofrece al cargar productos ni recibe subcategorías nuevas.
                     </div>
                 </div>
+
+                @if ($esEdicion && $categoria->activo && ($contenido['subcategorias'] || $contenido['productos']))
+                    <div class="al-desactivar alert alert-warning mt-3 mb-0">
+                        <p class="mb-2">
+                            Esta categoría contiene
+                            @if ($contenido['subcategorias'])
+                                <strong>{{ $contenido['subcategorias'] }}</strong>
+                                {{ $contenido['subcategorias'] === 1 ? 'subcategoría activa' : 'subcategorías activas' }}
+                            @endif
+                            @if ($contenido['subcategorias'] && $contenido['productos'])
+                                y
+                            @endif
+                            @if ($contenido['productos'])
+                                <strong>{{ $contenido['productos'] }}</strong>
+                                {{ $contenido['productos'] === 1 ? 'producto activo' : 'productos activos' }}
+                            @endif
+                            . Si la desactivás, siguen como están: los productos se pueden seguir vendiendo.
+                        </p>
+
+                        <div class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" value="1" id="desactivar_contenido"
+                                name="desactivar_contenido" @checked(old('desactivar_contenido'))>
+                            <label class="form-check-label" for="desactivar_contenido">
+                                Desactivar también todo su contenido
+                            </label>
+                            <div class="form-text">
+                                Para cuando se discontinúa la línea entera. No se puede deshacer en un solo paso:
+                                reactivar la categoría después no vuelve a activar lo que se desactivó acá.
+                            </div>
+                        </div>
+                    </div>
+                @endif
             </div>
         </div>
 

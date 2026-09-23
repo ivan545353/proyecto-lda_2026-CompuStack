@@ -99,3 +99,12 @@ body {
     background-color: var(--cs-acento);
     color: #fff;
 }
+
+// Bloques que aparecen al desmarcar el interruptor de activo
+.al-desactivar {
+    display: none;
+}
+
+form:has(.interruptor-activo:not(:checked)) .al-desactivar {
+    display: block;
+}
