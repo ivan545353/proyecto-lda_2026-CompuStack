@@ -230,65 +230,10 @@
         </fieldset>
 
         {{-- Imágenes --}}
-        @php($erroresImagenes = collect($errors->get('imagenes'))->merge(collect($errors->get('imagenes.*'))->flatten()))
         <fieldset class="card card-body border-0 shadow-sm mb-4">
             <legend class="h5 mb-3">Imágenes</legend>
 
-            @if ($imagenes)
-                <ul class="list-unstyled d-flex flex-wrap gap-3 mb-3">
-                    @foreach ($imagenes as $i => $ruta)
-                        <li class="text-center">
-                            <img src="{{ Storage::url($ruta) }}"
-                                alt="Imagen {{ $i + 1 }} de {{ $producto->nombre }}" width="96"
-                                height="96" class="rounded border object-fit-cover d-block mb-1">
-                            @if ($i === 0)
-                                <span class="badge text-bg-dark mb-1">Principal</span>
-                            @endif
-                            <div class="form-check d-flex justify-content-center gap-1">
-                                <input class="form-check-input" type="checkbox" name="quitar_imagenes[]"
-                                    value="{{ $ruta }}" id="quitar{{ $i }}"
-                                    @checked(in_array($ruta, old('quitar_imagenes', []), true))>
-                                <label class="form-check-label small" for="quitar{{ $i }}">
-                                    Quitar<span class="visually-hidden"> la imagen {{ $i + 1 }}</span>
-                                </label>
-                            </div>
-                        </li>
-                    @endforeach
-                </ul>
-            @endif
-
-            <label for="imagenes" class="form-label">{{ $imagenes ? 'Agregar imágenes' : 'Imágenes' }}</label>
-            <input type="file" multiple accept="image/jpeg,image/png,image/webp"
-                class="form-control {{ $erroresImagenes->isNotEmpty() ? 'is-invalid' : '' }}" id="imagenes"
-                name="imagenes[]"
-                aria-describedby="ayudaImagenes {{ $erroresImagenes->isNotEmpty() ? 'errorImagenes' : '' }}">
-
-            @if ($erroresImagenes->isNotEmpty())
-                <div id="errorImagenes" class="invalid-feedback">
-                    @foreach ($erroresImagenes as $mensaje)
-                        <div>{{ $mensaje }}</div>
-                    @endforeach
-                </div>
-            @endif
-
-            <div id="ayudaImagenes" class="form-text">
-                Hasta {{ Producto::MAX_IMAGENES }} en total, JPG, PNG o WEBP de hasta 1 MB cada una. La primera es la
-                principal.
-                @if ($imagenes)
-                    Tiene {{ count($imagenes) }}: podés agregar {{ Producto::MAX_IMAGENES - count($imagenes) }} más,
-                    o quitar alguna para hacer lugar.
-                @endif
-            </div>
-
-            {{-- El navegador no permite volver a completar un campo de archivo:
-                 si hubo un error en cualquier campo, las imágenes elegidas se
-                 perdieron. Mejor decirlo que dejar que el usuario lo descubra. --}}
-            @if ($errors->any())
-                <p class="form-text text-danger-emphasis mb-0 mt-2">
-                    <i class="bi bi-info-circle" aria-hidden="true"></i>
-                    Si habías elegido imágenes, volvé a seleccionarlas: por seguridad, el navegador no las conserva.
-                </p>
-            @endif
+            <x-gestor-imagenes :actuales="$imagenes" :max="Producto::MAX_IMAGENES" :descripcion="$producto->nombre ?: 'el producto'" />
         </fieldset>
 
         {{-- Estado --}}
