@@ -12,6 +12,10 @@ import Sortable from 'sortablejs';
  *   imagenes[]      los archivos nuevos, en el orden en que aparecen
  *   imagenes_orden  JSON con la lista final: "actual:<ruta>" o "nueva:<n>"
  *
+ * Con max = 1 (un logo, por ejemplo) no hay orden ni principal: escribe el
+ * archivo en el campo simple (data-campo) y una marca de quita
+ * (data-campo-quitar), que es el contrato que ya tenía el formulario de
+ * marcas. La pantalla se unifica sin cambiar el servidor.
  * Mejora progresiva: si el navegador no permite armar la lista de archivos
  * de un campo (DataTransfer), el componente no se activa y queda el campo de
  * archivo común, con el que se puede agregar al final.
@@ -64,7 +68,16 @@ class GestorDeImagenes {
         this.maxBytes      = Number(contenedor.dataset.maxKb) * 1024;
         this.tipos         = contenedor.dataset.tipos.split(',');
         this.descripcion   = contenedor.dataset.descripcion;
-        this.inputArchivos = contenedor.querySelector('input[type="file"][name="imagenes[]"]');
+        this.campo          = contenedor.dataset.campo;
+        this.campoQuitar    = contenedor.dataset.campoQuitar || null;
+        this.etiquetaAgregar = contenedor.dataset.etiquetaAgregar;
+        // Con una sola imagen no hay orden ni principal: el campo del
+        // formulario es un archivo suelto y una marca de quita, no una lista.
+        this.simple         = this.max === 1;
+        this.reemplazar     = null;
+        this.inputArchivos  = contenedor.querySelector(
+            `input[type="file"][name="${this.campo}[]"], input[type="file"][name="${this.campo}"]`,
+        );
         this.siguienteId   = 1;
         this.quitada       = null;   // la última quitada, para deshacer
 
@@ -83,6 +96,11 @@ class GestorDeImagenes {
      * se perdieron: el navegador no conserva archivos entre envíos.
      */
     estadoInicial() {
+        // El formulario volvió con un error y la imagen ya estaba quitada.
+        if (this.contenedor.dataset.quitarPrevio === '1') {
+            return [];
+        }
+
         const actuales = JSON.parse(this.contenedor.dataset.actuales || '[]');
         const porRuta  = new Map(actuales.map((a) => [a.ruta, a]));
         let rutas      = actuales.map((a) => a.ruta);
@@ -102,9 +120,10 @@ class GestorDeImagenes {
     }
 
     construir() {
-        // Lo que sirve sin JavaScript se oculta; el campo de archivo sigue en
-        // el formulario porque es el que se envía.
-        this.contenedor.querySelectorAll('.js-sin-script').forEach((el) => el.classList.add('d-none'));
+        // Se quita del DOM, no se oculta: adentro hay una casilla que el
+        // navegador enviaría igual, y con JavaScript el estado lo lleva el
+        // campo oculto.
+        this.contenedor.querySelectorAll('.js-sin-script').forEach((el) => el.remove());
         this.inputArchivos.classList.add('d-none');
         this.contenedor.querySelectorAll('.js-con-script').forEach((el) => el.classList.remove('d-none'));
 
@@ -114,15 +133,18 @@ class GestorDeImagenes {
             <ul class="gestor-imagenes__lista" data-rol="lista" aria-label="Imágenes de ${escapar(this.descripcion)}"></ul>
             <div data-rol="aviso"></div>
             <div class="visually-hidden" aria-live="polite" data-rol="anuncio"></div>
-            <input type="file" class="d-none" multiple accept="${escapar(this.tipos.join(','))}" data-rol="selector" tabindex="-1" aria-hidden="true">
-            <input type="hidden" name="imagenes_orden">`;
+            <input type="file" class="d-none" ${this.simple ? '' : 'multiple'} accept="${escapar(this.tipos.join(','))}" data-rol="selector" tabindex="-1" aria-hidden="true">
+            ${this.simple
+                ? `<input type="hidden" name="${escapar(this.campoQuitar)}" value="0" data-rol="quitar">`
+                : `<input type="hidden" name="${escapar(this.campo)}_orden" data-rol="orden">`}`;
 
-        this.contador = montaje.querySelector('[data-rol="contador"]');
-        this.lista    = montaje.querySelector('[data-rol="lista"]');
-        this.aviso    = montaje.querySelector('[data-rol="aviso"]');
-        this.anuncio  = montaje.querySelector('[data-rol="anuncio"]');
-        this.selector = montaje.querySelector('[data-rol="selector"]');
-        this.orden    = montaje.querySelector('input[name="imagenes_orden"]');
+        this.contador    = montaje.querySelector('[data-rol="contador"]');
+        this.lista       = montaje.querySelector('[data-rol="lista"]');
+        this.aviso       = montaje.querySelector('[data-rol="aviso"]');
+        this.anuncio     = montaje.querySelector('[data-rol="anuncio"]');
+        this.selector    = montaje.querySelector('[data-rol="selector"]');
+        this.orden       = montaje.querySelector('[data-rol="orden"]');
+        this.marcaQuitar = montaje.querySelector('[data-rol="quitar"]');
 
         this.lista.addEventListener('click', (e) => this.alHacerClic(e));
         this.aviso.addEventListener('click', (e) => this.alHacerClicEnAviso(e));
@@ -151,9 +173,11 @@ class GestorDeImagenes {
             this.lista.appendChild(this.tarjetaAgregar(this.max - cantidad));
         }
 
-        this.contador.textContent = cantidad >= this.max
-            ? `${cantidad} de ${this.max} imágenes. Llegaste al máximo: quitá una para agregar otra.`
-            : `${cantidad} de ${this.max} imágenes.`;
+        this.contador.textContent = this.simple
+            ? ''
+            : (cantidad >= this.max
+                ? `${cantidad} de ${this.max} imágenes. Llegaste al máximo: quitá una para agregar otra.`
+                : `${cantidad} de ${this.max} imágenes.`);
     }
 
     tarjeta(item, i, cantidad) {
@@ -169,21 +193,26 @@ class GestorDeImagenes {
         li.innerHTML = `
             <div class="gestor-imagenes__marco">
                 <img src="${escapar(item.url)}" alt="${escapar(alt)}" draggable="false">
-                ${i === 0 ? '<span class="badge text-bg-dark gestor-imagenes__principal">Principal</span>' : ''}
+                ${!this.simple && i === 0 ? '<span class="badge text-bg-dark gestor-imagenes__principal">Principal</span>' : ''}
                 ${item.tipo === 'nueva' ? '<span class="badge text-bg-light border gestor-imagenes__nueva">Nueva</span>' : ''}
             </div>
-            <div class="gestor-imagenes__acciones" role="group" aria-label="Imagen ${posicion}">
-                <button type="button" class="btn btn-sm btn-light" data-accion="antes"
-                    ${i === 0 ? 'disabled' : ''} title="Mover antes"
-                    aria-label="Mover la imagen ${posicion} un lugar antes">${icono('chevron-left')}</button>
-                <button type="button" class="btn btn-sm btn-light" data-accion="principal"
-                    ${i === 0 ? 'disabled' : ''} title="Hacer principal"
-                    aria-label="Hacer principal la imagen ${posicion}">${icono(i === 0 ? 'star-fill' : 'star')}</button>
-                <button type="button" class="btn btn-sm btn-light" data-accion="despues"
-                    ${i === cantidad - 1 ? 'disabled' : ''} title="Mover después"
-                    aria-label="Mover la imagen ${posicion} un lugar después">${icono('chevron-right')}</button>
+            <div class="gestor-imagenes__acciones" role="group" aria-label="${this.simple ? escapar(this.descripcion) : `Imagen ${posicion}`}">
+                ${this.simple ? `
+                    <button type="button" class="btn btn-sm btn-light" data-accion="cambiar"
+                        title="Cambiar" aria-label="Cambiar la imagen de ${escapar(this.descripcion)}">${icono('arrow-repeat')}</button>
+                ` : `
+                    <button type="button" class="btn btn-sm btn-light" data-accion="antes"
+                        ${i === 0 ? 'disabled' : ''} title="Mover antes"
+                        aria-label="Mover la imagen ${posicion} un lugar antes">${icono('chevron-left')}</button>
+                    <button type="button" class="btn btn-sm btn-light" data-accion="principal"
+                        ${i === 0 ? 'disabled' : ''} title="Hacer principal"
+                        aria-label="Hacer principal la imagen ${posicion}">${icono(i === 0 ? 'star-fill' : 'star')}</button>
+                    <button type="button" class="btn btn-sm btn-light" data-accion="despues"
+                        ${i === cantidad - 1 ? 'disabled' : ''} title="Mover después"
+                        aria-label="Mover la imagen ${posicion} un lugar después">${icono('chevron-right')}</button>
+                `}
                 <button type="button" class="btn btn-sm btn-light text-danger" data-accion="quitar"
-                    title="Quitar" aria-label="Quitar la imagen ${posicion}">${icono('trash')}</button>
+                    title="Quitar" aria-label="Quitar ${this.simple ? `la imagen de ${escapar(this.descripcion)}` : `la imagen ${posicion}`}">${icono('trash')}</button>
             </div>`;
 
         return li;
@@ -196,8 +225,8 @@ class GestorDeImagenes {
         li.innerHTML = `
             <button type="button" class="gestor-imagenes__boton-agregar" data-accion="agregar">
                 ${icono('plus-lg')}
-                <span class="fw-semibold">Agregar imagen</span>
-                <span class="small text-body-secondary">${lugares === 1 ? 'Queda 1 lugar' : `Quedan ${lugares} lugares`}</span>
+                <span class="fw-semibold">${escapar(this.etiquetaAgregar)}</span>
+                ${this.simple ? '' : `<span class="small text-body-secondary">${lugares === 1 ? 'Queda 1 lugar' : `Quedan ${lugares} lugares`}</span>`}
             </button>`;
 
         return li;
@@ -223,6 +252,12 @@ class GestorDeImagenes {
         const indice = this.items.findIndex((item) => item.id === id);
 
         switch (accion) {
+            case 'cambiar':
+                // No se quita todavía: si el archivo elegido no sirve, la
+                // imagen actual tiene que seguir donde estaba.
+                this.reemplazar = id;
+                this.selector.click();
+                break;
             case 'antes':     this.mover(indice, indice - 1, id, 'antes'); break;
             case 'despues':   this.mover(indice, indice + 1, id, 'despues'); break;
             case 'principal': this.mover(indice, 0, id, 'despues'); break;
@@ -287,7 +322,7 @@ class GestorDeImagenes {
      * Es comodidad, no control: el servidor vuelve a validar todo.
      */
     agregarArchivos(archivos) {
-        const lugares   = this.max - this.items.length;
+        const lugares   = this.max - this.items.length + (this.reemplazar ? 1 : 0);
         const agregadas = [];
         const formato   = [];
         const peso      = [];
@@ -308,6 +343,13 @@ class GestorDeImagenes {
         agregadas.forEach((archivo) => this.items.push({
             id: this.nuevoId(), tipo: 'nueva', archivo, url: URL.createObjectURL(archivo),
         }));
+
+        // Recién acá se quita la anterior: sólo si la nueva se pudo agregar.
+        if (this.reemplazar && agregadas.length > 0) {
+            this.items = this.items.filter((item) => item.id !== this.reemplazar);
+        }
+
+        this.reemplazar = null;
 
         this.render();
 
@@ -340,6 +382,10 @@ class GestorDeImagenes {
     // ------------------------------------------------------------------
 
     activarArrastre() {
+        if (this.simple) {
+            return;
+        }
+
         const sinMovimiento = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
         Sortable.create(this.lista, {
@@ -395,6 +441,22 @@ class GestorDeImagenes {
 
     /** Arma imagenes[] e imagenes_orden justo antes de enviar. */
     prepararEnvio() {
+        if (this.simple) {
+            const item     = this.items[0] ?? null;
+            const archivos = new DataTransfer();
+
+            if (item?.tipo === 'nueva') {
+                archivos.items.add(item.archivo);
+            }
+
+            this.inputArchivos.files = archivos.files;
+            // Sin imagen: se pide quitarla. Con una nueva, el servicio
+            // reemplaza y borra la anterior por su cuenta.
+            this.marcaQuitar.value = item ? '0' : '1';
+
+            return;
+        }
+
         const archivos = new DataTransfer();
 
         const orden = this.items.map((item) => {

@@ -47,31 +47,10 @@
 
             {{-- Logotipo opcional (con soporte para reemplazo y eliminación) --}}
             <div class="col-12 col-md-6">
-                <label for="logo" class="form-label">Logo</label>
+                <span class="form-label d-block">Logo</span>
 
-                <input type="file" class="form-control @error('logo') is-invalid @enderror" id="logo" name="logo"
-                    accept="image/jpeg,image/png,image/webp"
-                    aria-describedby="ayudaLogo @error('logo') errorLogo @enderror">
-
-                <div id="ayudaLogo" class="form-text">JPG, PNG o WEBP. Hasta 512 KB. Opcional.</div>
-
-                @error('logo')
-                    <div id="errorLogo" class="invalid-feedback">{{ $message }}</div>
-                @enderror
-
-                {{-- Visualización del logo actual y opción de remoción --}}
-                @if ($marca->logo)
-                    <div class="d-flex align-items-center gap-3 mt-3 p-2 bg-light rounded border">
-                        <img src="{{ Storage::url($marca->logo) }}" alt="Logo actual de {{ $marca->nombre }}" height="40"
-                            class="object-fit-contain">
-
-                        <div class="form-check mb-0">
-                            <input class="form-check-input" type="checkbox" value="1" id="quitar_logo"
-                                name="quitar_logo">
-                            <label class="form-check-label small" for="quitar_logo">Quitar el logo actual</label>
-                        </div>
-                    </div>
-                @endif
+                <x-gestor-imagenes :actuales="$marca->logo ? [$marca->logo] : []" :max="1" :max-kb="512" campo="logo"
+                    campo-quitar="quitar_logo" etiqueta-agregar="Agregar logo" :descripcion="$marca->nombre ?: 'la marca'" />
             </div>
 
             {{-- Estado de disponibilidad en catálogo --}}
