@@ -1,6 +1,8 @@
 import './bootstrap';
 import * as bootstrap from 'bootstrap';
 import { iniciarSelectsBuscables } from './componentes/selects-buscables';
+import { iniciarGestoresDeImagenes } from './componentes/gestor-imagenes';
+
 window.bootstrap = bootstrap;
 
 // Mostrar u ocultar la contraseña en el login
@@ -87,3 +89,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Selectores con búsqueda: ver componentes/selects-buscables.js
 document.addEventListener('DOMContentLoaded', () => iniciarSelectsBuscables());
+
+// Gestor de imágenes: ver componentes/gestor-imagenes.js
+document.addEventListener('DOMContentLoaded', () => iniciarGestoresDeImagenes());
