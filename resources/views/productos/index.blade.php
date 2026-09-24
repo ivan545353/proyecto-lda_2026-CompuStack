@@ -26,8 +26,13 @@
         <div class="row g-3 align-items-end">
             <div class="col-12 col-lg-4">
                 <label for="q" class="form-label">Buscar por nombre o código</label>
-                <input type="search" class="form-control" id="q" name="q" value="{{ request('q') }}"
-                    placeholder="Por ejemplo: SSD o G505">
+                <div class="input-group">
+                    <span class="input-group-text bg-body-tertiary border-end-0 text-muted">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                    </span>
+                    <input type="search" class="form-control border-start-0 ps-1" id="q" name="q"
+                        value="{{ request('q') }}" placeholder="Por ejemplo: SSD o G505">
+                </div>
             </div>
 
             <div class="col-12 col-sm-6 col-lg-4">
@@ -50,7 +55,7 @@
                 </select>
             </div>
 
-            <div class="col-12 col-sm-6 col-lg-3">
+            <div class="col-12 col-sm-6 col-lg-6">
                 <label for="stock" class="form-label">Stock</label>
                 <select class="form-select" id="stock" name="stock">
                     <option value="">Todos</option>
@@ -60,7 +65,7 @@
                 </select>
             </div>
 
-            <div class="col-12 col-sm-6 col-lg-3">
+            <div class="col-12 col-sm-6 col-lg-6">
                 <label for="estado" class="form-label">Estado</label>
                 <select class="form-select" id="estado" name="estado">
                     <option value="">Todos</option>
@@ -69,15 +74,80 @@
                 </select>
             </div>
 
-            <div class="col-12 col-lg-6 d-grid d-sm-flex gap-2 justify-content-lg-end">
-                <button type="submit" class="btn btn-outline-dark">
-                    <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
-                </button>
-                @if ($hayFiltros)
-                    <a href="{{ route('productos.index') }}" class="btn btn-outline-secondary">
-                        <i class="bi bi-eraser" aria-hidden="true"></i> Limpiar
-                    </a>
-                @endif
+            <div class="col-12 d-flex align-items-center justify-content-between flex-wrap gap-2 pt-2 border-top">
+                <div class="text-body-secondary small">
+                    @if ($hayFiltros)
+                        <div class="d-inline-flex align-items-center flex-wrap gap-1">
+                            <a href="{{ route('productos.index') }}"
+                                class="badge rounded-pill text-bg-dark text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                title="Hacé clic para limpiar todos los filtros">
+                                <i class="bi bi-funnel-fill text-white-50" aria-hidden="true"></i>
+                                <span>Filtros aplicados</span>
+                                <i class="bi bi-x-circle-fill text-white-50 ms-1" aria-hidden="true"></i>
+                            </a>
+
+                            @if (request()->filled('q'))
+                                <a href="{{ request()->fullUrlWithoutQuery(['q', 'page']) }}"
+                                    class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                    title="Quitar filtro de búsqueda">
+                                    <span class="text-secondary fw-normal">Texto:</span> "{{ Str::limit(request('q'), 18) }}"
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                </a>
+                            @endif
+
+                            @if (request()->filled('categoria_id'))
+                                <a href="{{ request()->fullUrlWithoutQuery(['categoria_id', 'page']) }}"
+                                    class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                    title="Quitar filtro de categoría">
+                                    <span class="text-secondary fw-normal">Categoría:</span> {{ $categorias->firstWhere('id', (int) request('categoria_id'))?->nombre ?? request('categoria_id') }}
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                </a>
+                            @endif
+
+                            @if (request()->filled('marca_id'))
+                                <a href="{{ request()->fullUrlWithoutQuery(['marca_id', 'page']) }}"
+                                    class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                    title="Quitar filtro de marca">
+                                    <span class="text-secondary fw-normal">Marca:</span> {{ $marcas->firstWhere('id', (int) request('marca_id'))?->nombre ?? request('marca_id') }}
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                </a>
+                            @endif
+
+                            @if (request()->filled('stock'))
+                                <a href="{{ request()->fullUrlWithoutQuery(['stock', 'page']) }}"
+                                    class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                    title="Quitar filtro de stock">
+                                    <span class="text-secondary fw-normal">Stock:</span> {{ match(request('stock')) { 'disponible' => 'Con stock', 'agotado' => 'Sin stock', 'critico' => 'Stock bajo/agotado', default => request('stock') } }}
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                </a>
+                            @endif
+
+                            @if (request()->filled('estado'))
+                                <a href="{{ request()->fullUrlWithoutQuery(['estado', 'page']) }}"
+                                    class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                    title="Quitar filtro de estado">
+                                    <span class="text-secondary fw-normal">Estado:</span> {{ request('estado') === 'activos' ? 'Activos' : 'Inactivos' }}
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                </a>
+                            @endif
+                        </div>
+                    @else
+                        <span class="text-muted">Mostrando todos los productos</span>
+                    @endif
+                </div>
+
+                <div class="d-flex gap-2">
+                    @if ($hayFiltros)
+                        <a href="{{ route('productos.index') }}"
+                            class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1">
+                            <i class="bi bi-eraser" aria-hidden="true"></i> Limpiar
+                        </a>
+                    @endif
+
+                    <button type="submit" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center gap-1">
+                        <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
+                    </button>
+                </div>
             </div>
         </div>
     </form>

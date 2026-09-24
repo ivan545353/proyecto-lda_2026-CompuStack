@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Rol;
 use App\Models\User;
+use App\Exceptions\ReglaDeNegocioException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -35,6 +36,16 @@ use Illuminate\Support\Facades\DB;
  */
 class UsuarioService
 {
+    /**
+     * El permiso que permite recomponer el sistema.
+     *
+     * Quien lo tiene puede volver a activar cualquier cuenta, incluida la que
+     * alguien desactivó por error. Mientras exista una cuenta activa con este
+     * permiso, ningún error es irreversible; si no queda ninguna, no hay forma
+     * de entrar a arreglarlo.
+     *
+     */
+    private const PERMISO_DE_RESCATE = 'usuario.editar';
     /**
      * Columnas que registran quién hizo qué.
      *
@@ -77,6 +88,12 @@ class UsuarioService
     public function actualizar(User $usuario, array $datos): User
     {
         return DB::transaction(function () use ($usuario, $datos) {
+            // El dato está bien escrito; lo que no corresponde es la operación.
+            // Por eso es una regla de negocio y no un error de validación.
+            if (! $datos['activo']) {
+                $this->exigirQueQuedeAlguienQuePuedaAdministrar($usuario, 'desactivar');
+            }
+
             // Ni rol_id ni password, aunque el arreglo los traiga.
             $usuario->update([
                 'nombre'   => $datos['nombre'],
@@ -96,6 +113,8 @@ class UsuarioService
      */
     public function eliminar(User $usuario): bool
     {
+        $this->exigirQueQuedeAlguienQuePuedaAdministrar($usuario, 'eliminar');
+
         if ($this->tieneHistorial($usuario)) {
             $usuario->update(['activo' => false]);
 
@@ -165,5 +184,37 @@ class UsuarioService
         }
 
         return false;
+    }
+
+        /**
+     * ¿Es la única cuenta activa capaz de administrar usuarios?
+     *
+     * Es la misma idea que `roles.es_sistema`, que impide borrar el rol
+     * Administrador y dejar el sistema sin nadie que lo administre. Acá se
+     * aplica a las personas: un rol con permisos no sirve de nada si no queda
+     * nadie que lo tenga.
+     */
+    private function esElUltimoQuePuedeAdministrar(User $usuario): bool
+    {
+        // Una cuenta ya desactivada no era la red de contención de nadie.
+        if (! $usuario->activo || ! $usuario->tienePermiso(self::PERMISO_DE_RESCATE)) {
+            return false;
+        }
+
+        return ! User::query()
+            ->where('activo', true)
+            ->whereKeyNot($usuario->id)
+            ->whereHas('rol.permisos', fn ($query) => $query->where('clave', self::PERMISO_DE_RESCATE))
+            ->exists();
+    }
+
+    private function exigirQueQuedeAlguienQuePuedaAdministrar(User $usuario, string $accion): void
+    {
+        if ($this->esElUltimoQuePuedeAdministrar($usuario)) {
+            throw new ReglaDeNegocioException(
+                "No se puede {$accion} la única cuenta activa que puede administrar usuarios. "
+                .'Asigná ese permiso a otra persona antes de continuar.'
+            );
+        }
     }
 }

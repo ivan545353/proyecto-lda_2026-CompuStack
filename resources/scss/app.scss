@@ -68,6 +68,20 @@ body {
     }
 }
 
+a.badge.text-bg-dark,
+.badge-filtro-limpiar {
+    background-color: var(--cs-acento) !important;
+    color: #fff !important;
+    text-decoration: none;
+    transition: background-color .2s ease;
+
+    &:hover,
+    &:focus {
+        background-color: var(--cs-acento-hover) !important;
+        color: #fff !important;
+    }
+}
+
 .pantalla-auth {
     min-height: 100vh;
     background-color: var(--cs-fondo-auth);

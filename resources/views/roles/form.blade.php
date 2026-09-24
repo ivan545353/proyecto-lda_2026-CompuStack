@@ -9,7 +9,7 @@
         // desharía lo que acaba de hacer.
         $marcados = $errors->any() ? array_map('intval', old('permisos', [])) : $permisosActuales;
     @endphp
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-4">
         <h1 class="h3 mb-0">{{ $rol->exists ? "Editar «{$rol->nombre}»" : 'Nuevo rol' }}</h1>
         <a href="{{ route('roles.index') }}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left"></i> Volver
@@ -130,7 +130,8 @@
                 </div>
             </div>
 
-            <div class="card-footer bg-white text-end">
+            <div class="card-footer bg-white d-grid d-sm-flex justify-content-sm-end gap-2">
+                <a href="{{ route('roles.index') }}" class="btn btn-outline-secondary order-sm-first">Cancelar</a>
                 <button type="submit" class="btn btn-acento">
                     <i class="bi bi-check-lg"></i> Guardar
                 </button>

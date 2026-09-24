@@ -94,7 +94,14 @@ class UsuarioRequest extends FormRequest
                 'required', 'string', 'email', 'max:150',
                 Rule::unique('users', 'email')->ignore($usuario?->id),
             ],
-            'activo'   => ['required', 'boolean'],
+            'activo'   => [
+                'required', 'boolean',
+                // La sesión sí entra acá: un Form Request es parte de la capa
+                // HTTP. Desactivar la propia cuenta es autoexpulsarse, porque
+                Rule::prohibitedIf(fn () => $usuario !== null
+                    && $usuario->is($this->user())
+                    && ! $this->boolean('activo')),
+            ],
         ];
 
         if ($esAlta) {
@@ -196,6 +203,7 @@ class UsuarioRequest extends FormRequest
             'rol_id.prohibited'   => 'El rol no se cambia desde esta pantalla. Usá la acción «Cambiar rol».',
             'password.prohibited' => 'La contraseña no se cambia desde esta pantalla.',
             'password.confirmed'  => 'Las dos contraseñas no coinciden.',
+            'activo.prohibited' => 'No podés quitarte el acceso a vos mismo. Pedíselo a otra persona con permiso para editar usuarios.',
 
             'empleado.legajo.required' => 'El legajo es obligatorio.',
             'empleado.legajo.unique'   => 'Ese legajo ya está asignado a otra persona.',

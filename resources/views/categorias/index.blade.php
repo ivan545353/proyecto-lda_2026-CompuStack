@@ -40,15 +40,22 @@
         </nav>
     @endif
 
+    @php($hayFiltros = request()->hasAny(['q', 'parent_id', 'estado']))
+
     <form method="GET" action="{{ route('categorias.index') }}" class="card card-body border-0 shadow-sm mb-4">
         <div class="row g-3 align-items-end">
-            <div class="col-12 col-md-4">
+            <div class="col-12 col-md-5">
                 <label for="q" class="form-label">Buscar por nombre</label>
-                <input type="search" class="form-control" id="q" name="q" value="{{ request('q') }}"
-                    placeholder="Por ejemplo: SSD">
+                <div class="input-group">
+                    <span class="input-group-text bg-body-tertiary border-end-0 text-muted">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                    </span>
+                    <input type="search" class="form-control border-start-0 ps-1" id="q" name="q" value="{{ request('q') }}"
+                        placeholder="Por ejemplo: SSD">
+                </div>
             </div>
 
-            <div class="col-12 col-sm-6 col-md-3">
+            <div class="col-12 col-sm-6 col-md-4">
                 <label for="parent_id" class="form-label">Mostrar</label>
                 <select class="form-select" id="parent_id" name="parent_id" data-buscable="jerarquia">
                     <option value="">Todas</option>
@@ -57,7 +64,7 @@
                 </select>
             </div>
 
-            <div class="col-12 col-sm-6 col-md-2">
+            <div class="col-12 col-sm-6 col-md-3">
                 <label for="estado" class="form-label">Estado</label>
                 <select class="form-select" id="estado" name="estado">
                     <option value="">Todas</option>
@@ -66,22 +73,68 @@
                 </select>
             </div>
 
-            <div class="col-12 col-md-3 d-grid d-sm-flex gap-2">
-                <button type="submit" class="btn btn-outline-dark">
-                    <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
-                </button>
+            <div class="col-12 d-flex align-items-center justify-content-between flex-wrap gap-2 pt-2 border-top">
+                <div class="text-body-secondary small">
+                    @if ($hayFiltros)
+                        <div class="d-inline-flex align-items-center flex-wrap gap-1">
+                            <a href="{{ route('categorias.index') }}"
+                                class="badge rounded-pill text-bg-dark text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                title="Hacé clic para limpiar todos los filtros">
+                                <i class="bi bi-funnel-fill text-white-50" aria-hidden="true"></i>
+                                <span>Filtros aplicados</span>
+                                <i class="bi bi-x-circle-fill text-white-50 ms-1" aria-hidden="true"></i>
+                            </a>
 
-                @if (request()->hasAny(['q', 'parent_id', 'estado']))
-                    <a href="{{ route('categorias.index') }}" class="btn btn-outline-secondary">
-                        <i class="bi bi-eraser" aria-hidden="true"></i> Limpiar
-                    </a>
-                @endif
+                            @if (request()->filled('q'))
+                                <a href="{{ request()->fullUrlWithoutQuery(['q', 'page']) }}"
+                                    class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                    title="Quitar filtro de búsqueda">
+                                    <span class="text-secondary fw-normal">Texto:</span> "{{ Str::limit(request('q'), 18) }}"
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                </a>
+                            @endif
+
+                            @if (request()->filled('parent_id'))
+                                <a href="{{ request()->fullUrlWithoutQuery(['parent_id', 'page']) }}"
+                                    class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                    title="Quitar filtro de jerarquía">
+                                    <span class="text-secondary fw-normal">Mostrar:</span> {{ request('parent_id') === 'raiz' ? 'Solo principales' : 'Subcategorías de ' . ($padreFiltrado?->nombre ?? request('parent_id')) }}
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                </a>
+                            @endif
+
+                            @if (request()->filled('estado'))
+                                <a href="{{ request()->fullUrlWithoutQuery(['estado', 'page']) }}"
+                                    class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                    title="Quitar filtro de estado">
+                                    <span class="text-secondary fw-normal">Estado:</span> {{ request('estado') === 'activas' ? 'Activas' : 'Inactivas' }}
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                </a>
+                            @endif
+                        </div>
+                    @else
+                        <span class="text-muted">Mostrando todas las categorías</span>
+                    @endif
+                </div>
+
+                <div class="d-flex gap-2">
+                    @if ($hayFiltros)
+                        <a href="{{ route('categorias.index') }}" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1">
+                            <i class="bi bi-eraser" aria-hidden="true"></i> Limpiar
+                        </a>
+                    @endif
+
+                    <button type="submit" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center gap-1">
+                        <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
+                    </button>
+                </div>
             </div>
         </div>
     </form>
 
     <div class="card border-0 shadow-sm">
-        <table class="table table-hover align-middle mb-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
             <caption class="visually-hidden">Listado de categorías del catálogo</caption>
             <thead class="table-light">
                 <tr>
@@ -164,6 +217,7 @@
                 @endforelse
             </tbody>
         </table>
+        </div>
     </div>
 
     @if ($categorias->total() > 0)
