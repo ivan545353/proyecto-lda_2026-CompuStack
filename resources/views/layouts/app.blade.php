@@ -31,7 +31,7 @@
 
     @include('partials.navbar')
 
-    <main class="container my-5 flex-grow-1">
+    <main class="container my-4 my-md-5 flex-grow-1">
         @include('partials.alertas')
 
         @yield('content')

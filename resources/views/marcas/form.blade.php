@@ -5,14 +5,15 @@
 @section('title', $esEdicion ? 'Editar marca' : 'Nueva marca')
 
 @section('content')
-    {{-- Encabezado del formulario con contexto de navegación --}}
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h1 class="h3 mb-1">{{ $esEdicion ? "Editar «{$marca->nombre}»" : 'Nueva marca' }}</h1>
-            <p class="text-body-secondary small mb-0">
-                Los campos con <span class="text-danger" aria-hidden="true">*</span> son obligatorios.
-            </p>
-        </div>
+    <a href="{{ route('marcas.index') }}" class="btn btn-link link-dark px-0 mb-3">
+        <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver al listado
+    </a>
+
+    <div class="mb-4">
+        <h1 class="h3 mb-1">{{ $esEdicion ? "Editar «{$marca->nombre}»" : 'Nueva marca' }}</h1>
+        <p class="text-body-secondary small mb-0">
+            Los campos con <span class="text-danger" aria-hidden="true">*</span> son obligatorios.
+        </p>
     </div>
 
     {{-- Resumen general de errores de validación --}}
@@ -65,7 +66,7 @@
         </div>
 
         {{-- Acciones del formulario --}}
-        <div class="d-flex gap-2 mt-4">
+        <div class="d-grid d-sm-flex gap-2 mt-4">
             <button type="submit" class="btn btn-acento">
                 <i class="bi bi-check-lg" aria-hidden="true"></i>
                 {{ $esEdicion ? 'Guardar cambios' : 'Crear marca' }}

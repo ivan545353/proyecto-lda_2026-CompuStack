@@ -5,6 +5,7 @@ use App\Http\Controllers\MarcaController;
 use App\Http\Controllers\RolController;
 use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\ProductoController;
+use App\Http\Controllers\UsuarioController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -91,6 +92,25 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::delete('/productos/{producto}', [ProductoController::class, 'destroy'])
         ->middleware('can:producto.eliminar')->name('productos.destroy');
 
+    // Personas — Usuarios
+    Route::get('/usuarios', [UsuarioController::class, 'index'])
+        ->middleware('can:usuario.ver')->name('usuarios.index');
+
+    Route::get('/usuarios/crear', [UsuarioController::class, 'create'])
+        ->middleware('can:usuario.crear')->name('usuarios.create');
+
+    Route::post('/usuarios', [UsuarioController::class, 'store'])
+        ->middleware('can:usuario.crear')->name('usuarios.store');
+
+    Route::get('/usuarios/{usuario}/editar', [UsuarioController::class, 'edit'])
+        ->middleware('can:usuario.editar')->name('usuarios.edit');
+
+    Route::put('/usuarios/{usuario}', [UsuarioController::class, 'update'])
+        ->middleware('can:usuario.editar')->name('usuarios.update');
+
+    Route::delete('/usuarios/{usuario}', [UsuarioController::class, 'destroy'])
+        ->middleware('can:usuario.eliminar')->name('usuarios.destroy');
+        
     // Catálogo — categorías
     Route::get('/categorias', [CategoriaController::class, 'index'])
         ->middleware('can:categoria.ver')->name('categorias.index');

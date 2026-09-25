@@ -29,6 +29,14 @@
                     </li>
                 @endcan
 
+                @can('usuario.ver')
+                    <li class="nav-item">
+                        <a class="nav-link text-black {{ request()->routeIs('usuarios.*') ? 'active' : '' }}"
+                            href="{{ route('usuarios.index') }}"
+                            @if (request()->routeIs('usuarios.*')) aria-current="page" @endif>Usuarios</a>
+                    </li>
+                @endcan
+
                 @canany(['producto.ver', 'categoria.ver', 'marca.ver'])
                     @php($enCatalogo = request()->routeIs('productos.*', 'categorias.*', 'marcas.*'))
                     <li class="nav-item dropdown">
