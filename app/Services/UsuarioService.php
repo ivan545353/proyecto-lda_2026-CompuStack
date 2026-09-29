@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Rol;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Collection;
 use App\Exceptions\ReglaDeNegocioException;
 use Illuminate\Support\Facades\DB;
 
@@ -130,6 +131,71 @@ class UsuarioService
         DB::transaction(fn () => $usuario->delete());
 
         return true;
+    }
+
+        /**
+     * Roles que se le pueden asignar a esta persona.
+     *
+     * Sólo los de su mismo ámbito. Cambiar de gestión a tienda no es un cambio
+     * de rol: es cambiar qué clase de persona es, y el satélite lo demuestra.
+     * Un Vendedor tiene legajo y fecha de ingreso; un Cliente tiene CUIT y
+     * condición frente al IVA. Convertir uno en otro exigiría datos que este
+     * formulario no pide y borraría historial laboral que nadie pidió borrar.
+     *
+     * Esto es a la vez el juego de opciones de la pantalla y la fuente de
+     * verdad que valida CambiarRolRequest: una sola definición, no dos.
+     *
+     * @return Collection<int, Rol>
+     */
+    public function rolesAsignablesA(User $usuario): Collection
+    {
+        return Rol::query()
+            ->where('ambito', $usuario->rol->ambito)
+            ->orderBy('nombre')
+            ->get();
+    }
+
+    /**
+     * Cambia el rol de una persona.
+     *
+     * Acción separada de la edición, con su propio permiso. En el sistema
+     * original `perfil_id` era un campo más del body de `user/update` y no se
+     * comparaba la identidad del que pedía: cualquiera con permiso de edición
+     * se asignaba el perfil Administrador (C-3).
+     *
+     * La prohibición de cambiar el rol PROPIO vive en CambiarRolRequest,
+     * porque depende de quién está pidiendo y el servicio no conoce la sesión.
+     * Acá viven las dos reglas que no dependen del que pide.
+     *
+     * No hace falta invalidar caché: `permisos.rol.{id}` es por rol, no por
+     * usuario, y el rol no cambió. Y el permiso nuevo rige desde el request
+     * siguiente porque Gate lo consulta cada vez — lo contrario de A-5, donde
+     * el perfil viajaba dentro del JWT y el cambio tardaba hasta una hora.
+     */
+    public function cambiarRol(User $usuario, int $rolId): User
+    {
+        return DB::transaction(function () use ($usuario, $rolId) {
+            $rolNuevo = Rol::findOrFail($rolId);
+
+            if ($rolNuevo->ambito !== $usuario->rol->ambito) {
+                throw new ReglaDeNegocioException(
+                    'Un rol de gestión y uno de tienda piden datos distintos, así que no se '
+                    .'intercambian. Si la persona dejó de trabajar acá, cargale la fecha de '
+                    .'baja y creá su ficha de cliente aparte.'
+                );
+            }
+
+            // Sólo si el rol nuevo NO conserva la capacidad de administrar:
+            // pasar de Administrador a un rol que también puede editar
+            // usuarios es perfectamente válido.
+            if (! $rolNuevo->permisos()->where('clave', self::PERMISO_DE_RESCATE)->exists()) {
+                $this->exigirQueQuedeAlguienQuePuedaAdministrar($usuario, 'cambiarle el rol a');
+            }
+
+            $usuario->update(['rol_id' => $rolNuevo->id]);
+
+            return $usuario->fresh();
+        });
     }
 
     /**

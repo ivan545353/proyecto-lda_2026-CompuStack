@@ -110,6 +110,11 @@ Route::middleware(['auth', 'gestion'])->group(function () {
 
     Route::delete('/usuarios/{usuario}', [UsuarioController::class, 'destroy'])
         ->middleware('can:usuario.eliminar')->name('usuarios.destroy');
+    Route::get('/usuarios/{usuario}/rol', [UsuarioController::class, 'editarRol'])
+        ->middleware('can:usuario.cambiar_rol')->name('usuarios.rol.edit');
+
+    Route::patch('/usuarios/{usuario}/rol', [UsuarioController::class, 'cambiarRol'])
+        ->middleware('can:usuario.cambiar_rol')->name('usuarios.rol.update');
         
     // Catálogo — categorías
     Route::get('/categorias', [CategoriaController::class, 'index'])

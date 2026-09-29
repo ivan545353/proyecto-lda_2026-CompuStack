@@ -85,15 +85,26 @@
             <div class="col-12 col-md-6">
                 @if ($esEdicion)
                     <span class="form-label d-block">Rol</span>
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="badge {{ $usuario->rol->esDeGestion() ? 'text-bg-dark' : 'text-bg-info' }}">
-                            {{ $usuario->rol->nombre }}
-                        </span>
-                        <span
-                            class="text-body-secondary small">({{ $usuario->rol->esDeGestion() ? 'Personal de gestión' : 'Cuenta de tienda' }})</span>
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="badge {{ $usuario->rol->esDeGestion() ? 'text-bg-dark' : 'text-bg-info' }}">
+                                {{ $usuario->rol->nombre }}
+                            </span>
+                            <span
+                                class="text-body-secondary small">({{ $usuario->rol->esDeGestion() ? 'Personal de gestión' : 'Cuenta de tienda' }})</span>
+                        </div>
+
+                        @can('usuario.cambiar_rol')
+                            @unless ($usuario->is(auth()->user()))
+                                <a href="{{ route('usuarios.rol.edit', $usuario) }}"
+                                    class="btn btn-sm btn-outline-dark text-nowrap">
+                                    <i class="bi bi-arrow-left-right" aria-hidden="true"></i> Cambiar rol
+                                </a>
+                            @endunless
+                        @endcan
                     </div>
                     <div class="form-text">
-                        El rol determina qué puede hacer la persona
+                        El rol determina qué puede hacer la persona.
                     </div>
                 @else
                     <label for="rol_id" class="form-label">

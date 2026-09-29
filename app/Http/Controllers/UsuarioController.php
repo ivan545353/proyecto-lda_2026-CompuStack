@@ -6,6 +6,7 @@ use App\Http\Requests\UsuarioFiltroRequest;
 use App\Http\Requests\UsuarioRequest;
 use App\Models\Rol;
 use App\Models\User;
+use App\Http\Requests\CambiarRolRequest;
 use App\Services\UsuarioService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
@@ -110,5 +111,24 @@ class UsuarioController extends Controller
         return redirect()->route('usuarios.index')->with('exito', $seBorro
             ? "Se eliminó la cuenta de {$nombre}."
             : "{$nombre} tiene operaciones registradas: se le quitó el acceso en lugar de eliminar la cuenta, para no perder el historial.");
+    }
+
+    public function editarRol(User $usuario): View
+    {
+        return view('usuarios.rol', [
+            'usuario' => $usuario->load('rol.permisos'),
+            'roles'   => $this->service->rolesAsignablesA($usuario),
+        ]);
+    }
+
+    public function cambiarRol(CambiarRolRequest $request, User $usuario): RedirectResponse
+    {
+        $usuario = $this->service->cambiarRol($usuario, $request->integer('rol_id'));
+
+        return redirect()->route('usuarios.edit', $usuario)->with(
+            'exito',
+            "{$usuario->nombre_completo} pasó a tener el rol {$usuario->rol->nombre}. "
+            .'El cambio rige a partir de su próxima acción en el sistema.'
+        );
     }
 }
