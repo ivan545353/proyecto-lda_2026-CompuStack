@@ -82,3 +82,84 @@ function pedirRuta($test, string $metodo, string $url, array $datos = [])
         : $test->{$metodo}($url, $datos);
 }
 
+/**
+ * Datos válidos de alta de una persona del personal (rol de ámbito gestión).
+ *
+ * Vive acá y no en un archivo de test porque la usan el test del servicio y el
+ * del módulo, y Pest carga todos los archivos en el mismo proceso: declararla
+ * dos veces es un error fatal.
+ */
+function datosDeEmpleado(array $sobreescribir = []): array
+{
+    return array_merge([
+        'nombre'                => 'Sofía',
+        'apellido'              => 'Gutiérrez',
+        'email'                 => 'sofia@sistema.local',
+        'password'              => 'Secreta123',
+        'password_confirmation' => 'Secreta123',
+        'rol_id'                => \App\Models\Rol::where('nombre', 'Vendedor')->value('id'),
+        'activo'                => true,
+        'empleado'              => [
+            'legajo'        => 'EMP-0031',
+            'dni'           => '38123456',
+            'telefono'      => '297-4551122',
+            'fecha_ingreso' => '2025-03-01',
+        ],
+    ], $sobreescribir);
+}
+
+/** Datos válidos de alta de una cuenta de tienda (rol de ámbito tienda). */
+function datosDeClienteDeTienda(array $sobreescribir = []): array
+{
+    return array_merge([
+        'nombre'                => 'Camila',
+        'apellido'              => 'Herrera',
+        'email'                 => 'camila@sistema.local',
+        'password'              => 'Secreta123',
+        'password_confirmation' => 'Secreta123',
+        'rol_id'                => \App\Models\Rol::where('nombre', 'Cliente')->value('id'),
+        'activo'                => true,
+        'cliente'               => [
+            'razon_social'  => 'Camila Herrera',
+            'tipo_doc'      => 'dni',
+            'nro_doc'       => '41556778',
+            'condicion_iva' => 'consumidor_final',
+            'email'         => 'camila@sistema.local',
+            'telefono'      => '297-5123456',
+        ],
+    ], $sobreescribir);
+}
+
+/**
+ * Datos válidos para EDITAR a una persona ya existente.
+ *
+ * Sin `password` ni `rol_id`: los dos están prohibidos en la edición (C-3), así
+ * que un payload de edición que los incluyera no sería un payload válido.
+ */
+function datosDeEdicionDe(\App\Models\User $usuario, array $sobreescribir = []): array
+{
+    $datos = [
+        'nombre'   => $usuario->nombre,
+        'apellido' => $usuario->apellido,
+        'email'    => $usuario->email,
+        'activo'   => 1,
+    ];
+
+    if ($usuario->empleado) {
+        $datos['empleado'] = array_filter([
+            'legajo'        => $usuario->empleado->legajo,
+            'dni'           => $usuario->empleado->dni,
+            'telefono'      => $usuario->empleado->telefono,
+            'fecha_ingreso' => $usuario->empleado->fecha_ingreso->toDateString(),
+            'fecha_baja'    => $usuario->empleado->fecha_baja?->toDateString(),
+        ], fn ($valor) => $valor !== null);
+    }
+
+    if ($usuario->cliente) {
+        $datos['cliente'] = $usuario->cliente->only([
+            'razon_social', 'tipo_doc', 'nro_doc', 'condicion_iva', 'email', 'telefono',
+        ]);
+    }
+
+    return array_merge($datos, $sobreescribir);
+}
