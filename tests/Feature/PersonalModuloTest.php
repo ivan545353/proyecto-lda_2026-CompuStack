@@ -30,15 +30,15 @@ beforeEach(function () {
 */
 
 dataset('rutas de usuarios', [
-    'listado'           => ['get',    'usuarios.index',      'usuario.ver',         false],
-    'formulario alta'   => ['get',    'usuarios.create',     'usuario.crear',       false],
-    'alta'              => ['post',   'usuarios.store',      'usuario.crear',       false],
-    'formulario edicion'=> ['get',    'usuarios.edit',       'usuario.editar',      true],
-    'edicion'           => ['put',    'usuarios.update',     'usuario.editar',      true],
-    'baja'              => ['delete', 'usuarios.destroy',    'usuario.eliminar',    true],
-    'pantalla de rol'   => ['get',    'usuarios.rol.edit',   'usuario.cambiar_rol', true],
-    'cambio de rol'     => ['patch',  'usuarios.rol.update', 'usuario.cambiar_rol', true],
-    'enlace de acceso'  => ['post',   'usuarios.restablecer', 'usuario.resetear_password', true],
+    'listado'           => ['get',    'personal.index',      'usuario.ver',         false],
+    'formulario alta'   => ['get',    'personal.create',     'usuario.crear',       false],
+    'alta'              => ['post',   'personal.store',      'usuario.crear',       false],
+    'formulario edicion'=> ['get',    'personal.edit',       'usuario.editar',      true],
+    'edicion'           => ['put',    'personal.update',     'usuario.editar',      true],
+    'baja'              => ['delete', 'personal.destroy',    'usuario.eliminar',    true],
+    'pantalla de rol'   => ['get',    'personal.rol.edit',   'usuario.cambiar_rol', true],
+    'cambio de rol'     => ['patch',  'personal.rol.update', 'usuario.cambiar_rol', true],
+    'enlace de acceso'  => ['post',   'personal.restablecer', 'usuario.resetear_password', true],
 ]);
 
 const PERMISOS_USUARIO = [
@@ -71,10 +71,10 @@ test('quien solo puede ver no recibe los botones de alta, edicion ni baja', func
     // arriba. Esto verifica que la interfaz no ofrezca lo que va a rechazar
     // (M-33: el frontend original mostraba pantallas que el backend rechazaba).
     $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('usuarios.index'))
+        ->get(route('personal.index'))
         ->assertOk()
-        ->assertDontSee(route('usuarios.create'))
-        ->assertDontSee(route('usuarios.edit', $objetivo));
+        ->assertDontSee(route('personal.create'))
+        ->assertDontSee(route('personal.edit', $objetivo));
 });
 
 /*
@@ -83,7 +83,7 @@ test('quien solo puede ver no recibe los botones de alta, edicion ni baja', func
 |--------------------------------------------------------------------------
 |
 | UserDao::list() hacía `SELECT u.*` y UserDto::toArray() incluía la clave, así
-| que /user/list devolvía el hash bcrypt de todos los usuarios.
+| que /user/list devolvía el hash bcrypt de todos los personal.
 |
 | $hidden solo actúa al serializar: en una vista Blade `{{ $u->password }}`
 | imprimiría el hash igual. Por eso son dos tests y no uno.
@@ -94,7 +94,7 @@ test('el listado no contiene ningun hash de contrasena', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
     $respuesta = $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('usuarios.index'))
+        ->get(route('personal.index'))
         ->assertOk();
 
     $respuesta->assertDontSee($objetivo->password, false);
@@ -106,7 +106,7 @@ test('el listado ni siquiera trae la columna de contrasena desde la base', funct
     User::factory()->conRol('Vendedor')->create();
 
     $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('usuarios.index'))
+        ->get(route('personal.index'))
         ->assertViewHas('usuarios', fn ($usuarios) => $usuarios
             ->every(fn ($usuario) => $usuario->password === null));
 });
@@ -116,7 +116,7 @@ test('el formulario de edicion tampoco expone el hash', function () {
     Empleado::factory()->create(['user_id' => $objetivo->id]);
 
     $this->actingAs(usuarioCon('usuario.editar'))
-        ->get(route('usuarios.edit', $objetivo))
+        ->get(route('personal.edit', $objetivo))
         ->assertOk()
         ->assertDontSee($objetivo->password, false);
 });
@@ -137,7 +137,7 @@ test('el parametro q llega al listado y filtra', function () {
     User::factory()->conRol('Vendedor')->create(['apellido' => 'Medina']);
 
     $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('usuarios.index', ['q' => 'zurbar']))
+        ->get(route('personal.index', ['q' => 'zurbar']))
         ->assertOk()
         ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->total() === 1
             && $usuarios->first()->apellido === 'Zurbarán');
@@ -148,23 +148,16 @@ test('el parametro rol_id llega al listado y filtra', function () {
     User::factory()->conRol('Vendedor')->create();
 
     $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('usuarios.index', ['rol_id' => Rol::where('nombre', 'Cajero')->value('id')]))
+        ->get(route('personal.index', ['rol_id' => Rol::where('nombre', 'Cajero')->value('id')]))
         ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->total() === 2);
 });
 
-test('el parametro ambito llega al listado y filtra', function () {
-    User::factory()->conRol('Cliente')->create();
-
-    $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('usuarios.index', ['ambito' => 'tienda']))
-        ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->total() === 1);
-});
 
 test('el parametro estado llega al listado y filtra', function () {
     User::factory()->conRol('Vendedor')->inactivo()->create();
 
     $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('usuarios.index', ['estado' => 'inactivos']))
+        ->get(route('personal.index', ['estado' => 'inactivos']))
         ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->total() === 1);
 });
 
@@ -173,14 +166,14 @@ test('el parametro situacion llega al listado y filtra', function () {
     Empleado::factory()->create(['user_id' => $sefue->id, 'fecha_baja' => '2026-03-31']);
 
     $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('usuarios.index', ['situacion' => 'dados_de_baja']))
+        ->get(route('personal.index', ['situacion' => 'dados_de_baja']))
         ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->total() === 1);
 });
 
 test('un filtro inexistente vuelve al listado limpio con aviso', function () {
     $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('usuarios.index', ['estado' => 'cualquiera']))
-        ->assertRedirect(route('usuarios.index'))
+        ->get(route('personal.index', ['estado' => 'cualquiera']))
+        ->assertRedirect(route('personal.index'))
         ->assertSessionHas('error');
 });
 
@@ -190,14 +183,14 @@ test('el listado pagina de a 15 y los enlaces conservan el filtro', function () 
     $usuario = usuarioCon('usuario.ver');
 
     $this->actingAs($usuario)
-        ->get(route('usuarios.index', ['q' => 'apellidodeprueba']))
+        ->get(route('personal.index', ['q' => 'apellidodeprueba']))
         ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->count() === 15
             && $usuarios->total() === 20
             // Sin withQueryString(), la página 2 perdería el filtro.
             && str_contains($usuarios->nextPageUrl(), 'q=apellidodeprueba'));
 
     $this->actingAs($usuario)
-        ->get(route('usuarios.index', ['q' => 'apellidodeprueba', 'page' => 2]))
+        ->get(route('personal.index', ['q' => 'apellidodeprueba', 'page' => 2]))
         ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->count() === 5);
 });
 
@@ -214,9 +207,9 @@ test('el listado pagina de a 15 y los enlaces conservan el filtro', function () 
 
 test('un correo invalido se rechaza, no se guarda y conserva lo escrito', function () {
     $this->actingAs(usuarioCon('usuario.crear'))
-        ->from(route('usuarios.create'))
-        ->post(route('usuarios.store'), datosDeEmpleado(['email' => 'no-es-un-correo']))
-        ->assertRedirect(route('usuarios.create'))
+        ->from(route('personal.create'))
+        ->post(route('personal.store'), datosDeEmpleado(['email' => 'no-es-un-correo']))
+        ->assertRedirect(route('personal.create'))
         ->assertSessionHasErrors('email')
         ->assertSessionHasInput('email', 'no-es-un-correo');
 
@@ -227,13 +220,13 @@ test('un correo repetido se rechaza con un mensaje que lo explica', function () 
     User::factory()->conRol('Vendedor')->create(['email' => 'sofia@sistema.local']);
 
     $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('usuarios.store'), datosDeEmpleado())
+        ->post(route('personal.store'), datosDeEmpleado())
         ->assertSessionHasErrors(['email' => 'Ya hay una cuenta con ese correo.']);
 });
 
 test('las contrasenas que no coinciden se rechazan', function () {
     $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('usuarios.store'), datosDeEmpleado([
+        ->post(route('personal.store'), datosDeEmpleado([
             'password'              => 'Secreta123',
             'password_confirmation' => 'Otra456789',
         ]))
@@ -247,53 +240,14 @@ test('un rol de gestion exige los datos laborales', function () {
     unset($datos['empleado']);
 
     $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('usuarios.store'), $datos)
+        ->post(route('personal.store'), $datos)
         ->assertSessionHasErrors('empleado');
 });
 
-test('un rol de tienda exige los datos de facturacion, no los laborales', function () {
-    $datos = datosDeClienteDeTienda();
-    unset($datos['cliente']);
-
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('usuarios.store'), $datos)
-        ->assertSessionHasErrors('cliente')
-        // Qué se exige lo decide roles.ambito, no el nombre del rol (M-33).
-        ->assertSessionDoesntHaveErrors('empleado');
-});
-
-test('quien factura A necesita numero de documento', function () {
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('usuarios.store'), datosDeClienteDeTienda([
-            'cliente' => [
-                'razon_social'  => 'Estudio Austral S.R.L.',
-                'tipo_doc'      => 'cuit',
-                'nro_doc'       => '',
-                'condicion_iva' => 'responsable_inscripto',
-            ],
-        ]))
-        ->assertSessionHasErrors('cliente.nro_doc');
-});
-
-test('un documento mal escrito se rechaza por lo que es, no por estar vacio', function () {
-    // M-31 en su forma exacta: el setter original vaciaba el valor y el mensaje
-    // resultante decía "es obligatorio", que manda al usuario a completar un
-    // campo que sí completó.
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('usuarios.store'), datosDeClienteDeTienda([
-            'cliente' => [
-                'razon_social'  => 'Estudio Austral S.R.L.',
-                'tipo_doc'      => 'cuit',
-                'nro_doc'       => '30-ABC-1',
-                'condicion_iva' => 'responsable_inscripto',
-            ],
-        ]))
-        ->assertSessionHasErrors(['cliente.nro_doc' => 'El CUIT/CUIL tiene 11 dígitos.']);
-});
 
 test('la fecha de ingreso no puede ser futura', function () {
     $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('usuarios.store'), datosDeEmpleado([
+        ->post(route('personal.store'), datosDeEmpleado([
             'empleado' => [
                 'legajo'        => 'EMP-0031',
                 'dni'           => '38123456',
@@ -311,8 +265,8 @@ test('la fecha de ingreso no puede ser futura', function () {
 
 test('el alta de personal crea la cuenta y su legajo', function () {
     $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('usuarios.store'), datosDeEmpleado())
-        ->assertRedirect(route('usuarios.index'))
+        ->post(route('personal.store'), datosDeEmpleado())
+        ->assertRedirect(route('personal.index'))
         ->assertSessionHas('exito');
 
     $creado = User::firstWhere('email', 'sofia@sistema.local');
@@ -321,32 +275,7 @@ test('el alta de personal crea la cuenta y su legajo', function () {
         ->and($creado->cliente)->toBeNull();
 });
 
-test('el alta de una cuenta de tienda crea la ficha de cliente', function () {
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('usuarios.store'), datosDeClienteDeTienda())
-        ->assertSessionHas('exito');
 
-    $creado = User::firstWhere('email', 'camila@sistema.local');
-
-    expect($creado->cliente->condicion_iva)->toBe('consumidor_final')
-        ->and($creado->empleado)->toBeNull();
-});
-
-test('el cuit se guarda normalizado aunque se escriba con guiones', function () {
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('usuarios.store'), datosDeClienteDeTienda([
-            'cliente' => [
-                'razon_social'  => 'Estudio Austral S.R.L.',
-                'tipo_doc'      => 'cuit',
-                'nro_doc'       => '30-71555888-1',
-                'condicion_iva' => 'responsable_inscripto',
-            ],
-        ]))
-        ->assertSessionHas('exito');
-
-    expect(User::firstWhere('email', 'camila@sistema.local')->cliente->nro_doc)
-        ->toBe('30715558881');
-});
 
 /*
 |--------------------------------------------------------------------------
@@ -364,7 +293,7 @@ test('enviar rol_id en la edicion se rechaza en vez de ignorarse', function () {
     Empleado::factory()->create(['user_id' => $objetivo->id]);
 
     $this->actingAs(usuarioCon('usuario.editar'))
-        ->put(route('usuarios.update', $objetivo), datosDeEdicionDe($objetivo->fresh(), [
+        ->put(route('personal.update', $objetivo), datosDeEdicionDe($objetivo->fresh(), [
             'rol_id' => Rol::where('nombre', 'Administrador')->value('id'),
         ]))
         ->assertSessionHasErrors('rol_id');
@@ -376,7 +305,7 @@ test('nadie se cambia el rol a si mismo', function () {
     $usuario = usuarioCon('usuario.cambiar_rol');
 
     $this->actingAs($usuario)
-        ->patch(route('usuarios.rol.update', $usuario), [
+        ->patch(route('personal.rol.update', $usuario), [
             'rol_id' => Rol::where('nombre', 'Administrador')->value('id'),
         ])
         ->assertSessionHasErrors('rol_id');
@@ -388,7 +317,7 @@ test('no se asigna un rol de otro ambito', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
     $this->actingAs(usuarioCon('usuario.cambiar_rol'))
-        ->patch(route('usuarios.rol.update', $objetivo), [
+        ->patch(route('personal.rol.update', $objetivo), [
             'rol_id' => Rol::where('nombre', 'Cliente')->value('id'),
         ])
         ->assertSessionHasErrors('rol_id');
@@ -400,10 +329,10 @@ test('el cambio de rol dentro del mismo ambito funciona', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
     $this->actingAs(usuarioCon('usuario.cambiar_rol'))
-        ->patch(route('usuarios.rol.update', $objetivo), [
+        ->patch(route('personal.rol.update', $objetivo), [
             'rol_id' => Rol::where('nombre', 'Cajero')->value('id'),
         ])
-        ->assertRedirect(route('usuarios.edit', $objetivo))
+        ->assertRedirect(route('personal.edit', $objetivo))
         ->assertSessionHas('exito');
 
     expect($objetivo->fresh()->rol->nombre)->toBe('Cajero');
@@ -416,12 +345,12 @@ test('el permiso nuevo rige de inmediato, sin esperar a que expire nada', functi
     $objetivo = usuarioCon('usuario.ver');
 
     $this->actingAs(usuarioCon('usuario.cambiar_rol'))
-        ->patch(route('usuarios.rol.update', $objetivo), [
+        ->patch(route('personal.rol.update', $objetivo), [
             'rol_id' => Rol::where('nombre', 'Cajero')->value('id'),
         ]);
 
     $this->actingAs($objetivo->fresh())
-        ->get(route('usuarios.index'))
+        ->get(route('personal.index'))
         ->assertForbidden();
 });
 
@@ -435,7 +364,7 @@ test('nadie se quita el acceso a si mismo', function () {
     $usuario = usuarioCon('usuario.editar');
 
     $this->actingAs($usuario)
-        ->put(route('usuarios.update', $usuario), datosDeEdicionDe($usuario, ['activo' => 0]))
+        ->put(route('personal.update', $usuario), datosDeEdicionDe($usuario, ['activo' => 0]))
         ->assertSessionHasErrors('activo');
 
     expect($usuario->fresh()->activo)->toBeTrue();
@@ -445,7 +374,7 @@ test('nadie elimina su propia cuenta', function () {
     $usuario = usuarioCon('usuario.eliminar');
 
     $this->actingAs($usuario)
-        ->delete(route('usuarios.destroy', $usuario))
+        ->delete(route('personal.destroy', $usuario))
         ->assertSessionHas('error');
 
     $this->assertModelExists($usuario);
@@ -471,7 +400,7 @@ test('no se desactiva la ultima cuenta que puede administrar usuarios', function
     $otroAdmin->update(['activo' => false]);
 
     $this->actingAs($ultimo)
-        ->put(route('usuarios.update', $ultimo), datosDeEdicionDe($ultimo, ['activo' => 0]))
+        ->put(route('personal.update', $ultimo), datosDeEdicionDe($ultimo, ['activo' => 0]))
         ->assertSessionHasErrors('activo');
 
     expect($ultimo->fresh()->activo)->toBeTrue();
@@ -487,8 +416,8 @@ test('una cuenta sin historial se elimina', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
     $this->actingAs(usuarioCon('usuario.eliminar'))
-        ->delete(route('usuarios.destroy', $objetivo))
-        ->assertRedirect(route('usuarios.index'))
+        ->delete(route('personal.destroy', $objetivo))
+        ->assertRedirect(route('personal.index'))
         ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'Se eliminó'));
 
     $this->assertModelMissing($objetivo);
@@ -504,7 +433,7 @@ test('una cuenta con ventas se desactiva y el mensaje lo dice', function () {
     ]);
 
     $this->actingAs(usuarioCon('usuario.eliminar'))
-        ->delete(route('usuarios.destroy', $objetivo))
+        ->delete(route('personal.destroy', $objetivo))
         // El mensaje dice lo que pasó de verdad: informar "cuenta eliminada"
         // cuando en realidad quedó desactivada es mentirle al usuario sobre el
         // estado del sistema.
@@ -519,7 +448,7 @@ test('cargar la fecha de baja no quita el acceso', function () {
     Empleado::factory()->create(['user_id' => $objetivo->id, 'fecha_baja' => null]);
 
     $this->actingAs(usuarioCon('usuario.editar'))
-        ->put(route('usuarios.update', $objetivo), datosDeEdicionDe($objetivo->fresh(), [
+        ->put(route('personal.update', $objetivo), datosDeEdicionDe($objetivo->fresh(), [
             'empleado' => array_merge(
                 $objetivo->empleado->only(['legajo', 'dni', 'telefono']),
                 [
@@ -534,4 +463,57 @@ test('cargar la fecha de baja no quita el acceso', function () {
 
     expect($objetivo->empleado->fecha_baja->toDateString())->toBe('2026-08-31')
         ->and($objetivo->activo)->toBeTrue();
+});
+
+test('el listado no muestra las cuentas de clientes', function () {
+    // El problema que este paso corrige. Antes el ámbito era un filtro
+    // opcional, así que el cajero y un cliente de la tienda aparecían en la
+    // misma lista sin que nada lo dijera.
+    $empleado = User::factory()->conRol('Vendedor')->create(['apellido' => 'Gutiérrez']);
+    $cliente  = User::factory()->conRol('Cliente')->create(['apellido' => 'Herrera']);
+
+    $this->actingAs(usuarioCon('usuario.ver'))
+        ->get(route('personal.index'))
+        ->assertOk()
+        ->assertViewHas('personal', fn ($personal) => $personal
+            ->pluck('id')
+            ->contains($empleado->id))
+        ->assertDontSee('Herrera');
+
+    expect($cliente->esDeGestion())->toBeFalse();
+});
+
+test('el filtro de rol solo ofrece roles del personal', function () {
+    $this->actingAs(usuarioCon('usuario.ver'))
+        ->get(route('personal.index'))
+        ->assertViewHas('roles', fn ($roles) => $roles
+            ->every(fn ($rol) => $rol->ambito === 'gestion'));
+});
+
+test('el alta rechaza un rol de tienda', function () {
+    // La capacidad de crear una cuenta de tienda existe en UsuarioService y
+    // está probada, pero ninguna pantalla de la Etapa 1 la ofrece: en la Etapa
+    // 1 no hay tienda.
+    $this->actingAs(usuarioCon('usuario.crear'))
+        ->post(route('personal.store'), datosDeEmpleado([
+            'rol_id' => Rol::where('nombre', 'Cliente')->value('id'),
+        ]))
+        ->assertSessionHasErrors('rol_id');
+
+    expect(User::where('email', 'sofia@sistema.local')->exists())->toBeFalse();
+});
+
+test('una cuenta de cliente no se abre desde la pantalla de personal', function () {
+    // El binding implícito resuelve cualquier fila de `users`. Sin el guardián
+    // del controlador, la ficha de un cliente de la tienda se editaría desde
+    // acá. Es el mismo descuido que el de las direcciones anidadas.
+    $cliente = User::factory()->conRol('Cliente')->create();
+
+    $usuario = usuarioCon('usuario.editar', 'usuario.eliminar', 'usuario.cambiar_rol', 'usuario.resetear_password');
+
+    $this->actingAs($usuario)->get(route('personal.edit', $cliente))->assertNotFound();
+    $this->actingAs($usuario)->put(route('personal.update', $cliente), datosDeEmpleado())->assertNotFound();
+    $this->actingAs($usuario)->delete(route('personal.destroy', $cliente))->assertNotFound();
+    $this->actingAs($usuario)->get(route('personal.rol.edit', $cliente))->assertNotFound();
+    $this->actingAs($usuario)->post(route('personal.restablecer', $cliente))->assertNotFound();
 });

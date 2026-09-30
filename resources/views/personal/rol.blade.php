@@ -14,7 +14,7 @@
 
     <div class="row g-4">
         <div class="col-12 col-lg-7">
-            <form method="POST" action="{{ route('usuarios.rol.update', $usuario) }}" novalidate
+            <form method="POST" action="{{ route('personal.rol.update', $usuario) }}" novalidate
                 class="card card-body border-0 shadow-sm">
                 @csrf
                 @method('PATCH')
@@ -43,8 +43,8 @@
                     </select>
 
                     <div id="ayudaRol" class="form-text">
-                        Sólo aparecen los roles equivalentes al actual. Un rol de la tienda pide datos de
-                        facturación y uno del personal pide datos laborales, así que no se intercambian.
+                        Sólo aparecen los roles del personal. Cambiar de ámbito no es un cambio de rol:
+                        pide otros datos y otra ficha.
                     </div>
 
                     @error('rol_id')
@@ -65,7 +65,7 @@
                         <i class="bi bi-check-lg" aria-hidden="true"></i> Cambiar el rol
                     </button>
 
-                    <a href="{{ route('usuarios.edit', $usuario) }}" class="btn btn-outline-secondary">Cancelar</a>
+                    <a href="{{ route('personal.edit', $usuario) }}" class="btn btn-outline-secondary">Cancelar</a>
                 </div>
             </form>
         </div>

@@ -35,7 +35,7 @@ test('quien puede editar usuarios no puede por eso restablecer contrasenas', fun
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
     $this->actingAs(usuarioCon('usuario.ver', 'usuario.editar'))
-        ->post(route('usuarios.restablecer', $objetivo))
+        ->post(route('personal.restablecer', $objetivo))
         ->assertForbidden();
 });
 
@@ -43,8 +43,8 @@ test('con el permiso propio se genera el enlace', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
     $this->actingAs(usuarioCon('usuario.resetear_password'))
-        ->post(route('usuarios.restablecer', $objetivo))
-        ->assertRedirect(route('usuarios.edit', $objetivo))
+        ->post(route('personal.restablecer', $objetivo))
+        ->assertRedirect(route('personal.edit', $objetivo))
         ->assertSessionHas('enlace_restablecimiento');
 
     expect(DB::table('password_reset_tokens')->where('email', $objetivo->email)->exists())
@@ -58,7 +58,7 @@ test('el administrador recibe un enlace, nunca una contrasena', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create(['password' => 'Vieja12345']);
 
     $respuesta = $this->actingAs(usuarioCon('usuario.resetear_password'))
-        ->post(route('usuarios.restablecer', $objetivo));
+        ->post(route('personal.restablecer', $objetivo));
 
     $enlace = $respuesta->getSession()->get('enlace_restablecimiento');
 
@@ -79,7 +79,7 @@ test('no se genera enlace para una cuenta sin acceso', function () {
     $objetivo = User::factory()->conRol('Vendedor')->inactivo()->create();
 
     $this->actingAs(usuarioCon('usuario.resetear_password'))
-        ->post(route('usuarios.restablecer', $objetivo))
+        ->post(route('personal.restablecer', $objetivo))
         ->assertSessionHas('error')
         ->assertSessionMissing('enlace_restablecimiento');
 
@@ -272,7 +272,7 @@ test('no se genera enlace para la propia cuenta', function () {
     $usuario = usuarioCon('usuario.resetear_password');
 
     $this->actingAs($usuario)
-        ->post(route('usuarios.restablecer', $usuario))
+        ->post(route('personal.restablecer', $usuario))
         ->assertSessionHas('error')
         ->assertSessionMissing('enlace_restablecimiento');
 

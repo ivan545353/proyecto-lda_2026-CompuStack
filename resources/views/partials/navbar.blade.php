@@ -29,13 +29,31 @@
                     </li>
                 @endcan
 
-                @can('usuario.ver')
-                    <li class="nav-item">
-                        <a class="nav-link text-black {{ request()->routeIs('usuarios.*') ? 'active' : '' }}"
-                            href="{{ route('usuarios.index') }}"
-                            @if (request()->routeIs('usuarios.*')) aria-current="page" @endif>Usuarios</a>
+                @canany(['usuario.ver', 'cliente.ver'])
+                    @php($enUsuarios = request()->routeIs('personal.*', 'clientes.*', 'direcciones.*'))
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle text-black {{ $enUsuarios ? 'active' : '' }}" href="#"
+                            role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Usuarios
+                        </a>
+                        <ul class="dropdown-menu">
+                            @can('usuario.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('personal.*') ? 'active' : '' }}"
+                                        href="{{ route('personal.index') }}"
+                                        @if (request()->routeIs('personal.*')) aria-current="page" @endif>Personal</a>
+                                </li>
+                            @endcan
+                            @can('cliente.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('clientes.*', 'direcciones.*') ? 'active' : '' }}"
+                                        href="{{ route('clientes.index') }}"
+                                        @if (request()->routeIs('clientes.*', 'direcciones.*')) aria-current="page" @endif>Clientes</a>
+                                </li>
+                            @endcan
+                        </ul>
                     </li>
-                @endcan
+                @endcanany
 
                 @canany(['producto.ver', 'categoria.ver', 'marca.ver'])
                     @php($enCatalogo = request()->routeIs('productos.*', 'categorias.*', 'marcas.*'))

@@ -77,7 +77,7 @@ test('la contrasena se guarda hasheada y no aparece al serializar', function () 
     expect($usuario->password)->not->toBe('Secreta123')
         ->and(Hash::check('Secreta123', $usuario->password))->toBeTrue()
         // $hidden: el UserDto original devolvía la clave en toArray() y
-        // /user/list exponía el hash de todos los usuarios.
+        // /user/list exponía el hash de todos los personal.
         ->and($usuario->toArray())->not->toHaveKey('password')
         ->and($usuario->fresh()->toArray())->not->toHaveKey('password');
 });

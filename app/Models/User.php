@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Cache;
  *
  * $hidden sobre `password` cierra el hallazgo C-1: en el sistema original el
  * DTO de escritura y el de lectura eran el mismo objeto, y /user/list devolvía
- * el hash bcrypt de todos los usuarios.
+ * el hash bcrypt de todos los personal.
  *
  * Relaciones:
  *   rol()       BelongsTo   el rol que determina sus permisos
@@ -36,7 +36,7 @@ use Illuminate\Support\Facades\Cache;
  *   claveCache(int)               la clave de caché, compartida con RolService
  * 
  * Scopes (uno por filtro del listado; el contrato está declarado acá y en
- * UsuarioFiltroRequest):
+ * PersonalFiltroRequest):
  *   ?q=          → buscar($texto)          nombre, apellido, correo o legajo
  *   ?rol_id=     → deRol($id)              rol exacto
  *   ?ambito=     → deAmbito($ambito)       gestion | tienda
@@ -121,7 +121,7 @@ class User extends Authenticatable
     // Filtros del listado
     //
     // Un scope por parámetro de la URL, con el mismo nombre declarado acá y
-    // en UsuarioFiltroRequest. Es la corrección de fondo de A-24: el
+    // en PersonalFiltroRequest. Es la corrección de fondo de A-24: el
     // UserController original mandaba `nombres` y el UserDao leía `perfil_id`
     // y `estado`, así que el filtro por nombre se ignoraba en silencio. No
     // había ningún lugar donde constara cuál era el correcto.

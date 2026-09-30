@@ -3,35 +3,29 @@
 @php
     $esEdicion = $usuario->exists;
     $esPropiaCuenta = $esEdicion && $usuario->is(auth()->user());
-
-    // En la edición el ámbito lo fija el rol que ya tiene: desde acá el rol no
-    // se cambia (C-3). En el alta sale de lo elegido, o de lo que quedó tras
-    // un error de validación.
-    $rolActual = $esEdicion ? $usuario->rol : $roles->firstWhere('id', (int) old('rol_id'));
-    $ambito = $rolActual?->ambito;
 @endphp
 
-@section('title', $esEdicion ? 'Editar usuario' : 'Nuevo usuario')
+@section('title', $esEdicion ? 'Editar integrante' : 'Nuevo integrante')
 
 @section('content')
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="h3 mb-1">
-                {{ $esEdicion ? "Editar a {$usuario->nombre_completo}" : 'Nuevo Usuario' }}
+                {{ $esEdicion ? "Editar a {$usuario->nombre_completo}" : 'Nuevo integrante' }}
             </h1>
             <p class="text-body-secondary small mb-0">
                 Los campos con <span class="text-danger" aria-hidden="true">*</span> son obligatorios.
             </p>
         </div>
 
-        <a href="{{ route('usuarios.index') }}" class="btn btn-outline-secondary">
+        <a href="{{ route('personal.index') }}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left"></i> Volver
         </a>
     </div>
 
     @include('partials.errores')
 
-    <form method="POST" novalidate action="{{ $esEdicion ? route('usuarios.update', $usuario) : route('usuarios.store') }}"
+    <form method="POST" novalidate action="{{ $esEdicion ? route('personal.update', $usuario) : route('personal.store') }}"
         class="card card-body border-0 shadow-sm">
         @csrf
         @if ($esEdicion)
@@ -96,7 +90,7 @@
 
                         @can('usuario.cambiar_rol')
                             @unless ($usuario->is(auth()->user()))
-                                <a href="{{ route('usuarios.rol.edit', $usuario) }}"
+                                <a href="{{ route('personal.rol.edit', $usuario) }}"
                                     class="btn btn-sm btn-outline-dark text-nowrap">
                                     <i class="bi bi-arrow-left-right" aria-hidden="true"></i> Cambiar rol
                                 </a>
@@ -114,14 +108,13 @@
                         data-buscable aria-describedby="ayudaRol @error('rol_id') errorRol @enderror">
                         <option value="">Elegí un rol</option>
                         @foreach ($roles as $rol)
-                            <option value="{{ $rol->id }}" data-ambito="{{ $rol->ambito }}"
-                                @selected((int) old('rol_id') === $rol->id)>
-                                {{ $rol->nombre }} ({{ $rol->ambito === 'gestion' ? 'Personal' : 'Tienda' }})
+                            <option value="{{ $rol->id }}" @selected((int) old('rol_id') === $rol->id)>
+                                {{ $rol->nombre }}
                             </option>
                         @endforeach
                     </select>
                     <div id="ayudaRol" class="form-text">
-                        Según el rol se piden los datos laborales o los datos de facturación.
+                        Determina qué puede hacer la persona dentro del sistema.
                     </div>
                     @error('rol_id')
                         <div id="errorRol" class="invalid-feedback">{{ $message }}</div>
@@ -186,8 +179,7 @@
             </div>
         </div>
 
-        {{-- Datos laborales: sólo para el personal (roles de ámbito gestión) --}}
-        <fieldset class="mt-4" id="bloqueEmpleado" @if ($ambito !== 'gestion') hidden @endif>
+        <fieldset class="mt-4">
             <legend class="h5">Datos laborales</legend>
 
             <div class="row g-3">
@@ -261,94 +253,6 @@
             </div>
         </fieldset>
 
-        {{-- Datos de facturación: sólo para cuentas de la tienda --}}
-        <fieldset class="mt-4" id="bloqueCliente" @if ($ambito !== 'tienda') hidden @endif>
-            <legend class="h5">Datos de facturación</legend>
-
-            <div class="row g-3">
-                <div class="col-12 col-md-6">
-                    <label for="cliente_razon_social" class="form-label">
-                        Nombre o razón social <span class="text-danger" aria-hidden="true">*</span>
-                    </label>
-                    <input type="text" class="form-control @error('cliente.razon_social') is-invalid @enderror"
-                        id="cliente_razon_social" name="cliente[razon_social]" maxlength="150"
-                        placeholder="Nombre o empresa para comprobantes"
-                        value="{{ old('cliente.razon_social', $usuario->cliente?->razon_social) }}"
-                        aria-describedby="@error('cliente.razon_social') errorRazon @enderror">
-                    @error('cliente.razon_social')
-                        <div id="errorRazon" class="invalid-feedback">{{ $message }}</div>
-                    @enderror
-                </div>
-
-                <div class="col-12 col-md-6">
-                    <label for="cliente_condicion_iva" class="form-label">
-                        Condición frente al IVA <span class="text-danger" aria-hidden="true">*</span>
-                    </label>
-                    <select class="form-select @error('cliente.condicion_iva') is-invalid @enderror"
-                        id="cliente_condicion_iva" name="cliente[condicion_iva]"
-                        aria-describedby="ayudaIva @error('cliente.condicion_iva') errorIva @enderror">
-                        @foreach (['consumidor_final' => 'Consumidor final', 'responsable_inscripto' => 'Responsable inscripto', 'monotributo' => 'Monotributo', 'exento' => 'Exento'] as $valor => $texto)
-                            <option value="{{ $valor }}" @selected(old('cliente.condicion_iva', $usuario->cliente?->condicion_iva ?? 'consumidor_final') === $valor)>
-                                {{ $texto }}</option>
-                        @endforeach
-                    </select>
-                    <div id="ayudaIva" class="form-text">Define si le corresponde Factura A o B.</div>
-                    @error('cliente.condicion_iva')
-                        <div id="errorIva" class="invalid-feedback">{{ $message }}</div>
-                    @enderror
-                </div>
-
-                <div class="col-12 col-md-3">
-                    <label for="cliente_tipo_doc" class="form-label">
-                        Tipo de documento <span class="text-danger" aria-hidden="true">*</span>
-                    </label>
-                    <select class="form-select @error('cliente.tipo_doc') is-invalid @enderror" id="cliente_tipo_doc"
-                        name="cliente[tipo_doc]">
-                        @foreach (['dni' => 'DNI', 'cuit' => 'CUIT', 'cuil' => 'CUIL'] as $valor => $texto)
-                            <option value="{{ $valor }}" @selected(old('cliente.tipo_doc', $usuario->cliente?->tipo_doc ?? 'dni') === $valor)>{{ $texto }}
-                            </option>
-                        @endforeach
-                    </select>
-                    @error('cliente.tipo_doc')
-                        <div class="invalid-feedback">{{ $message }}</div>
-                    @enderror
-                </div>
-
-                <div class="col-12 col-md-3">
-                    <label for="cliente_nro_doc" class="form-label">Número de documento</label>
-                    <input type="text" inputmode="numeric"
-                        class="form-control @error('cliente.nro_doc') is-invalid @enderror" id="cliente_nro_doc"
-                        name="cliente[nro_doc]" value="{{ old('cliente.nro_doc', $usuario->cliente?->nro_doc) }}"
-                        placeholder="Sin guiones ni puntos"
-                        aria-describedby="ayudaDoc @error('cliente.nro_doc') errorDoc @enderror">
-                    <div id="ayudaDoc" class="form-text">Obligatorio si factura A o es monotributista.</div>
-                    @error('cliente.nro_doc')
-                        <div id="errorDoc" class="invalid-feedback">{{ $message }}</div>
-                    @enderror
-                </div>
-
-                <div class="col-12 col-md-3">
-                    <label for="cliente_email" class="form-label">Correo de contacto</label>
-                    <input type="email" class="form-control @error('cliente.email') is-invalid @enderror"
-                        id="cliente_email" name="cliente[email]" maxlength="150" placeholder="facturacion@empresa.com"
-                        value="{{ old('cliente.email', $usuario->cliente?->email) }}">
-                    @error('cliente.email')
-                        <div class="invalid-feedback">{{ $message }}</div>
-                    @enderror
-                </div>
-
-                <div class="col-12 col-md-3">
-                    <label for="cliente_telefono" class="form-label">Teléfono</label>
-                    <input type="text" class="form-control @error('cliente.telefono') is-invalid @enderror"
-                        id="cliente_telefono" name="cliente[telefono]" maxlength="30"
-                        placeholder="Por ejemplo: 297-4551122"
-                        value="{{ old('cliente.telefono', $usuario->cliente?->telefono) }}">
-                    @error('cliente.telefono')
-                        <div class="invalid-feedback">{{ $message }}</div>
-                    @enderror
-                </div>
-            </div>
-        </fieldset>
 
         <div class="d-grid d-sm-flex gap-2 mt-4">
             <button type="submit" class="btn btn-acento">
@@ -356,7 +260,7 @@
                 {{ $esEdicion ? 'Guardar cambios' : 'Crear Usuario' }}
             </button>
 
-            <a href="{{ route('usuarios.index') }}" class="btn btn-outline-secondary">Cancelar</a>
+            <a href="{{ route('personal.index') }}" class="btn btn-outline-secondary">Cancelar</a>
         </div>
     </form>
 
@@ -424,7 +328,7 @@
                         </script>
                     @endif
 
-                    <form method="POST" action="{{ route('usuarios.restablecer', $usuario) }}"
+                    <form method="POST" action="{{ route('personal.restablecer', $usuario) }}"
                         onsubmit="return confirm(@js("Se va a generar un enlace para que {$usuario->nombre} configure su contraseña. La actual va a seguir sirviendo hasta que la cambie. ¿Continuar?"));">
                         @csrf
                         <button type="submit" class="btn btn-outline-dark">
@@ -435,36 +339,4 @@
             </div>
         @endcan
     @endif
-
-    @unless ($esEdicion)
-        <script>
-            // Mejora progresiva: muestra el bloque de datos que corresponde al
-            // ámbito del rol elegido. Sin JavaScript se ven los dos y el
-            // formulario sigue funcionando, porque quién valida qué lo decide
-            // UsuarioRequest en el servidor leyendo roles.ambito.
-            document.addEventListener('DOMContentLoaded', function() {
-                const rol = document.getElementById('rol_id');
-                const bloques = {
-                    gestion: document.getElementById('bloqueEmpleado'),
-                    tienda: document.getElementById('bloqueCliente'),
-                };
-
-                if (!rol) return;
-
-                function actualizarSatelites() {
-                    const opt = rol.selectedOptions ? rol.selectedOptions[0] : null;
-                    const ambito = opt?.dataset.ambito ?? null;
-
-                    for (const [clave, bloque] of Object.entries(bloques)) {
-                        if (bloque) {
-                            bloque.hidden = clave !== ambito;
-                        }
-                    }
-                }
-
-                rol.addEventListener('change', actualizarSatelites);
-                actualizarSatelites();
-            });
-        </script>
-    @endunless
 @endsection

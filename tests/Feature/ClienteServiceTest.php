@@ -42,7 +42,7 @@ test('el alta crea un cliente de mostrador', function () {
 });
 
 test('el servicio nunca escribe la cuenta de acceso', function () {
-    // La invariante rol↔satélite sólo la sabe mantener el módulo de usuarios.
+    // La invariante rol↔satélite sólo la sabe mantener el módulo de personal.
     // El Form Request ya lo rechaza; esto prueba la segunda barrera, que es la
     // que va a proteger a la API de la Etapa 3.
     $usuario = User::factory()->create();

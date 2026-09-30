@@ -10,7 +10,7 @@ use App\Exceptions\ReglaDeNegocioException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Reglas de negocio de usuarios.
+ * Reglas de negocio de personal.
  *
  * Mismo patrón que MarcaService y CategoriaService: recibe datos ya validados,
  * no conoce la petición ni la sesión, y la API de la Etapa 3 lo va a usar sin
@@ -30,6 +30,12 @@ use Illuminate\Support\Facades\DB;
  *      un campo de más en la entrada no se convierta en una escritura.
  *
  *   3. Un usuario con historial no se borra: se desactiva (M-16).
+ *
+ *     La rama 'tienda' no la alcanza ninguna pantalla de la Etapa 1: la de
+ *     personal sólo acepta roles de gestión y la de clientes no crea cuentas.
+ *     No es código muerto: está probada en UsuarioServiceTest y es la base del
+ *     registro de la tienda de la Etapa 2, donde una persona se crea la cuenta
+ *     y su ficha de cliente en la misma transacción.
  *
  * Métodos:
  *   crear()       alta del usuario y de su satélite, en una transacción
@@ -274,7 +280,7 @@ class UsuarioService
     {
         if ($this->esElUltimoQuePuedeAdministrar($usuario)) {
             throw new ReglaDeNegocioException(
-                "No se puede {$accion} la única cuenta activa que puede administrar usuarios. "
+                "No se puede {$accion} la única cuenta activa que puede administrar personal. "
                 .'Asigná ese permiso a otra persona antes de continuar.'
             );
         }

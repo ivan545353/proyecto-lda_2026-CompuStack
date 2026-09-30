@@ -28,6 +28,8 @@ class CambiarRolRequest extends FormRequest
 {
     public function authorize(): bool
     {
+        abort_unless($this->usuario()->esDeGestion(), 404);
+
         return true;   // la ruta exige usuario.cambiar_rol
     }
 

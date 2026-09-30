@@ -11,7 +11,7 @@ use Illuminate\Validation\Rule;
  * Dos formularios piden los mismos datos con distinto nombre de campo: el de
  * usuarios, cuando el rol es de ámbito tienda y hay que crear la ficha del
  * cliente (`cliente.nro_doc`), y el de clientes (`nro_doc`). Hasta la Fase 4
- * las reglas vivían sólo en UsuarioRequest; con el segundo uso quedó claro qué
+ * las reglas vivían sólo en PersonalRequest; con el segundo uso quedó claro qué
  * es lo compartido —el juego de reglas— y qué cambia —el prefijo del campo—.
  *
  * Métodos:

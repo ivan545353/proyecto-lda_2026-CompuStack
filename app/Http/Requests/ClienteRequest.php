@@ -51,7 +51,7 @@ class ClienteRequest extends FormRequest
     public function messages(): array
     {
         return array_merge(ReglasFiscales::mensajes(), [
-            'user_id.prohibited' => 'La cuenta de acceso se administra desde el módulo de usuarios.',
+            'user_id.prohibited' => 'La cuenta de acceso se administra desde el módulo de personal.',
         ]);
     }
 
