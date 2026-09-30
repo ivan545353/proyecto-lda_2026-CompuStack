@@ -18,43 +18,7 @@ beforeEach(function () {
     $this->service = app(UsuarioService::class);
 });
 
-function datosDeEmpleado(array $sobreescribir = []): array
-{
-    return array_merge([
-        'nombre'   => 'Sofía',
-        'apellido' => 'Gutiérrez',
-        'email'    => 'sofia@sistema.local',
-        'password' => 'Secreta123',
-        'rol_id'   => Rol::where('nombre', 'Vendedor')->value('id'),
-        'activo'   => true,
-        'empleado' => [
-            'legajo'        => 'EMP-0031',
-            'dni'           => '38123456',
-            'telefono'      => '297-4551122',
-            'fecha_ingreso' => '2025-03-01',
-        ],
-    ], $sobreescribir);
-}
 
-function datosDeClienteDeTienda(array $sobreescribir = []): array
-{
-    return array_merge([
-        'nombre'   => 'Camila',
-        'apellido' => 'Herrera',
-        'email'    => 'camila@sistema.local',
-        'password' => 'Secreta123',
-        'rol_id'   => Rol::where('nombre', 'Cliente')->value('id'),
-        'activo'   => true,
-        'cliente'  => [
-            'razon_social'  => 'Camila Herrera',
-            'tipo_doc'      => 'dni',
-            'nro_doc'       => '41556778',
-            'condicion_iva' => 'consumidor_final',
-            'email'         => 'camila@sistema.local',
-            'telefono'      => '297-5123456',
-        ],
-    ], $sobreescribir);
-}
 
 /*
 |--------------------------------------------------------------------------
@@ -113,7 +77,7 @@ test('la contrasena se guarda hasheada y no aparece al serializar', function () 
     expect($usuario->password)->not->toBe('Secreta123')
         ->and(Hash::check('Secreta123', $usuario->password))->toBeTrue()
         // $hidden: el UserDto original devolvía la clave en toArray() y
-        // /user/list exponía el hash de todos los usuarios.
+        // /user/list exponía el hash de todos los personal.
         ->and($usuario->toArray())->not->toHaveKey('password')
         ->and($usuario->fresh()->toArray())->not->toHaveKey('password');
 });

@@ -30,4 +30,10 @@ class ClienteFactory extends Factory
             'condicion_iva' => 'responsable_inscripto',
         ]);
     }
+
+    /** Cliente con cuenta de acceso a la tienda. */
+    public function conCuenta(): static
+    {
+        return $this->state(fn () => ['user_id' => \App\Models\User::factory()]);
+    }
 }

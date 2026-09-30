@@ -5,7 +5,11 @@ use App\Http\Controllers\MarcaController;
 use App\Http\Controllers\RolController;
 use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\ProductoController;
-use App\Http\Controllers\UsuarioController;
+use App\Http\Controllers\PersonalController;
+use App\Http\Controllers\CuentaController;
+use App\Http\Controllers\Auth\RestablecerPasswordController;
+use App\Http\Controllers\ClienteController;
+use App\Http\Controllers\DireccionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -36,12 +40,25 @@ Route::middleware('guest')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])
         ->middleware('throttle:5,1')
         ->name('login.attempt');
+
+    Route::get('/restablecer/{token}', [RestablecerPasswordController::class, 'mostrar'])
+        ->name('password.reset');
+
+    Route::post('/restablecer', [RestablecerPasswordController::class, 'restablecer'])
+        ->middleware('throttle:5,1')
+        ->name('password.store');
 });
 
-// Cierre de sesión
-Route::post('/logout', [AuthController::class, 'logout'])
-    ->middleware('auth')
-    ->name('logout');
+//CIERRE DE SESIÓN Y CUENTA
+Route::middleware('auth')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+
+    Route::get('/cuenta/password', [CuentaController::class, 'editarPassword'])
+        ->name('cuenta.password.edit');
+
+    Route::put('/cuenta/password', [CuentaController::class, 'actualizarPassword'])
+        ->name('cuenta.password.update');
+});
 
 // Sistema de gestión
 Route::middleware(['auth', 'gestion'])->group(function () {
@@ -92,24 +109,70 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::delete('/productos/{producto}', [ProductoController::class, 'destroy'])
         ->middleware('can:producto.eliminar')->name('productos.destroy');
 
-    // Personas — Usuarios
-    Route::get('/usuarios', [UsuarioController::class, 'index'])
-        ->middleware('can:usuario.ver')->name('usuarios.index');
+    // Personas — Personal (cuentas de ámbito gestión)
+    Route::get('/personal', [PersonalController::class, 'index'])
+        ->middleware('can:usuario.ver')->name('personal.index');
 
-    Route::get('/usuarios/crear', [UsuarioController::class, 'create'])
-        ->middleware('can:usuario.crear')->name('usuarios.create');
+    Route::get('/personal/crear', [PersonalController::class, 'create'])
+        ->middleware('can:usuario.crear')->name('personal.create');
 
-    Route::post('/usuarios', [UsuarioController::class, 'store'])
-        ->middleware('can:usuario.crear')->name('usuarios.store');
+    Route::post('/personal', [PersonalController::class, 'store'])
+        ->middleware('can:usuario.crear')->name('personal.store');
 
-    Route::get('/usuarios/{usuario}/editar', [UsuarioController::class, 'edit'])
-        ->middleware('can:usuario.editar')->name('usuarios.edit');
+    Route::get('/personal/{usuario}/editar', [PersonalController::class, 'edit'])
+        ->middleware('can:usuario.editar')->name('personal.edit');
 
-    Route::put('/usuarios/{usuario}', [UsuarioController::class, 'update'])
-        ->middleware('can:usuario.editar')->name('usuarios.update');
+    Route::put('/personal/{usuario}', [PersonalController::class, 'update'])
+        ->middleware('can:usuario.editar')->name('personal.update');
 
-    Route::delete('/usuarios/{usuario}', [UsuarioController::class, 'destroy'])
-        ->middleware('can:usuario.eliminar')->name('usuarios.destroy');
+    Route::delete('/personal/{usuario}', [PersonalController::class, 'destroy'])
+        ->middleware('can:usuario.eliminar')->name('personal.destroy');
+
+    Route::get('/personal/{usuario}/rol', [PersonalController::class, 'editarRol'])
+        ->middleware('can:usuario.cambiar_rol')->name('personal.rol.edit');
+
+    Route::patch('/personal/{usuario}/rol', [PersonalController::class, 'cambiarRol'])
+        ->middleware('can:usuario.cambiar_rol')->name('personal.rol.update');
+
+    Route::post('/personal/{usuario}/restablecer-contrasena', [PersonalController::class, 'generarEnlaceDeRestablecimiento'])
+        ->middleware('can:usuario.resetear_password')->name('personal.restablecer');
+
+    // Personas — Clientes
+    Route::get('/clientes', [ClienteController::class, 'index'])
+        ->middleware('can:cliente.ver')->name('clientes.index');
+
+    Route::get('/clientes/crear', [ClienteController::class, 'create'])
+        ->middleware('can:cliente.crear')->name('clientes.create');
+
+    Route::post('/clientes', [ClienteController::class, 'store'])
+        ->middleware('can:cliente.crear')->name('clientes.store');
+
+    Route::get('/clientes/{cliente}/editar', [ClienteController::class, 'edit'])
+        ->middleware('can:cliente.editar')->name('clientes.edit');
+
+    Route::put('/clientes/{cliente}', [ClienteController::class, 'update'])
+        ->middleware('can:cliente.editar')->name('clientes.update');
+
+    Route::delete('/clientes/{cliente}', [ClienteController::class, 'destroy'])
+        ->middleware('can:cliente.eliminar')->name('clientes.destroy');
+
+    // Direcciones del cliente.
+    Route::middleware('can:cliente.editar')->group(function () {
+        Route::get('/clientes/{cliente}/direcciones/crear', [DireccionController::class, 'create'])
+            ->name('direcciones.create');
+
+        Route::post('/clientes/{cliente}/direcciones', [DireccionController::class, 'store'])
+            ->name('direcciones.store');
+
+        Route::get('/clientes/{cliente}/direcciones/{direccion}/editar', [DireccionController::class, 'edit'])
+            ->name('direcciones.edit');
+
+        Route::put('/clientes/{cliente}/direcciones/{direccion}', [DireccionController::class, 'update'])
+            ->name('direcciones.update');
+
+        Route::delete('/clientes/{cliente}/direcciones/{direccion}', [DireccionController::class, 'destroy'])
+            ->name('direcciones.destroy');
+    });
         
     // Catálogo — categorías
     Route::get('/categorias', [CategoriaController::class, 'index'])

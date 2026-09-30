@@ -10,12 +10,19 @@
     <!-- Tipografía Nunito -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300..900;1,300..900&display=swap"
+        rel="stylesheet">
 
     @vite(['resources/scss/app.scss', 'resources/js/app.js'])
 </head>
 
-<body class="pantalla-auth d-flex justify-content-center align-items-center">
+<body class="pantalla-auth d-flex flex-column justify-content-center align-items-center">
+
+    {{-- El layout de autenticación no mostraba mensajes de sesión: el aviso de
+         "contraseña configurada" del restablecimiento no tenía dónde aparecer. --}}
+    <div class="w-100 px-3" style="max-width: 32rem;">
+        @include('partials.alertas')
+    </div>
 
     @yield('content')
 

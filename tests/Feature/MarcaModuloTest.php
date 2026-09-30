@@ -172,7 +172,7 @@ test('un nombre repetido se rechaza con un mensaje que lo explica', function () 
 
 test('un logo svg se rechaza', function () {
     // Un SVG puede contener <script>: servido desde el mismo origen sería
-    // XSS almacenado sobre la sesión de todos los usuarios.
+    // XSS almacenado sobre la sesión de todos los personal.
     $this->actingAs(usuarioCon('marca.crear'))
         ->post(route('marcas.store'), [
             'nombre' => 'Corsair',

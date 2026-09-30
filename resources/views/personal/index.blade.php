@@ -3,27 +3,28 @@
 @section('title', 'Usuarios')
 
 @php
-    $hayFiltros = request()->hasAny(['q', 'rol_id', 'ambito', 'estado', 'situacion']);
+    $hayFiltros = request()->hasAny(['q', 'rol_id', 'estado', 'situacion']);
 @endphp
 
 @section('content')
     <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-start mb-4 gap-3">
         <div>
-            <h1 class="h3 mb-1">Usuarios</h1>
+            <h1 class="h3 mb-1">Personal</h1>
             <p class="text-body-secondary small mb-0">
-                Cuentas del sistema.
+                Las cuentas de quienes trabajan en el sistema de gestión. Las fichas de clientes
+                están en Usuarios → Clientes.
             </p>
         </div>
 
         @can('usuario.crear')
-            <a href="{{ route('usuarios.create') }}" class="btn btn-acento">
-                <i class="bi bi-person-plus" aria-hidden="true"></i> Nueva persona
+            <a href="{{ route('personal.create') }}" class="btn btn-acento">
+                <i class="bi bi-person-plus" aria-hidden="true"></i> Nuevo Integrante
             </a>
         @endcan
     </div>
 
     {{-- Filtros por GET: la pantalla queda enlazable y el botón atrás funciona --}}
-    <form method="GET" action="{{ route('usuarios.index') }}" class="card card-body border-0 shadow-sm mb-4">
+    <form method="GET" action="{{ route('personal.index') }}" class="card card-body border-0 shadow-sm mb-4">
         <div class="row g-3 align-items-end">
             <div class="col-12 col-md-4">
                 <label for="q" class="form-label">Buscar</label>
@@ -38,7 +39,7 @@
 
             </div>
 
-            <div class="col-12 col-md-4 col-lg-2">
+            <div class="col-6 col-md-4 col-lg-3">
                 <label for="rol_id" class="form-label">Rol</label>
                 <select class="form-select" id="rol_id" name="rol_id" data-buscable>
                     <option value="">Todos</option>
@@ -48,16 +49,8 @@
                 </select>
             </div>
 
-            <div class="col-6 col-md-4 col-lg-2">
-                <label for="ambito" class="form-label">Tipo</label>
-                <select class="form-select" id="ambito" name="ambito">
-                    <option value="">Todos</option>
-                    <option value="gestion" @selected(request('ambito') === 'gestion')>Personal</option>
-                    <option value="tienda" @selected(request('ambito') === 'tienda')>Cuentas de clientes</option>
-                </select>
-            </div>
 
-            <div class="col-6 col-md-4 col-lg-2">
+            <div class="col-6 col-md-4 col-lg-3">
                 <label for="estado" class="form-label">Acceso</label>
                 <select class="form-select" id="estado" name="estado">
                     <option value="">Todos</option>
@@ -66,7 +59,7 @@
                 </select>
             </div>
 
-            <div class="col-6 col-md-4 col-lg-2">
+            <div class="col-6 col-md-4 col-lg-3">
                 <label for="situacion" class="form-label">Situación laboral</label>
                 <select class="form-select" id="situacion" name="situacion">
                     <option value="">Todas</option>
@@ -79,7 +72,7 @@
                 <div class="text-body-secondary small">
                     @if ($hayFiltros)
                         <div class="d-inline-flex align-items-center flex-wrap gap-1">
-                            <a href="{{ route('usuarios.index') }}"
+                            <a href="{{ route('personal.index') }}"
                                 class="badge rounded-pill text-bg-dark text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                 title="Hacé clic para limpiar todos los filtros">
                                 <i class="bi bi-funnel-fill text-white-50" aria-hidden="true"></i>
@@ -138,13 +131,13 @@
                             @endif
                         </div>
                     @else
-                        <span class="text-muted">Mostrando todas las personas</span>
+                        <span class="text-muted">Mostrando todos los usuarios</span>
                     @endif
                 </div>
 
                 <div class="d-flex gap-2">
                     @if ($hayFiltros)
-                        <a href="{{ route('usuarios.index') }}"
+                        <a href="{{ route('personal.index') }}"
                             class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1">
                             <i class="bi bi-eraser" aria-hidden="true"></i> Limpiar
                         </a>
@@ -164,7 +157,7 @@
                 <caption class="visually-hidden">Listado de cuentas del sistema</caption>
                 <thead class="table-light">
                     <tr>
-                        <th scope="col">Persona</th>
+                        <th scope="col">Usuario</th>
                         <th scope="col" class="d-none d-md-table-cell">Rol</th>
                         <th scope="col">Acceso</th>
                         <th scope="col" class="d-none d-lg-table-cell">Situación laboral</th>
@@ -172,7 +165,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse ($usuarios as $usuario)
+                    @forelse ($personal as $usuario)
                         <tr>
                             <td>
                                 <span class="fw-semibold">{{ $usuario->nombre_completo }}</span>
@@ -182,12 +175,7 @@
                                 <div class="small text-body-secondary d-md-none">{{ $usuario->rol->nombre }}</div>
                             </td>
 
-                            <td class="d-none d-md-table-cell">
-                                {{ $usuario->rol->nombre }}
-                                @if (!$usuario->rol->esDeGestion())
-                                    <div class="small text-body-secondary">Cuenta de cliente</div>
-                                @endif
-                            </td>
+                            <td class="d-none d-md-table-cell">{{ $usuario->rol->nombre }}</td>
 
                             {{-- El estado se comunica con texto, no sólo con color --}}
                             <td>
@@ -210,7 +198,7 @@
 
                             <td class="text-end text-nowrap">
                                 @can('usuario.editar')
-                                    <a href="{{ route('usuarios.edit', $usuario) }}" class="btn btn-sm btn-outline-dark"
+                                    <a href="{{ route('personal.edit', $usuario) }}" class="btn btn-sm btn-outline-dark"
                                         aria-label="Editar {{ $usuario->nombre_completo }}">
                                         <i class="bi bi-pencil" aria-hidden="true"></i>
                                         <span class="d-none d-sm-inline">Editar</span>
@@ -219,7 +207,7 @@
 
                                 @can('usuario.eliminar')
                                     @unless ($usuario->is(auth()->user()))
-                                        <form method="POST" action="{{ route('usuarios.destroy', $usuario) }}" class="d-inline"
+                                        <form method="POST" action="{{ route('personal.destroy', $usuario) }}" class="d-inline"
                                             onsubmit="return confirm(@js("¿Eliminar la cuenta de {$usuario->nombre_completo}? Si tiene operaciones registradas no se va a eliminar: se le va a quitar el acceso."));">
                                             @csrf
                                             @method('DELETE')
@@ -236,11 +224,11 @@
                         {{-- El vacío por filtro y el vacío por falta de datos dicen cosas distintas --}}
                         <tr>
                             <td colspan="5" class="text-center text-body-secondary py-4">
-                                @if (request()->hasAny(['q', 'rol_id', 'ambito', 'estado', 'situacion']))
-                                    Ninguna persona coincide con el filtro.
-                                    <a href="{{ route('usuarios.index') }}">Ver todas</a>.
+                                @if (request()->hasAny(['q', 'rol_id', 'estado', 'situacion']))
+                                    Nadie del personal coincide con el filtro.
+                                    <a href="{{ route('personal.index') }}">Ver todas</a>.
                                 @else
-                                    Todavía no hay personas cargadas.
+                                    Todavía no hay Usuarios cargados.
                                 @endif
                             </td>
                         </tr>
@@ -250,13 +238,13 @@
         </div>
     </div>
 
-    @if ($usuarios->total() > 0)
+    @if ($personal->total() > 0)
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
             <p class="text-body-secondary small mb-0">
-                Mostrando {{ $usuarios->firstItem() }}–{{ $usuarios->lastItem() }} de {{ $usuarios->total() }}.
+                Mostrando {{ $personal->firstItem() }}–{{ $personal->lastItem() }} de {{ $personal->total() }}.
             </p>
 
-            {{ $usuarios->links() }}
+            {{ $personal->links() }}
         </div>
     @endif
 @endsection

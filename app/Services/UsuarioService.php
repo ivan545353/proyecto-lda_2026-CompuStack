@@ -4,11 +4,13 @@ namespace App\Services;
 
 use App\Models\Rol;
 use App\Models\User;
+use Illuminate\Support\Facades\Password as BrokerDePassword;
+use Illuminate\Database\Eloquent\Collection;
 use App\Exceptions\ReglaDeNegocioException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Reglas de negocio de usuarios.
+ * Reglas de negocio de personal.
  *
  * Mismo patrón que MarcaService y CategoriaService: recibe datos ya validados,
  * no conoce la petición ni la sesión, y la API de la Etapa 3 lo va a usar sin
@@ -29,6 +31,12 @@ use Illuminate\Support\Facades\DB;
  *
  *   3. Un usuario con historial no se borra: se desactiva (M-16).
  *
+ *     La rama 'tienda' no la alcanza ninguna pantalla de la Etapa 1: la de
+ *     personal sólo acepta roles de gestión y la de clientes no crea cuentas.
+ *     No es código muerto: está probada en UsuarioServiceTest y es la base del
+ *     registro de la tienda de la Etapa 2, donde una persona se crea la cuenta
+ *     y su ficha de cliente en la misma transacción.
+ *
  * Métodos:
  *   crear()       alta del usuario y de su satélite, en una transacción
  *   actualizar()  edición de los datos personales y del satélite
@@ -38,25 +46,10 @@ class UsuarioService
 {
     /**
      * El permiso que permite recomponer el sistema.
-     *
-     * Quien lo tiene puede volver a activar cualquier cuenta, incluida la que
-     * alguien desactivó por error. Mientras exista una cuenta activa con este
-     * permiso, ningún error es irreversible; si no queda ninguna, no hay forma
-     * de entrar a arreglarlo.
-     *
      */
     private const PERMISO_DE_RESCATE = 'usuario.editar';
     /**
      * Columnas que registran quién hizo qué.
-     *
-     * Las tablas existen desde la Fase 1 aunque sus modelos lleguen en las
-     * fases 5 y 6, y el peligro es concreto en las dos direcciones:
-     * `ventas.usuario_id` y `pagos.usuario_id` restringen el borrado, así que
-     * la base devolvería un error de clave foránea en la cara del usuario; y
-     * `movimientos_stock.usuario_id` y las de `ordenes_compra` son
-     * nullOnDelete, así que borrar la cuenta pondría esas columnas en null y
-     * el kardex dejaría de poder responder quién ajustó el stock — que es
-     * exactamente la pregunta para la que existe (A-13).
      */
     private const HISTORIAL = [
         'ventas'            => ['usuario_id'],
@@ -120,27 +113,107 @@ class UsuarioService
 
             return false;
         }
-
-        // Sin historial es una cuenta creada por error. Al borrarla, la fila de
-        // `empleados` se va con ella (cascadeOnDelete: un legajo sin persona no
-        // significa nada) y la de `clientes` sobrevive con user_id en null
-        // (nullOnDelete: el cliente sigue existiendo, pasa a ser de mostrador).
-        // Las dos cascadas están declaradas en el esquema y son distintas
-        // porque los dos satélites son cosas distintas.
         DB::transaction(fn () => $usuario->delete());
 
         return true;
     }
 
     /**
-     * Crea o actualiza el satélite que corresponde al ámbito del rol.
+     * Roles que se le pueden asignar a esta persona.
      *
-     * El `match` no tiene rama por defecto a propósito: si mañana apareciera un
-     * ámbito nuevo, esto lanza UnhandledMatchError y la transacción revierte,
-     * en vez de crear en silencio un usuario sin satélite. Es el mismo criterio
-     * de denegación por defecto del Gate. Hoy el ENUM de la base sólo admite
-     * dos valores, así que la rama es inalcanzable: está para el día que deje
-     * de serlo.
+     * Sólo los de su mismo ámbito. Cambiar de gestión a tienda no es un cambio
+     * de rol: es cambiar qué clase de persona es, y el satélite lo demuestra.
+     * Un Vendedor tiene legajo y fecha de ingreso; un Cliente tiene CUIT y
+     * condición frente al IVA. Convertir uno en otro exigiría datos que este
+     * formulario no pide y borraría historial laboral que nadie pidió borrar.
+     *
+     * Esto es a la vez el juego de opciones de la pantalla y la fuente de
+     * verdad que valida CambiarRolRequest: una sola definición, no dos.
+     *
+     * @return Collection<int, Rol>
+     */
+    public function rolesAsignablesA(User $usuario): Collection
+    {
+        return Rol::query()
+            ->where('ambito', $usuario->rol->ambito)
+            ->orderBy('nombre')
+            ->get();
+    }
+
+    /**
+     * Cambia el rol de una persona.
+     *
+     * Acción separada de la edición, con su propio permiso.
+     */
+    public function cambiarRol(User $usuario, int $rolId): User
+    {
+        return DB::transaction(function () use ($usuario, $rolId) {
+            $rolNuevo = Rol::findOrFail($rolId);
+
+            if ($rolNuevo->ambito !== $usuario->rol->ambito) {
+                throw new ReglaDeNegocioException(
+                    'Un rol de gestión y uno de tienda piden datos distintos, así que no se '
+                    .'intercambian. Si la persona dejó de trabajar acá, cargale la fecha de '
+                    .'baja y creá su ficha de cliente aparte.'
+                );
+            }
+
+            // Sólo si el rol nuevo NO conserva la capacidad de administrar:
+            // pasar de Administrador a un rol que también puede editar
+            // usuarios es perfectamente válido.
+            if (! $rolNuevo->permisos()->where('clave', self::PERMISO_DE_RESCATE)->exists()) {
+                $this->exigirQueQuedeAlguienQuePuedaAdministrar($usuario, 'cambiarle el rol a');
+            }
+
+            $usuario->update(['rol_id' => $rolNuevo->id]);
+
+            return $usuario->fresh();
+        });
+    }
+
+    /**
+     * Cambia la contraseña de una cuenta.
+     *
+     * Borra los tokens de restablecimiento pendientes de ese correo. Si alguien
+     * pidió un token y después se acordó de la contraseña y la cambió a mano, el
+     * token viejo tiene que morir: si no, sigue sirviendo para cambiarla de
+     * nuevo hasta que expire.
+     */
+    public function cambiarPassword(User $usuario, string $password): User
+    {
+        return DB::transaction(function () use ($usuario, $password) {
+            // El cast 'hashed' del modelo lo encripta. Nunca se llama a bcrypt()
+            // acá: si el hash se hiciera en dos lugares, algún día uno de los
+            // dos se olvidaría.
+            $usuario->update(['password' => $password]);
+
+            DB::table('password_reset_tokens')->where('email', $usuario->email)->delete();
+
+            return $usuario->fresh();
+        });
+    }
+
+        /**
+     * Crea un token de un solo uso para que una persona fije su contraseña.
+     *
+     * El token lo genera y guarda el broker de Laravel: hasheado, con fecha, y
+     * comparado contra auth.passwords.users.expire. No se reinventa. Crear uno
+     * nuevo invalida el anterior de esa misma cuenta.
+     */
+    public function crearTokenDeRestablecimiento(User $usuario): string
+    {
+        if (! $usuario->activo) {
+            throw new ReglaDeNegocioException(
+                'Esa cuenta no tiene acceso al sistema, así que un enlace no le serviría: '
+                .'podría fijar una contraseña y seguir sin poder entrar. Devolvele el acceso primero.'
+            );
+        }
+
+        return BrokerDePassword::broker()->createToken($usuario);
+    }
+
+    /**
+     * Crea o actualiza el satélite que corresponde al ámbito del rol.
      */
     private function guardarSatelite(User $usuario, Rol $rol, array $datos): void
     {
@@ -186,13 +259,8 @@ class UsuarioService
         return false;
     }
 
-        /**
+    /**
      * ¿Es la única cuenta activa capaz de administrar usuarios?
-     *
-     * Es la misma idea que `roles.es_sistema`, que impide borrar el rol
-     * Administrador y dejar el sistema sin nadie que lo administre. Acá se
-     * aplica a las personas: un rol con permisos no sirve de nada si no queda
-     * nadie que lo tenga.
      */
     private function esElUltimoQuePuedeAdministrar(User $usuario): bool
     {
@@ -212,7 +280,7 @@ class UsuarioService
     {
         if ($this->esElUltimoQuePuedeAdministrar($usuario)) {
             throw new ReglaDeNegocioException(
-                "No se puede {$accion} la única cuenta activa que puede administrar usuarios. "
+                "No se puede {$accion} la única cuenta activa que puede administrar personal. "
                 .'Asigná ese permiso a otra persona antes de continuar.'
             );
         }
