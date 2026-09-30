@@ -12,24 +12,7 @@ beforeEach(function () {
     $this->cliente = Cliente::factory()->create();
 });
 
-function datosDeDireccion(array $sobreescribir = []): array
-{
-    return array_merge([
-        'calle'             => 'Av. Eva Perón',
-        'numero'            => '1450',
-        'piso_depto'        => null,
-        'codigo_postal'     => '9011',
-        'localidad'         => 'Caleta Olivia',
-        'provincia'         => 'Santa Cruz',
-        'es_predeterminada' => false,
-    ], $sobreescribir);
-}
 
-/** Cuántas direcciones del cliente están marcadas como predeterminadas. */
-function predeterminadasDe(Cliente $cliente): int
-{
-    return $cliente->direcciones()->where('es_predeterminada', true)->count();
-}
 
 /*
 |--------------------------------------------------------------------------

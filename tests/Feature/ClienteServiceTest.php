@@ -15,17 +15,6 @@ beforeEach(function () {
     $this->service = app(ClienteService::class);
 });
 
-function datosDeCliente(array $sobreescribir = []): array
-{
-    return array_merge([
-        'razon_social'  => 'Panadería Los Tilos',
-        'tipo_doc'      => 'dni',
-        'nro_doc'       => '41556778',
-        'condicion_iva' => 'consumidor_final',
-        'email'         => 'tilos@ejemplo.com',
-        'telefono'      => '297-5123456',
-    ], $sobreescribir);
-}
 
 /*
 |--------------------------------------------------------------------------

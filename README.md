@@ -10,21 +10,22 @@ Universidad Nacional de la Patagonia Austral — Unidad Académica Caleta Olivia
 
 ## Estado
 
-| Fase | Contenido | Estado |
-|---|---|---|
-| 0 | Repositorio y línea base | Completada |
-| 1 | Proyecto Laravel, esquema de datos y seeders | Completada |
-| 2 | Autenticación, roles y permisos | Completada |
-| 3 | Catálogo: categorías, marcas, productos | Completada |
-| 4 | Usuarios, clientes y empleados | Pendiente |
-| 5 | Proveedores, compras y stock | Pendiente |
-| 6 | Ventas y pagos | Pendiente |
-| 7 | Panel de métricas y exportación a PDF | Pendiente |
-| 8 | Cierre: pruebas, seguridad, documentación | Pendiente |
+| Fase | Contenido                                    | Estado     |
+| ---- | -------------------------------------------- | ---------- |
+| 0    | Repositorio y línea base                     | Completada |
+| 1    | Proyecto Laravel, esquema de datos y seeders | Completada |
+| 2    | Autenticación, roles y permisos              | Completada |
+| 3    | Catálogo: categorías, marcas, productos      | Completada |
+| 4    | Usuarios, clientes y personal                | Completada |
+| 5    | Proveedores, compras y stock                 | Pendiente  |
+| 6    | Ventas y pagos                               | Pendiente  |
+| 7    | Panel de métricas y exportación a PDF        | Pendiente  |
+| 8    | Cierre: pruebas, seguridad, documentación    | Pendiente  |
 
-Al cierre de la Fase 2 el sistema tiene **acceso funcionando**: login con sesión,
-control de permisos por rol y la pantalla de administración de roles. Los módulos
-de negocio empiezan en la Fase 3.
+Al cierre de la Fase 4 el sistema administra el catálogo y las personas: acceso
+con roles y permisos nombrados, catálogo de categorías, marcas y productos, y la
+gestión del personal y de los clientes con sus datos fiscales y direcciones. Las
+operaciones —compras, stock y ventas— empiezan en la Fase 5.
 
 ## Propósito
 
@@ -81,32 +82,32 @@ Laravel está en `docs/trazabilidad.md`.
 
 Diecisiete tablas en esta etapa:
 
-| Área | Tablas |
-|---|---|
+| Área               | Tablas                                                                              |
+| ------------------ | ----------------------------------------------------------------------------------- |
 | Identidad y acceso | `users`, `roles`, `permisos`, `rol_permiso`, `empleados`, `clientes`, `direcciones` |
-| Catálogo | `categorias`, `marcas`, `productos` |
-| Stock | `movimientos_stock` |
-| Compras | `proveedores`, `ordenes_compra`, `orden_compra_lineas` |
-| Ventas | `ventas`, `venta_lineas`, `pagos` |
+| Catálogo           | `categorias`, `marcas`, `productos`                                                 |
+| Stock              | `movimientos_stock`                                                                 |
+| Compras            | `proveedores`, `ordenes_compra`, `orden_compra_lineas`                              |
+| Ventas             | `ventas`, `venta_lineas`, `pagos`                                                   |
 
 El esquema completo, con la justificación de cada decisión, está en
 `docs/modelo-datos.md`, y el diagrama entidad-relación en `docs/der.puml`.
 
 ## Requisitos
 
-| | Versión |
-|---|---|
-| PHP | 8.2 o superior, con `pdo_mysql`, `mbstring`, `bcmath`, `intl` y `zip` |
-| Composer | 2.x |
-| Node.js | 20 o superior |
-| MariaDB | 10.4 o superior (o MySQL 8) |
-| Git | 2.x |
+|          | Versión                                                               |
+| -------- | --------------------------------------------------------------------- |
+| PHP      | 8.2 o superior, con `pdo_mysql`, `mbstring`, `bcmath`, `intl` y `zip` |
+| Composer | 2.x                                                                   |
+| Node.js  | 20 o superior                                                         |
+| MariaDB  | 10.4 o superior (o MySQL 8)                                           |
+| Git      | 2.x                                                                   |
 
 ## Instalación
 
 ```bash
-git clone <url-del-repositorio> sistema-gestion
-cd sistema-gestion
+git clone <url-del-repositorio> compustack
+cd compustack
 
 composer install
 npm install
@@ -119,8 +120,8 @@ php artisan key:generate
 Crear las dos bases de datos:
 
 ```sql
-CREATE DATABASE gestion         CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE DATABASE gestion_testing CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE lda_2026       CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE lda_2026_testing CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
 Y levantar el esquema con datos de demostración:
@@ -135,26 +136,30 @@ Toda la configuración sensible vive en `.env`, que **no se versiona**.
 `.env.example` documenta las claves con sus valores por defecto y sin ningún
 valor real.
 
-| Clave | Para qué |
-|---|---|
-| `DB_CONNECTION` | `mariadb` |
-| `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | Conexión a la base |
-| `APP_LOCALE`, `APP_TIMEZONE` | `es` y `America/Argentina/Buenos_Aires` |
-| `APP_FAKER_LOCALE` | `es_AR`, para los datos ficticios |
-| `ADMIN_EMAIL` | Cuenta del administrador que crea el seeder |
-| `ADMIN_PASSWORD` | Si queda vacía, el seeder genera una al azar y la imprime una sola vez |
+| Clave                                       | Para qué                                                               |
+| ------------------------------------------- | ---------------------------------------------------------------------- |
+| `DB_CONNECTION`                             | `mariadb`                                                              |
+| `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | Conexión a la base                                                     |
+| `APP_LOCALE`, `APP_TIMEZONE`                | `es` y `America/Argentina/Buenos_Aires`                                |
+| `APP_FAKER_LOCALE`                          | `es_AR`, para los datos ficticios                                      |
+| `ADMIN_EMAIL`                               | Cuenta del administrador que crea el seeder                            |
+| `ADMIN_PASSWORD`                            | Si queda vacía, el seeder genera una al azar y la imprime una sola vez |
 
 ### Cuentas de demostración
 
 `DatabaseSeeder` sólo siembra los datos ficticios **fuera de producción**. Las
 cuentas de demostración comparten la contraseña `demo1234`:
 
-| Correo | Rol |
-|---|---|
-| `administrativo@sistema.local` | Administrativo |
-| `vendedor@sistema.local` | Vendedor |
-| `cajero@sistema.local` | Cajero |
-| `cliente@sistema.local` | Cliente (ámbito tienda) |
+| Correo                         | Rol                     | Entra a la gestión |
+| ------------------------------ | ----------------------- | ------------------ |
+| `administrativo@sistema.local` | Administrativo          | Sí                 |
+| `vendedor@sistema.local`       | Vendedor                | Sí                 |
+| `vendedor2@sistema.local`      | Vendedor                | Sí                 |
+| `cajero@sistema.local`         | Cajero                  | Sí                 |
+| `cliente@sistema.local`        | Cliente (ámbito tienda) | No                 |
+
+La cuenta de cliente existe para que el modelo esté completo, pero el login la
+rechaza: en la Etapa 1 no hay tienda a la que entrar.
 
 La cuenta de administrador es aparte y su contraseña nunca se escribe en el
 código.
@@ -183,7 +188,7 @@ php artisan test
 Las pruebas usan **MariaDB**, no sqlite en memoria: verifican tipos de columna y
 valores de `ENUM` consultando `information_schema`, y sqlite no tiene `ENUM` ni
 distingue `decimal` de `float`. La base de pruebas tiene que ser el mismo motor
-que la de producción. Se configura en `phpunit.xml` (`DB_DATABASE=gestion_testing`).
+que la de producción. Se configura en `phpunit.xml` (`DB_DATABASE=lda_2026_testing`).
 
 Cubierto hasta ahora:
 
@@ -199,6 +204,18 @@ Cubierto hasta ahora:
 - Denegación por defecto: una acción sin permiso definido no se concede a nadie.
 - Módulo de roles: permiso implícito de ver, rol de gestión sin permisos,
   protección de los roles de sistema y del rol propio.
+- Catálogo: filtros de cada listado, jerarquía de categorías, precios en formato
+  argentino, gestión de imágenes y bajas lógicas.
+- Personal: las nueve rutas con su permiso, probadas en las dos direcciones; el
+  hash de contraseña ausente de la respuesta **y** de la consulta; el rol
+  imposible de enviar en la edición y de autoasignarse; la independencia entre
+  la baja laboral y el acceso al sistema.
+- Cuenta propia: cambio de contraseña sin permiso alguno, y enlace de
+  restablecimiento de un solo uso, con vencimiento y sin que el administrador
+  conozca la contraseña.
+- Clientes: las once rutas con su permiso, la dirección de otro cliente
+  respondiendo 404, las reglas fiscales por condición frente al IVA y por tipo
+  de documento, y la invariante de la dirección predeterminada.
 
 El rollback se verifica a mano, porque `RefreshDatabase` envuelve cada prueba en
 una transacción y el DDL de MySQL provoca commits implícitos:
@@ -233,18 +250,21 @@ Prácticas aplicadas:
 
 Hallazgos de la auditoría cerrados hasta esta fase:
 
-| Hallazgo | Cómo se cierra |
-|---|---|
-| A-4 · Secretos versionados | `.env` ignorado; credenciales del legacy reemplazadas por marcadores |
-| A-17 · Dinero en `float` | Todas las columnas monetarias en `decimal(12,2)`, con test |
-| A-18 · Numeración de ventas frágil | `venta_numeracion` descartada; la numeración fiscal la gobierna AFIP |
-| M-19 · Sin trazabilidad temporal | `created_at` / `updated_at` en toda tabla del dominio |
-| M-20 · Permisos CRUD insuficientes | Permisos como claves nombradas con pivote a roles |
-| C-1 · Hashes de contraseña expuestos | `$hidden` en `User`; entrada por Form Request y salida por el modelo (se completa en la Fase 4) |
-| C-2 · Fallback permisivo en la autorización | `Gate::before` concede sólo lo asignado; sin regla definida, deniega. Con test de regresión |
-| A-5 · El token no se podía revocar | Sesión en servidor y revalidación de `activo` en cada request |
-| A-6 · Sin límite de intentos en el login | `throttle:5,1` |
-| M-33 · Control de acceso por nombre de rol en el front | Las vistas usan `@can` sobre permisos; el ámbito sale de `roles.ambito` |
+| Hallazgo                                               | Cómo se cierra                                                                                                |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| A-4 · Secretos versionados                             | `.env` ignorado; credenciales del legacy reemplazadas por marcadores                                          |
+| A-17 · Dinero en `float`                               | Todas las columnas monetarias en `decimal(12,2)`, con test                                                    |
+| A-18 · Numeración de ventas frágil                     | `venta_numeracion` descartada; la numeración fiscal la gobierna AFIP                                          |
+| M-19 · Sin trazabilidad temporal                       | `created_at` / `updated_at` en toda tabla del dominio                                                         |
+| M-20 · Permisos CRUD insuficientes                     | Permisos como claves nombradas con pivote a roles                                                             |
+| C-1 · Hashes de contraseña expuestos                   | `$hidden` en `User`; entrada por Form Request y salida por el modelo (se completa en la Fase 4)               |
+| C-2 · Fallback permisivo en la autorización            | `Gate::before` concede sólo lo asignado; sin regla definida, deniega. Con test de regresión                   |
+| A-5 · El token no se podía revocar                     | Sesión en servidor y revalidación de `activo` en cada request                                                 |
+| A-6 · Sin límite de intentos en el login               | `throttle:5,1`                                                                                                |
+| M-33 · Control de acceso por nombre de rol en el front | Las vistas usan `@can` sobre permisos; el ámbito sale de `roles.ambito`                                       |
+| C-1 · Hashes de contraseña expuestos                   | `$hidden` en `User`, entrada por Form Request y salida por el modelo, y el listado no selecciona la columna   |
+| C-3 · Escalada de privilegios                          | El rol no es campo del formulario de edición; cambiarlo es una acción con permiso propio y sin autoasignación |
+| M-21 · Contraseña bloqueada sin salida                 | Cambio propio sin permiso, más enlace de un solo uso generado por un administrador                            |
 
 El listado completo de hallazgos está en `docs/auditoria.md`.
 
@@ -333,15 +353,16 @@ Decisiones tomadas a conciencia, con su motivo:
 
 ## Documentación
 
-| Documento | Contenido |
-|---|---|
-| `docs/auditoria.md` | Hallazgos del sistema original, por severidad |
-| `docs/modelo-datos.md` | Esquema completo y justificación de cada decisión |
-| `docs/der.puml` | Diagrama entidad-relación |
-| `docs/plan-migracion.md` | Fases, orden y criterios de terminado |
-| `docs/plan-accion.md` | Implementación paso a paso |
-| `docs/trazabilidad.md` | Componente original → componente Laravel |
-| `legacy/README.md` | Procedencia y estado del sistema congelado |
+| Documento                       | Contenido                                                   |
+| ------------------------------- | ----------------------------------------------------------- |
+| `docs/auditoria.md`             | Hallazgos del sistema original, por severidad               |
+| `docs/modelo-datos.md`          | Esquema completo y justificación de cada decisión           |
+| `docs/der.puml`                 | Diagrama entidad-relación                                   |
+| `docs/plan-migracion.md`        | Fases, orden y criterios de terminado                       |
+| `docs/plan-accion.md`           | Implementación paso a paso                                  |
+| `docs/trazabilidad.md`          | Componente original → componente Laravel                    |
+| `legacy/README.md`              | Procedencia y estado del sistema congelado                  |
+| `docs/pendientes-usabilidad.md` | Puntos de usabilidad y consistencia a resolver en el cierre |
 
 ---
 

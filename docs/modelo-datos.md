@@ -9,32 +9,32 @@ Convenciones: todo importe es `decimal(12,2)` (nunca `float`, ver A-17 de la aud
 ## 1. Identidad y control de acceso
 
 ### `users`
-| Campo | Tipo | Nota |
-|---|---|---|
-| id | bigint PK | |
-| nombre, apellido | varchar(100) | |
-| email | varchar(150) UNIQUE | también es el usuario de login |
-| password | varchar(255) | bcrypt |
-| rol_id | bigint FK | |
-| activo | boolean | controla si puede iniciar sesión |
-| email_verified_at | timestamp null | |
+| Campo             | Tipo                | Nota                             |
+| ----------------- | ------------------- | -------------------------------- |
+| id                | bigint PK           |                                  |
+| nombre, apellido  | varchar(100)        |                                  |
+| email             | varchar(150) UNIQUE | también es el usuario de login   |
+| password          | varchar(255)        | bcrypt                           |
+| rol_id            | bigint FK           |                                  |
+| activo            | boolean             | controla si puede iniciar sesión |
+| email_verified_at | timestamp null      |                                  |
 
 ### `roles`
-| Campo | Tipo | Nota |
-|---|---|---|
-| id | bigint PK | |
-| nombre | varchar(50) UNIQUE | Administrador, Administrativo, Vendedor, Cajero, Cliente |
-| descripcion | varchar(150) | |
-| ambito | enum | `gestion`, `tienda` |
-| es_sistema | boolean | protege los roles base del borrado |
+| Campo       | Tipo               | Nota                                                     |
+| ----------- | ------------------ | -------------------------------------------------------- |
+| id          | bigint PK          |                                                          |
+| nombre      | varchar(50) UNIQUE | Administrador, Administrativo, Vendedor, Cajero, Cliente |
+| descripcion | varchar(150)       |                                                          |
+| ambito      | enum               | `gestion`, `tienda`                                      |
+| es_sistema  | boolean            | protege los roles base del borrado                       |
 
 ### `permisos`
-| Campo | Tipo | Nota |
-|---|---|---|
-| id | bigint PK | |
-| clave | varchar(60) UNIQUE | `venta.anular`, `compra.aprobar`, `producto.eliminar` |
-| modulo | varchar(40) | agrupador para la pantalla de asignación |
-| descripcion | varchar(150) | texto que ve el administrador |
+| Campo       | Tipo               | Nota                                                  |
+| ----------- | ------------------ | ----------------------------------------------------- |
+| id          | bigint PK          |                                                       |
+| clave       | varchar(60) UNIQUE | `venta.anular`, `compra.aprobar`, `producto.eliminar` |
+| modulo      | varchar(40)        | agrupador para la pantalla de asignación              |
+| descripcion | varchar(150)       | texto que ve el administrador                         |
 
 ### `rol_permiso`
 `rol_id FK, permiso_id FK` — clave primaria compuesta.
@@ -54,15 +54,15 @@ La causa de fondo es que el negocio tiene acciones que no son CRUD, y un modelo 
 `users` no guarda ningún dato específico de clientes ni de empleados. Es el núcleo de acceso; los datos particulares de cada tipo cuelgan de `clientes` y `empleados`.
 
 ### `clientes`
-| Campo | Tipo | Nota |
-|---|---|---|
-| id | bigint PK | |
-| user_id | bigint FK null UNIQUE | null = cliente de mostrador sin cuenta |
-| razon_social | varchar(150) | nombre o razón social |
-| tipo_doc | enum | `dni`, `cuit`, `cuil` |
-| nro_doc | varchar(15) | |
-| condicion_iva | enum | `responsable_inscripto`, `monotributo`, `consumidor_final`, `exento` |
-| email, telefono | varchar | |
+| Campo           | Tipo                  | Nota                                                                 |
+| --------------- | --------------------- | -------------------------------------------------------------------- |
+| id              | bigint PK             |                                                                      |
+| user_id         | bigint FK null UNIQUE | null = cliente de mostrador sin cuenta                               |
+| razon_social    | varchar(150)          | nombre o razón social                                                |
+| tipo_doc        | enum                  | `dni`, `cuit`, `cuil`                                                |
+| nro_doc         | varchar(15)           |                                                                      |
+| condicion_iva   | enum                  | `responsable_inscripto`, `monotributo`, `consumidor_final`, `exento` |
+| email, telefono | varchar               |                                                                      |
 
 **Por qué está separada de `users`.** Tres razones concretas:
 
@@ -72,18 +72,27 @@ La causa de fondo es que el negocio tiene acciones que no son CRUD, y un modelo 
 
 `ventas.cliente_id` es nullable: la venta rápida de mostrador a consumidor final no necesita identificar a nadie, y AFIP acepta doc tipo 99 para esos casos.
 
+**Por qué no tiene `activo`.** Es la única excepción del proyecto a "lo que está
+referenciado no se borra: se desactiva". La baja lógica existe para lo que
+aparece en listas de las que uno elige —marcas, categorías, productos—, donde
+hay que dejar de ofrecerlo sin borrar el historial. Un cliente no se elige de un
+desplegable: se busca. Esconderlo de un buscador es lo contrario de lo que se
+necesita. Así que la baja de un cliente referenciado **se rechaza** con un
+motivo, que conserva el dato igual y además lo explica. Si el negocio pidiera
+ocultar a quien dejó de comprar, ahí se justifica la columna.
+
 **Con un límite.** AFIP exige identificar al comprador cuando la operación con consumidor final supera cierto monto, y ese umbral se actualiza periódicamente. Conviene guardarlo como parámetro de configuración, no hardcodearlo: si el total supera el valor vigente, la app obliga a cargar los datos del cliente antes de facturar. Hay que confirmar el número vigente al momento de implementar.
 
 ### `empleados`
-| Campo | Tipo | Nota |
-|---|---|---|
-| id | bigint PK | |
-| user_id | bigint FK UNIQUE | |
-| legajo | varchar(20) UNIQUE | |
-| dni | varchar(15) | |
-| telefono | varchar(30) | |
-| fecha_ingreso | date | |
-| fecha_baja | date null | null = activo |
+| Campo         | Tipo               | Nota          |
+| ------------- | ------------------ | ------------- |
+| id            | bigint PK          |               |
+| user_id       | bigint FK UNIQUE   |               |
+| legajo        | varchar(20) UNIQUE |               |
+| dni           | varchar(15)        |               |
+| telefono      | varchar(30)        |               |
+| fecha_ingreso | date               |               |
+| fecha_baja    | date null          | null = activo |
 
 **Por qué existe como tabla y no como columnas en `users`.** Es el mismo argumento que justifica `clientes`: si los datos laborales vivieran en `users`, quedarían nulos en cada fila de cliente — y los clientes van a ser la enorme mayoría del padrón. La simetría es deliberada: `users` guarda credenciales, nombre para mostrar y rol; todo lo demás vive en el satélite que corresponda.
 
@@ -93,10 +102,27 @@ La causa de fondo es que el negocio tiene acciones que no son CRUD, y un modelo 
 
 **`fecha_baja` no reemplaza a `users.activo`.** Son cosas distintas: `activo` controla si puede iniciar sesión, `fecha_baja` es el dato laboral. Un empleado dado de baja conserva su historial de ventas y sigue apareciendo en los reportes del período en que trabajó.
 
+**Por qué no está el CUIL.** Sólo hace falta para la liquidación de sueldos y
+las declaraciones a AFIP, que están fuera del alcance de las tres etapas. Para
+identificar a la persona y atribuirle operaciones, el DNI alcanza. Si alguna
+etapa incorporara liquidación, se agrega como columna nullable de `empleados`
+sin tocar ninguna relación, más la validación de que contenga el DNI y de su
+dígito verificador.
+
 ### `direcciones`
 `id, cliente_id FK, calle, numero, piso_depto, codigo_postal, localidad, provincia, es_predeterminada`
 
 Sólo para envíos. Un cliente puede tener varias; la que se usa se **copia** al envío (ver §7), no se referencia.
+
+**Invariante:** si el cliente tiene al menos una dirección, exactamente una
+tiene `es_predeterminada`. El esquema no puede expresarlo —un `boolean` con
+`DEFAULT false` acepta tres marcadas o ninguna— así que la garantiza
+`DireccionService`, igual que la invariante rol↔satélite. Los dos estados
+inválidos hacen daño: con tres marcadas el armado de envíos no sabe cuál usar, y
+con ninguna no tiene nada que ofrecer. Toda operación bloquea la fila del
+**cliente** —no las de las direcciones— para que dos pestañas simultáneas no
+dejen dos marcadas, y para que el alta de la primera también se serialice,
+cuando todavía no hay ninguna fila de dirección que bloquear.
 
 ---
 
@@ -115,25 +141,25 @@ Sólo para envíos. Un cliente puede tener varias; la que se usa se **copia** al
 Tabla mínima, existe sólo para filtrar en la tienda.
 
 ### `productos`
-| Campo | Tipo | Por qué |
-|---|---|---|
-| id | bigint PK | |
-| categoria_id, marca_id | FK | |
-| proveedor_id | FK null | un producto, un proveedor (tu respuesta 24) |
-| codigo | varchar(30) UNIQUE | |
-| nombre, descripcion | varchar / text | |
-| imagenes | json | array de rutas |
-| **precio_lista** | decimal(12,2) | precio con tarjeta / cuotas |
-| **precio_contado** | decimal(12,2) | efectivo / transferencia / QR |
-| alicuota_iva | decimal(4,2) | 21.00, 10.50, 0.00 |
-| costo_promedio | decimal(12,2) | costo ponderado, se recalcula al recibir mercadería |
-| stock | int | saldo real en depósito |
-| stock_reservado | int | comprometido por checkouts en curso |
-| stock_minimo | int | dispara la orden de compra |
-| cantidad_reposicion | int | cuánto pedir cuando se dispara |
-| peso_gramos | int null | si es null, usa el de la categoría |
-| destacado | boolean | destaque manual (requerimiento 54) |
-| activo | boolean | baja lógica |
+| Campo                  | Tipo               | Por qué                                             |
+| ---------------------- | ------------------ | --------------------------------------------------- |
+| id                     | bigint PK          |                                                     |
+| categoria_id, marca_id | FK                 |                                                     |
+| proveedor_id           | FK null            | un producto, un proveedor (tu respuesta 24)         |
+| codigo                 | varchar(30) UNIQUE |                                                     |
+| nombre, descripcion    | varchar / text     |                                                     |
+| imagenes               | json               | array de rutas                                      |
+| **precio_lista**       | decimal(12,2)      | precio con tarjeta / cuotas                         |
+| **precio_contado**     | decimal(12,2)      | efectivo / transferencia / QR                       |
+| alicuota_iva           | decimal(4,2)       | 21.00, 10.50, 0.00                                  |
+| costo_promedio         | decimal(12,2)      | costo ponderado, se recalcula al recibir mercadería |
+| stock                  | int                | saldo real en depósito                              |
+| stock_reservado        | int                | comprometido por checkouts en curso                 |
+| stock_minimo           | int                | dispara la orden de compra                          |
+| cantidad_reposicion    | int                | cuánto pedir cuando se dispara                      |
+| peso_gramos            | int null           | si es null, usa el de la categoría                  |
+| destacado              | boolean            | destaque manual (requerimiento 54)                  |
+| activo                 | boolean            | baja lógica                                         |
 
 **Por qué dos precios y no una tabla de listas.** Dijiste que el precio es uno solo y que el arreglo mayorista es informal (16), pero también que querés el esquema actual de precio de lista distinto al de contado (38). Eso son exactamente dos números por producto, no dos listas de precios. Dos columnas resuelven el 100% del caso; una tabla `listas_precio` agregaría una entidad y un join a cada consulta de catálogo para modelar lo mismo.
 
@@ -163,15 +189,15 @@ Si más adelante querés agrupar, se agrega una columna nullable `grupo_id` y un
 ## 3. Proveedores y reposición automática
 
 ### `proveedores`
-| Campo | Tipo | Nota |
-|---|---|---|
-| id | bigint PK | |
-| razon_social, cuit | varchar | |
-| email, telefono, contacto | varchar | |
-| **canal_pedido** | enum | `email`, `portal_externo`, `manual` |
-| portal_url | varchar null | sólo si canal = portal_externo |
-| plazo_entrega_dias | int | informativo |
-| activo | boolean | |
+| Campo                     | Tipo         | Nota                                |
+| ------------------------- | ------------ | ----------------------------------- |
+| id                        | bigint PK    |                                     |
+| razon_social, cuit        | varchar      |                                     |
+| email, telefono, contacto | varchar      |                                     |
+| **canal_pedido**          | enum         | `email`, `portal_externo`, `manual` |
+| portal_url                | varchar null | sólo si canal = portal_externo      |
+| plazo_entrega_dias        | int          | informativo                         |
+| activo                    | boolean      |                                     |
 
 **Cómo resuelve el problema que planteaste en el punto 3.** Describiste tres realidades: el proveedor grande que sólo opera por su propio portal, el chico que podría entrar al sistema, y el informal al que se le pide por mail o WhatsApp. Darle login a los proveedores implicaría autenticación externa, permisos, y un panel entero — para una minoría de casos, y sin resolver al proveedor grande, que nunca va a usar tu sistema.
 
@@ -222,20 +248,20 @@ Una columna enum reemplaza a un subsistema de autenticación completo, y el proc
 ## 5. Ventas
 
 ### `ventas`
-| Campo | Tipo | Nota |
-|---|---|---|
-| id | bigint PK | |
-| canal | enum | `mostrador`, `online` |
-| cliente_id | FK null | null = consumidor final anónimo |
-| usuario_id | FK null | vendedor; null en ventas online |
-| estado | enum | ver máquina de estados |
-| modo_entrega | enum | `retiro`, `envio` |
-| vale_id | FK null | |
-| subtotal | decimal | suma de líneas |
-| descuento | decimal | monto del vale |
-| costo_envio | decimal | 0 si retira |
-| total | decimal | |
-| observaciones | varchar null | |
+| Campo         | Tipo         | Nota                            |
+| ------------- | ------------ | ------------------------------- |
+| id            | bigint PK    |                                 |
+| canal         | enum         | `mostrador`, `online`           |
+| cliente_id    | FK null      | null = consumidor final anónimo |
+| usuario_id    | FK null      | vendedor; null en ventas online |
+| estado        | enum         | ver máquina de estados          |
+| modo_entrega  | enum         | `retiro`, `envio`               |
+| vale_id       | FK null      |                                 |
+| subtotal      | decimal      | suma de líneas                  |
+| descuento     | decimal      | monto del vale                  |
+| costo_envio   | decimal      | 0 si retira                     |
+| total         | decimal      |                                 |
+| observaciones | varchar null |                                 |
 
 ### `venta_lineas`
 `id, venta_id FK, producto_id FK, descripcion, cantidad, cantidad_devuelta, precio_unitario, alicuota_iva, costo_unitario, neto, iva, total`
@@ -299,21 +325,21 @@ Aplicación: uno solo por venta (49), tope global de usos (48), sobre el total d
 ## 6. Facturación
 
 ### `comprobantes`
-| Campo | Tipo | Nota |
-|---|---|---|
-| id | bigint PK | |
-| venta_id | FK | |
-| tipo | enum | `factura_a`, `factura_b`, `nota_credito_a`, `nota_credito_b` |
-| punto_venta | smallint | 1 = mostrador, 2 = online |
-| numero | int | correlativo por (tipo, punto_venta) |
-| comprobante_asociado_id | FK null | la factura que la NC acredita |
-| fecha_emision | date | |
-| neto, iva, total | decimal | |
-| cae | varchar(14) null | |
-| cae_vencimiento | date null | |
-| estado | enum | `pendiente`, `autorizado`, `rechazado` |
-| afip_respuesta | json null | payload completo de WSFEv1 |
-| motivo | varchar null | razón de la NC |
+| Campo                   | Tipo             | Nota                                                         |
+| ----------------------- | ---------------- | ------------------------------------------------------------ |
+| id                      | bigint PK        |                                                              |
+| venta_id                | FK               |                                                              |
+| tipo                    | enum             | `factura_a`, `factura_b`, `nota_credito_a`, `nota_credito_b` |
+| punto_venta             | smallint         | 1 = mostrador, 2 = online                                    |
+| numero                  | int              | correlativo por (tipo, punto_venta)                          |
+| comprobante_asociado_id | FK null          | la factura que la NC acredita                                |
+| fecha_emision           | date             |                                                              |
+| neto, iva, total        | decimal          |                                                              |
+| cae                     | varchar(14) null |                                                              |
+| cae_vencimiento         | date null        |                                                              |
+| estado                  | enum             | `pendiente`, `autorizado`, `rechazado`                       |
+| afip_respuesta          | json null        | payload completo de WSFEv1                                   |
+| motivo                  | varchar null     | razón de la NC                                               |
 
 UNIQUE(tipo, punto_venta, numero).
 
@@ -384,17 +410,17 @@ Imagen y link (51), con programación por fechas (52). Los administra el adminis
 
 **No agrega ninguna tabla.** Todas las métricas confirmadas salen por agregación:
 
-| Métrica | Origen |
-|---|---|
-| Ventas del vendedor en el período | `ventas WHERE usuario_id = X AND estado IN (pagada…entregada)` |
-| Ticket promedio | `AVG(total)` sobre lo anterior |
-| Ranking de vendedores | `GROUP BY usuario_id` |
-| Ingresos | `SUM(ventas.total)` |
-| Neto acreditado | `SUM(pagos.neto_acreditado)` |
-| Margen | `SUM(cantidad × (precio_unitario − costo_unitario))` sobre `venta_lineas` |
-| Stock crítico | `productos WHERE stock − stock_reservado <= stock_minimo` |
-| Órdenes de compra pendientes | `ordenes_compra WHERE estado != 'recibida'` |
-| Más y menos vendidos | `GROUP BY producto_id` sobre `venta_lineas` |
+| Métrica                           | Origen                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| Ventas del vendedor en el período | `ventas WHERE usuario_id = X AND estado IN (pagada…entregada)`            |
+| Ticket promedio                   | `AVG(total)` sobre lo anterior                                            |
+| Ranking de vendedores             | `GROUP BY usuario_id`                                                     |
+| Ingresos                          | `SUM(ventas.total)`                                                       |
+| Neto acreditado                   | `SUM(pagos.neto_acreditado)`                                              |
+| Margen                            | `SUM(cantidad × (precio_unitario − costo_unitario))` sobre `venta_lineas` |
+| Stock crítico                     | `productos WHERE stock − stock_reservado <= stock_minimo`                 |
+| Órdenes de compra pendientes      | `ordenes_compra WHERE estado != 'recibida'`                               |
+| Más y menos vendidos              | `GROUP BY producto_id` sobre `venta_lineas`                               |
 
 Todo se calcula **en el servidor** y se devuelve ya agregado. El sistema actual descarga las tablas completas al navegador y cuenta con `.filter()` (hallazgo A-26); ese patrón no se repite.
 
@@ -406,14 +432,14 @@ Todo se calcula **en el servidor** y se devuelve ya agregado. El sistema actual 
 
 El modelo completo es el destino; no todas las tablas se crean a la vez. La Etapa 1 crea diecisiete.
 
-| Etapa 1 (backend Laravel) | Etapa 2/3 (tienda, pagos, facturación, envíos) |
-|---|---|
-| `users`, `roles`, `permisos`, `rol_permiso` | `carritos`, `carrito_lineas` |
-| `clientes`, `empleados`, `direcciones` | `comprobantes`, `comprobante_lineas` |
-| `categorias`, `marcas`, `productos` | `envios` |
-| `movimientos_stock` | `vales` |
-| `proveedores`, `ordenes_compra`, `orden_compra_lineas` | `banners` |
-| `ventas`, `venta_lineas`, `pagos` | |
+| Etapa 1 (backend Laravel)                              | Etapa 2/3 (tienda, pagos, facturación, envíos) |
+| ------------------------------------------------------ | ---------------------------------------------- |
+| `users`, `roles`, `permisos`, `rol_permiso`            | `carritos`, `carrito_lineas`                   |
+| `clientes`, `empleados`, `direcciones`                 | `comprobantes`, `comprobante_lineas`           |
+| `categorias`, `marcas`, `productos`                    | `envios`                                       |
+| `movimientos_stock`                                    | `vales`                                        |
+| `proveedores`, `ordenes_compra`, `orden_compra_lineas` | `banners`                                      |
+| `ventas`, `venta_lineas`, `pagos`                      |                                                |
 
 **Regla para no pagar migraciones dolorosas después.** Las tablas de la Etapa 1 se crean con **todas** las columnas que van a necesitar alguna vez, incluidos los `ENUM` con su juego completo de valores. En Laravel agregar una tabla o una columna nullable es barato; modificar un `ENUM` reescribe la tabla entera.
 
@@ -428,17 +454,17 @@ Casos concretos:
 
 ## 11. Resumen
 
-| Área | Tablas |
-|---|---|
+| Área               | Tablas                                                                              |
+| ------------------ | ----------------------------------------------------------------------------------- |
 | Identidad y acceso | `users`, `roles`, `permisos`, `rol_permiso`, `clientes`, `empleados`, `direcciones` |
-| Catálogo | `categorias`, `marcas`, `productos` |
-| Stock | `movimientos_stock` |
-| Compras | `proveedores`, `ordenes_compra`, `orden_compra_lineas` |
-| Carrito | `carritos`, `carrito_lineas` |
-| Ventas | `ventas`, `venta_lineas`, `pagos`, `vales` |
-| Facturación | `comprobantes`, `comprobante_lineas` |
-| Logística | `envios` |
-| Contenido | `banners` |
+| Catálogo           | `categorias`, `marcas`, `productos`                                                 |
+| Stock              | `movimientos_stock`                                                                 |
+| Compras            | `proveedores`, `ordenes_compra`, `orden_compra_lineas`                              |
+| Carrito            | `carritos`, `carrito_lineas`                                                        |
+| Ventas             | `ventas`, `venta_lineas`, `pagos`, `vales`                                          |
+| Facturación        | `comprobantes`, `comprobante_lineas`                                                |
+| Logística          | `envios`                                                                            |
+| Contenido          | `banners`                                                                           |
 
 **Qué se eliminó respecto del modelo anterior:** `modulos` (los permisos ya no se agrupan por módulo sino por acción nombrada) y `venta_numeracion` (la numeración fiscal la gobierna AFIP). `perfiles` y `permisos` se rediseñaron, no se eliminaron.
 

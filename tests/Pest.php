@@ -169,3 +169,40 @@ function tokenDelEnlace(string $enlace): string
 {
     return basename(parse_url($enlace, PHP_URL_PATH));
 }
+
+/** Datos fiscales válidos de un cliente de mostrador. */
+function datosDeCliente(array $sobreescribir = []): array
+{
+    return array_merge([
+        'razon_social'  => 'Panadería Los Tilos',
+        'tipo_doc'      => 'dni',
+        'nro_doc'       => '41556778',
+        'condicion_iva' => 'consumidor_final',
+        'email'         => 'tilos@ejemplo.com',
+        'telefono'      => '297-5123456',
+    ], $sobreescribir);
+}
+
+/** Datos válidos de una dirección. */
+function datosDeDireccion(array $sobreescribir = []): array
+{
+    return array_merge([
+        'calle'             => 'Av. Eva Perón',
+        'numero'            => '1450',
+        'piso_depto'        => null,
+        'codigo_postal'     => '9011',
+        'localidad'         => 'Caleta Olivia',
+        'provincia'         => 'Santa Cruz',
+        'es_predeterminada' => false,
+    ], $sobreescribir);
+}
+
+/**
+ * Cuántas direcciones del cliente están marcadas como predeterminadas.
+ *
+ * La invariante dice que si tiene al menos una, este número es exactamente 1.
+ */
+function predeterminadasDe(\App\Models\Cliente $cliente): int
+{
+    return $cliente->direcciones()->where('es_predeterminada', true)->count();
+}

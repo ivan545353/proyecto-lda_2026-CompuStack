@@ -5,6 +5,9 @@ Objetivo: identificar qué **no** repetir en la migración a Laravel + Flutter.
 
 Severidad: **C** crítico · **A** alto · **M** medio · **B** bajo
 
+**Cierre:** los hallazgos resueltos en la migración llevan al final una línea
+`> **Cerrado** — Fase N. Cómo.` Un hallazgo sin esa línea está abierto.
+
 ---
 
 ## 1. Seguridad
@@ -16,6 +19,13 @@ Resultado: `GET /user/list` devuelve el hash bcrypt de **todos** los usuarios a 
 
 El bug de fondo no es el `unset` faltante, es que **el DTO de escritura y el de lectura son el mismo objeto**. En Laravel esto se corrige separando `FormRequest` (entrada) de `JsonResource` (salida) y marcando `password` en `$hidden`.
 
+> **Cerrado** — Fase 4. Entrada y salida son objetos distintos: `PersonalRequest`
+> valida, el modelo `User` devuelve con `$hidden`. Pero `$hidden` sólo actúa al
+> serializar, así que en una vista Blade el hash se imprimiría igual: el listado
+> además **no selecciona la columna**, que es la corrección literal del
+> `SELECT u.*`. Los dos niveles tienen su test, y son dos tests distintos
+> porque el primero pasa aunque la columna se traiga de la base.
+
 ### C-2 · Fallback permisivo en el middleware de autorización
 ```php
 $columna = self::MAPA_PERMISOS[$action] ?? "can_update";
@@ -26,6 +36,14 @@ Además el módulo se deduce del nombre del controlador (`$controller` → `modu
 
 ### C-3 · Escalada de privilegios vía `user/update`
 `UserController::update()` construye el `UserDto` directamente desde el body, que incluye `perfil_id`, y no compara el `id` del body contra el `usuarioID` del token. Un usuario con `can_update` sobre `user` puede reasignarse a sí mismo (o a cualquiera) el perfil Administrador. No hay separación entre "editar mi cuenta" y "editar a otro".
+
+> **Cerrado** — Fase 4. El rol no es un campo del formulario de edición y
+> enviarlo se rechaza (`prohibited`), en vez de ignorarse en silencio. Cambiarlo
+> es una acción aparte con permiso propio (`usuario.cambiar_rol`), que prohíbe
+> la autoasignación comparando identidades —lo que el original nunca hacía— y
+> sólo admite roles del mismo ámbito. `UsuarioService::actualizar` enumera los
+> campos uno por uno y no escribe `rol_id` ni `password` aunque lleguen: es la
+> segunda barrera, la que va a proteger a la API de la Etapa 3.
 
 ### A-4 · Secretos versionados
 - `JWT_SECRET = '2896bd45d7c219ccec38199c54734628'` en `AppConfig.php`, commiteado.
@@ -125,7 +143,19 @@ Ninguna tabla tiene `created_at` / `updated_at` / `created_by`. `usuarios.fechaA
 Con el nuevo esquema de perfiles (cliente / administrador / empleado con subtipos vendedor-cajero-administrativo + proveedor), un modelo de flags por módulo se vuelve inmanejable. Corresponde pasar a permisos nombrados (`sale.void`, `purchase_order.approve`, `discount.override`).
 
 ### M-21 · `resetPass` bloquea sin salida
-`AuthenticationService` rechaza el login si `resetPass != 0` con "Su clave ha caducado", pero no hay endpoint público para restablecerla. El usuario queda bloqueado hasta que un admin lo destrabe. Falta el flujo de recuperación por email — que con clientes reales pasa a ser obligatorio. CERRADO
+`AuthenticationService` rechaza el login si `resetPass != 0` con "Su clave ha caducado", pero no hay endpoint público para restablecerla. El usuario queda bloqueado hasta que un admin lo destrabe. Falta el flujo de recuperación por email — que con clientes reales pasa a ser obligatorio.
+
+> **Cerrado** — Fase 4, en dos mitades. Quien recuerda su contraseña la cambia
+> en `/cuenta/password`, una ruta sin ningún permiso: exigirlo dejaría sin
+> salida a un rol al que se le olvidara asignarlo, que es el hallazgo otra vez.
+> Quien la olvidó recibe de un administrador un enlace de un solo uso
+> (`usuario.resetear_password`), con el token hasheado por el broker de Laravel
+> y vencimiento de una hora. El administrador nunca conoce la contraseña, así
+> que no puede operar el sistema con la identidad de otro. La recuperación por
+> correo sin intervención de un administrador queda para la Etapa 2, cuando
+> haya SMTP; las dos rutas públicas del flujo ya existen y se llaman
+> `password.reset` y `password.store`, los nombres que la notificación
+> `ResetPassword` de Laravel tiene escritos.
 
 ### M-22 · Faltan campos que los nuevos requerimientos exigen
 El catálogo actual (`nombre, codigo, descripcion, categoriaId, precio, stock`) no soporta:

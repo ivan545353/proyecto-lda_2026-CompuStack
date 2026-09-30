@@ -45,17 +45,25 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 
 ## 4. Controladores
 
-| Componente original            | Función                                     | Componente Laravel                     | Estado    |
-| ------------------------------ | ------------------------------------------- | -------------------------------------- | --------- |
-| `base/BaseController.php`      | Contrato común de controlador               | `App\Http\Controllers\Controller`      | Pendiente |
-| `base/InterfaceController.php` | Interfaz CRUD                               | Convención de resource controller      | Pendiente |
-| `AuthenticationController.php` | Login, logout, `getCurrent`                 | `AuthController` con sesión            | Migrado   |
-| `CategoryController.php`       | CRUD de categorías                          | `CategoriaController` (resource)       | Migrado   |
-| `ItemController.php`           | CRUD de productos                           | `ProductoController` (resource)        | Migrado   |
-| `UserController.php`           | CRUD de usuarios, cambio de clave, perfiles | `UsuarioController + CuentaController` | Migrado   |
-| `SaleController.php`           | Ventas, cobros, cambio de estado            | `VentaController` + `PagoController`   | Pendiente |
+| Componente original            | Función                                     | Componente Laravel                      | Estado    |
+| ------------------------------ | ------------------------------------------- | --------------------------------------- | --------- |
+| `base/BaseController.php`      | Contrato común de controlador               | `App\Http\Controllers\Controller`       | Pendiente |
+| `base/InterfaceController.php` | Interfaz CRUD                               | Convención de resource controller       | Pendiente |
+| `AuthenticationController.php` | Login, logout, `getCurrent`                 | `AuthController` con sesión             | Migrado   |
+| `CategoryController.php`       | CRUD de categorías                          | `CategoriaController` (resource)        | Migrado   |
+| `ItemController.php`           | CRUD de productos                           | `ProductoController` (resource)         | Migrado   |
+| `UserController.php`           | CRUD de usuarios, cambio de clave, perfiles | `PersonalController + CuentaController` | Migrado   |
+| `SaleController.php`           | Ventas, cobros, cambio de estado            | `VentaController` + `PagoController`    | Pendiente |
 
 > `UserController::update` acepta `perfil_id` del body sin verificar identidad (hallazgo C-3, escalada de privilegios). El cambio de rol debe quedar en una acción separada, restringida y con prohibición de autoasignación.
+> El listado de usuarios se partió en dos pantallas: `PersonalController` lista
+> las cuentas de ámbito gestión y `ClienteController` las fichas de clientes.
+> Antes el ámbito era un filtro opcional del mismo listado, y eso ponía al
+> cajero y a un cliente de la tienda en la misma lista: un filtro que hay que
+> acordarse de aplicar no separa nada. `UsuarioService` conserva el nombre
+> porque administra cuentas —contraseña propia, cambio de rol, enlace de
+> restablecimiento— y lo usan también `CuentaController` y
+> `RestablecerPasswordController`.
 
 ## 5. Servicios
 
@@ -95,7 +103,7 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 | `LoginDto.php`          | Credenciales de acceso  | `LoginRequest`              | Migrado   |
 | `CategoryDto.php`       | Validación y transporte | `CategoriaRequest` + modelo | Migrado   |
 | `ItemDto.php`           | Validación y transporte | `ProductoRequest` + modelo  | Migrado   |
-| `UserDto.php`           | Validación y transporte | `UsuarioRequest` + modelo   | Migrado   |
+| `UserDto.php`           | Validación y transporte | `PersonalRequest` + modelo  | Migrado   |
 | `SaleDto.php`           | Validación y transporte | `VentaRequest` + modelo     | Pendiente |
 
 > Los DTOs actuales cumplen doble función de entrada y salida, que es la causa de fondo de C-1. Se separan: Form Request para entrada, modelo con `$hidden` para salida.
@@ -104,21 +112,21 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 
 ## 8. Frontend
 
-| Componente original              | Función                              | Componente Laravel                                           | Estado            |
-| -------------------------------- | ------------------------------------ | ------------------------------------------------------------ | ----------------- |
-| `features/auth/`                 | Pantalla de login                    | `resources/views/auth/`                                      | Migrado           |
-| `features/layout/`               | Barra de navegación y estructura     | `resources/views/layouts/app.blade.php`                      | Migrado           |
-| `features/home/`                 | Panel con contadores                 | `resources/views/dashboard/` con datos agregados en servidor | Pendiente         |
-| `features/category/`             | Listado y formulario de categorías   | `resources/views/categorias/`                                | Migrado           |
-| `features/item/`                 | Listado y formulario de productos    | `resources/views/productos/`                                 | Migrado           |
-| `features/user/`                 | Listado y formulario de usuarios     | `resources/views/usuarios/`                                  | Migrado           |
-| `features/sale/`                 | Ventas, detalle, cobro               | `resources/views/ventas/`                                    | Pendiente         |
-| `features/account/`              | Cambio de clave propia               | `resources/views/cuenta/`                                    | features/account/ |
-| `core/pdf/pdf.service.ts`        | Genera PDF con jsPDF en el navegador | `barryvdh/laravel-dompdf` + vistas Blade                     | Pendiente         |
-| `core/auth/auth.guard.ts`        | Protege rutas si hay token           | Middleware `auth`                                            | Pendiente         |
-| `core/auth/token.interceptor.ts` | Inyecta el header Authorization      | Descartado: sesión en cookie                                 | Descartado        |
-| `core/api/api.constants.ts`      | URL base de la API                   | Descartado                                                   | Descartado        |
-| `core/*/​*.service.ts`           | Clientes HTTP por módulo             | Descartado: los controladores devuelven vistas               | Descartado        |
+| Componente original              | Función                              | Componente Laravel                                           | Estado     |
+| -------------------------------- | ------------------------------------ | ------------------------------------------------------------ | ---------- |
+| `features/auth/`                 | Pantalla de login                    | `resources/views/auth/`                                      | Migrado    |
+| `features/layout/`               | Barra de navegación y estructura     | `resources/views/layouts/app.blade.php`                      | Migrado    |
+| `features/home/`                 | Panel con contadores                 | `resources/views/dashboard/` con datos agregados en servidor | Pendiente  |
+| `features/category/`             | Listado y formulario de categorías   | `resources/views/categorias/`                                | Migrado    |
+| `features/item/`                 | Listado y formulario de productos    | `resources/views/productos/`                                 | Migrado    |
+| `features/user/`                 | Listado y formulario de usuarios     | `resources/views/personal/`                                  | Migrado    |
+| `features/sale/`                 | Ventas, detalle, cobro               | `resources/views/ventas/`                                    | Pendiente  |
+| `features/account/`              | Cambio de clave propia               | `resources/views/cuenta/`                                    | Migrado    |
+| `core/pdf/pdf.service.ts`        | Genera PDF con jsPDF en el navegador | `barryvdh/laravel-dompdf` + vistas Blade                     | Pendiente  |
+| `core/auth/auth.guard.ts`        | Protege rutas si hay token           | Middleware `auth`                                            | Pendiente  |
+| `core/auth/token.interceptor.ts` | Inyecta el header Authorization      | Descartado: sesión en cookie                                 | Descartado |
+| `core/api/api.constants.ts`      | URL base de la API                   | Descartado                                                   | Descartado |
+| `core/*/​*.service.ts`           | Clientes HTTP por módulo             | Descartado: los controladores devuelven vistas               | Descartado |
 
 > `HomeComponent` descarga las tablas completas y cuenta en el navegador (hallazgo A-26). El panel Blade recibe los números ya agregados.
 
@@ -138,7 +146,7 @@ Módulos nuevos de la Etapa 1. No hay componente que migrar; se construyen desde
 
 | Módulo                 | Componentes Laravel                                                             | Estado    |
 | ---------------------- | ------------------------------------------------------------------------------- | --------- |
-| Clientes               | Migración, modelo `Cliente`, `Direccion`, controlador, Form Requests, vistas    | Pendiente |
+| Clientes               | Migración, modelo `Cliente`, `Direccion`, controlador, Form Requests, vistas    | Migrado   |
 | Empleados              | Migración, modelo `Empleado`, integrado al módulo de usuarios                   | Migrado   |
 | Proveedores            | Migración, modelo `Proveedor`, controlador, vistas                              | Pendiente |
 | Órdenes de compra      | Migraciones, modelos `OrdenCompra` y `OrdenCompraLinea`, servicio de reposición | Pendiente |
