@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Rol;
 use App\Models\User;
+use Illuminate\Support\Facades\Password as BrokerDePassword;
 use Illuminate\Database\Eloquent\Collection;
 use App\Exceptions\ReglaDeNegocioException;
 use Illuminate\Support\Facades\DB;
@@ -39,25 +40,10 @@ class UsuarioService
 {
     /**
      * El permiso que permite recomponer el sistema.
-     *
-     * Quien lo tiene puede volver a activar cualquier cuenta, incluida la que
-     * alguien desactivó por error. Mientras exista una cuenta activa con este
-     * permiso, ningún error es irreversible; si no queda ninguna, no hay forma
-     * de entrar a arreglarlo.
-     *
      */
     private const PERMISO_DE_RESCATE = 'usuario.editar';
     /**
      * Columnas que registran quién hizo qué.
-     *
-     * Las tablas existen desde la Fase 1 aunque sus modelos lleguen en las
-     * fases 5 y 6, y el peligro es concreto en las dos direcciones:
-     * `ventas.usuario_id` y `pagos.usuario_id` restringen el borrado, así que
-     * la base devolvería un error de clave foránea en la cara del usuario; y
-     * `movimientos_stock.usuario_id` y las de `ordenes_compra` son
-     * nullOnDelete, así que borrar la cuenta pondría esas columnas en null y
-     * el kardex dejaría de poder responder quién ajustó el stock — que es
-     * exactamente la pregunta para la que existe (A-13).
      */
     private const HISTORIAL = [
         'ventas'            => ['usuario_id'],
@@ -121,19 +107,12 @@ class UsuarioService
 
             return false;
         }
-
-        // Sin historial es una cuenta creada por error. Al borrarla, la fila de
-        // `empleados` se va con ella (cascadeOnDelete: un legajo sin persona no
-        // significa nada) y la de `clientes` sobrevive con user_id en null
-        // (nullOnDelete: el cliente sigue existiendo, pasa a ser de mostrador).
-        // Las dos cascadas están declaradas en el esquema y son distintas
-        // porque los dos satélites son cosas distintas.
         DB::transaction(fn () => $usuario->delete());
 
         return true;
     }
 
-        /**
+    /**
      * Roles que se le pueden asignar a esta persona.
      *
      * Sólo los de su mismo ámbito. Cambiar de gestión a tienda no es un cambio
@@ -158,19 +137,7 @@ class UsuarioService
     /**
      * Cambia el rol de una persona.
      *
-     * Acción separada de la edición, con su propio permiso. En el sistema
-     * original `perfil_id` era un campo más del body de `user/update` y no se
-     * comparaba la identidad del que pedía: cualquiera con permiso de edición
-     * se asignaba el perfil Administrador (C-3).
-     *
-     * La prohibición de cambiar el rol PROPIO vive en CambiarRolRequest,
-     * porque depende de quién está pidiendo y el servicio no conoce la sesión.
-     * Acá viven las dos reglas que no dependen del que pide.
-     *
-     * No hace falta invalidar caché: `permisos.rol.{id}` es por rol, no por
-     * usuario, y el rol no cambió. Y el permiso nuevo rige desde el request
-     * siguiente porque Gate lo consulta cada vez — lo contrario de A-5, donde
-     * el perfil viajaba dentro del JWT y el cambio tardaba hasta una hora.
+     * Acción separada de la edición, con su propio permiso.
      */
     public function cambiarRol(User $usuario, int $rolId): User
     {
@@ -220,15 +187,27 @@ class UsuarioService
         });
     }
 
+        /**
+     * Crea un token de un solo uso para que una persona fije su contraseña.
+     *
+     * El token lo genera y guarda el broker de Laravel: hasheado, con fecha, y
+     * comparado contra auth.passwords.users.expire. No se reinventa. Crear uno
+     * nuevo invalida el anterior de esa misma cuenta.
+     */
+    public function crearTokenDeRestablecimiento(User $usuario): string
+    {
+        if (! $usuario->activo) {
+            throw new ReglaDeNegocioException(
+                'Esa cuenta no tiene acceso al sistema, así que un enlace no le serviría: '
+                .'podría fijar una contraseña y seguir sin poder entrar. Devolvele el acceso primero.'
+            );
+        }
+
+        return BrokerDePassword::broker()->createToken($usuario);
+    }
+
     /**
      * Crea o actualiza el satélite que corresponde al ámbito del rol.
-     *
-     * El `match` no tiene rama por defecto a propósito: si mañana apareciera un
-     * ámbito nuevo, esto lanza UnhandledMatchError y la transacción revierte,
-     * en vez de crear en silencio un usuario sin satélite. Es el mismo criterio
-     * de denegación por defecto del Gate. Hoy el ENUM de la base sólo admite
-     * dos valores, así que la rama es inalcanzable: está para el día que deje
-     * de serlo.
      */
     private function guardarSatelite(User $usuario, Rol $rol, array $datos): void
     {
@@ -274,13 +253,8 @@ class UsuarioService
         return false;
     }
 
-        /**
+    /**
      * ¿Es la única cuenta activa capaz de administrar usuarios?
-     *
-     * Es la misma idea que `roles.es_sistema`, que impide borrar el rol
-     * Administrador y dejar el sistema sin nadie que lo administre. Acá se
-     * aplica a las personas: un rol con permisos no sirve de nada si no queda
-     * nadie que lo tenga.
      */
     private function esElUltimoQuePuedeAdministrar(User $usuario): bool
     {

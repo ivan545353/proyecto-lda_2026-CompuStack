@@ -131,4 +131,21 @@ class UsuarioController extends Controller
             .'El cambio rige a partir de su próxima acción en el sistema.'
         );
     }
+
+    public function generarEnlaceDeRestablecimiento(User $usuario): RedirectResponse
+    {
+        $token = $this->service->crearTokenDeRestablecimiento($usuario);
+
+        // El enlace se arma acá y no en el servicio
+        $enlace = route('password.restablecer', [
+            'token' => $token,
+            'email' => $usuario->email,
+        ]);
+
+        return redirect()->route('usuarios.edit', $usuario)
+            // Se muestra una sola vez, en el flash. No se guarda en ninguna
+            // parte: si se perdió, se genera otro.
+            ->with('enlace_restablecimiento', $enlace)
+            ->with('nombre_restablecido', $usuario->nombre_completo);
+    }
 }

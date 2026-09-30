@@ -38,10 +38,11 @@ dataset('rutas de usuarios', [
     'baja'              => ['delete', 'usuarios.destroy',    'usuario.eliminar',    true],
     'pantalla de rol'   => ['get',    'usuarios.rol.edit',   'usuario.cambiar_rol', true],
     'cambio de rol'     => ['patch',  'usuarios.rol.update', 'usuario.cambiar_rol', true],
+    'enlace de acceso'  => ['post',   'usuarios.restablecer', 'usuario.resetear_password', true],
 ]);
 
 const PERMISOS_USUARIO = [
-    'usuario.ver', 'usuario.crear', 'usuario.editar', 'usuario.eliminar', 'usuario.cambiar_rol',
+    'usuario.ver', 'usuario.crear', 'usuario.editar', 'usuario.eliminar', 'usuario.cambiar_rol','usuario.resetear_password',
 ];
 
 test('ningun otro permiso del modulo habilita la ruta', function (string $metodo, string $ruta, string $permiso, bool $conUsuario) {

@@ -29,7 +29,7 @@ class RolPermisoSeeder extends Seeder
         'categoria' => ['ver', 'crear', 'editar', 'eliminar'],
         'marca'     => ['ver', 'crear', 'editar', 'eliminar'],
         'producto'  => ['ver', 'crear', 'editar', 'eliminar'],
-        'usuario'   => ['ver', 'crear', 'editar', 'eliminar', 'cambiar_rol'],
+        'usuario'   => ['ver', 'crear', 'editar', 'eliminar', 'cambiar_rol','resetear_password'],
         'cliente'   => ['ver', 'crear', 'editar', 'eliminar'],
         'proveedor' => ['ver', 'crear', 'editar', 'eliminar'],
         'compra'    => ['ver', 'crear', 'editar', 'aprobar', 'recibir'],

@@ -7,6 +7,7 @@ use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\CuentaController;
+use App\Http\Controllers\Auth\RestablecerPasswordController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -37,6 +38,13 @@ Route::middleware('guest')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])
         ->middleware('throttle:5,1')
         ->name('login.attempt');
+
+    Route::get('/restablecer/{token}', [RestablecerPasswordController::class, 'mostrar'])
+        ->name('password.restablecer');
+
+    Route::post('/restablecer', [RestablecerPasswordController::class, 'restablecer'])
+        ->middleware('throttle:5,1')
+        ->name('password.restablecer.enviar');
 });
 
 //CIERRE DE SESIÓN Y CUENTA
@@ -122,6 +130,9 @@ Route::middleware(['auth', 'gestion'])->group(function () {
 
     Route::patch('/usuarios/{usuario}/rol', [UsuarioController::class, 'cambiarRol'])
         ->middleware('can:usuario.cambiar_rol')->name('usuarios.rol.update');
+    
+    Route::post('/usuarios/{usuario}/restablecer-contrasena', [UsuarioController::class, 'generarEnlaceDeRestablecimiento'])
+        ->middleware('can:usuario.resetear_password')->name('usuarios.restablecer');
         
     // Catálogo — categorías
     Route::get('/categorias', [CategoriaController::class, 'index'])

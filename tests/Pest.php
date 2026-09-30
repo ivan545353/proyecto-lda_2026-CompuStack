@@ -163,3 +163,9 @@ function datosDeEdicionDe(\App\Models\User $usuario, array $sobreescribir = []):
 
     return array_merge($datos, $sobreescribir);
 }
+
+/** El token que viaja en un enlace de restablecimiento. */
+function tokenDelEnlace(string $enlace): string
+{
+    return basename(parse_url($enlace, PHP_URL_PATH));
+}

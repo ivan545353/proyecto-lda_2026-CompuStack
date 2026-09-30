@@ -360,6 +360,67 @@
         </div>
     </form>
 
+    @if ($esEdicion)
+        @can('usuario.resetear_password')
+            <div class="card card-body border-0 shadow-sm mt-4">
+                <h2 class="h5 mb-1">Acceso a la cuenta</h2>
+                <p class="text-body-secondary small">
+                    Si {{ $usuario->nombre }} no se acuerda de su contraseña, generá un enlace y pasáselo.
+                </p>
+
+                {{-- El enlace se muestra una sola vez, en el flash de la sesión.
+                     No se guarda: si se perdió, se genera otro. --}}
+                @if (session('enlace_restablecimiento'))
+                    <div class="alert alert-warning" role="alert">
+                        <p class="fw-semibold mb-1">
+                            <i class="bi bi-link-45deg" aria-hidden="true"></i>
+                            Enlace para {{ session('nombre_restablecido') }}
+                        </p>
+
+                        <p class="small mb-2">
+                            Copialo y pasáselo ahora. Vence en una hora, sirve una sola vez, y no se
+                            vuelve a mostrar.
+                        </p>
+
+                        <div class="input-group">
+                            <input type="text" class="form-control font-monospace" id="enlaceRestablecimiento"
+                                value="{{ session('enlace_restablecimiento') }}" readonly
+                                aria-label="Enlace de restablecimiento">
+
+                            <button class="btn btn-outline-dark" type="button" id="copiarEnlace">
+                                <i class="bi bi-clipboard" aria-hidden="true"></i> Copiar
+                            </button>
+                        </div>
+                    </div>
+
+                    <script>
+                        // Mejora progresiva: sin JavaScript el enlace se selecciona
+                        // y se copia a mano, que es lo que el campo readonly permite.
+                        document.getElementById('copiarEnlace')?.addEventListener('click', async function() {
+                            const campo = document.getElementById('enlaceRestablecimiento');
+                            campo.select();
+
+                            try {
+                                await navigator.clipboard.writeText(campo.value);
+                                this.innerHTML = '<i class="bi bi-check-lg"></i> Copiado';
+                            } catch {
+                                document.execCommand('copy');
+                            }
+                        });
+                    </script>
+                @endif
+
+                <form method="POST" action="{{ route('usuarios.restablecer', $usuario) }}"
+                    onsubmit="return confirm(@js("Se va a generar un enlace para que {$usuario->nombre} configure su contraseña. La actual va a seguir sirviendo hasta que la cambie. ¿Continuar?"));">
+                    @csrf
+                    <button type="submit" class="btn btn-outline-dark">
+                        <i class="bi bi-key" aria-hidden="true"></i> Generar enlace de restablecimiento
+                    </button>
+                </form>
+            </div>
+        @endcan
+    @endif
+
     @unless ($esEdicion)
         <script>
             // Mejora progresiva: muestra el bloque de datos que corresponde al
