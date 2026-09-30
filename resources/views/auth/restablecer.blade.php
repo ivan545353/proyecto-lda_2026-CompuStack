@@ -3,7 +3,7 @@
 @section('title', 'Configurar mi contraseña')
 
 @section('content')
-    <form method="POST" action="{{ route('password.restablecer.enviar') }}" novalidate class="form-authentication">
+    <form method="POST" action="{{ route('password.store') }}" novalidate class="form-authentication">
         @csrf
 
         {{-- Vienen del enlace, no los escribe nadie. El correo además le dice al

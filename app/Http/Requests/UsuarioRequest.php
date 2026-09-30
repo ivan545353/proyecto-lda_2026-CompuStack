@@ -198,7 +198,7 @@ class UsuarioRequest extends FormRequest
     {
         return [
             'email.unique'   => 'Ya hay una cuenta con ese correo.',
-            'rol_id.required' => 'Elegí un rol para la persona.',
+            'rol_id.required' => 'Elegí un rol para el usuario.',
             'rol_id.exists'  => 'Ese rol no existe.',
             'rol_id.prohibited'   => 'El rol no se cambia desde esta pantalla. Usá la acción «Cambiar rol».',
             'password.prohibited' => 'La contraseña no se cambia desde esta pantalla.',
@@ -206,7 +206,7 @@ class UsuarioRequest extends FormRequest
             'activo.prohibited' => 'No podés quitarte el acceso a vos mismo. Pedíselo a otra persona con permiso para editar usuarios.',
 
             'empleado.legajo.required' => 'El legajo es obligatorio.',
-            'empleado.legajo.unique'   => 'Ese legajo ya está asignado a otra persona.',
+            'empleado.legajo.unique'   => 'Ese legajo ya está asignado a otro usuario.',
             'empleado.dni.digits_between' => 'El DNI se escribe sin puntos, entre 6 y 9 dígitos.',
             'empleado.dni.unique'         => 'Ya hay un empleado registrado con ese DNI.',
             'empleado.fecha_ingreso.before_or_equal' => 'La fecha de ingreso no puede ser futura.',

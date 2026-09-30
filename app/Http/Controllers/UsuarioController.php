@@ -134,17 +134,21 @@ class UsuarioController extends Controller
 
     public function generarEnlaceDeRestablecimiento(User $usuario): RedirectResponse
     {
+        if ($usuario->is(auth()->user())) {
+            return back()->with(
+                'error',
+                'Para tu propia cuenta usá «Cambiar mi contraseña»'
+            );
+        }
+
         $token = $this->service->crearTokenDeRestablecimiento($usuario);
 
-        // El enlace se arma acá y no en el servicio
-        $enlace = route('password.restablecer', [
+        $enlace = route('password.reset', [
             'token' => $token,
             'email' => $usuario->email,
         ]);
 
         return redirect()->route('usuarios.edit', $usuario)
-            // Se muestra una sola vez, en el flash. No se guarda en ninguna
-            // parte: si se perdió, se genera otro.
             ->with('enlace_restablecimiento', $enlace)
             ->with('nombre_restablecido', $usuario->nombre_completo);
     }

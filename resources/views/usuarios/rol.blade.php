@@ -6,7 +6,7 @@
     <div class="mb-4">
         <h1 class="h3 mb-1">Cambiar el rol de {{ $usuario->nombre_completo }}</h1>
         <p class="text-body-secondary small mb-0">
-            El rol decide qué puede hacer la persona dentro del sistema.
+            El rol decide qué puede hacer el usuario dentro del sistema.
         </p>
     </div>
 
@@ -36,8 +36,7 @@
                         aria-describedby="ayudaRol @error('rol_id') errorRol @enderror">
                         <option value="">Elegí el rol nuevo</option>
                         @foreach ($roles as $rol)
-                            <option value="{{ $rol->id }}" @disabled($rol->is($usuario->rol))
-                                @selected((int) old('rol_id') === $rol->id)>
+                            <option value="{{ $rol->id }}" @disabled($rol->is($usuario->rol)) @selected((int) old('rol_id') === $rol->id)>
                                 {{ $rol->nombre }}{{ $rol->is($usuario->rol) ? ' (actual)' : '' }}
                             </option>
                         @endforeach
@@ -56,7 +55,7 @@
                 <div class="alert alert-warning d-flex gap-3 mb-4" role="alert">
                     <i class="bi bi-exclamation-triangle-fill fs-5" aria-hidden="true"></i>
                     <div>
-                        El cambio rige de inmediato: en su próxima acción la persona va a poder hacer
+                        El cambio rige de inmediato: en su próxima acción el usuario va a poder hacer
                         exactamente lo que permita el rol nuevo, ni más ni menos.
                     </div>
                 </div>

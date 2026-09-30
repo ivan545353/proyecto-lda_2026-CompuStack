@@ -16,7 +16,7 @@ beforeEach(function () {
 /** Genera el enlace como lo haría el administrador y devuelve la URL. */
 function enlaceParaRestablecer(User $objetivo): string
 {
-    return route('password.restablecer', [
+    return route('password.reset', [
         'token' => app(\App\Services\UsuarioService::class)->crearTokenDeRestablecimiento($objetivo),
         'email' => $objetivo->email,
     ]);
@@ -115,7 +115,7 @@ test('la persona fija su contrasena con el enlace y entra con ella', function ()
     // La pantalla es pública: quien la usa, por definición, no puede entrar.
     $this->get($enlace)->assertOk();
 
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token'                 => tokenDelEnlace($enlace),
         'email'                 => $objetivo->email,
         'password'              => 'Nueva67890',
@@ -138,7 +138,7 @@ test('la contrasena vieja deja de servir', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create(['password' => 'Vieja12345']);
     $enlace   = enlaceParaRestablecer($objetivo);
 
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token'                 => tokenDelEnlace($enlace),
         'email'                 => $objetivo->email,
         'password'              => 'Nueva67890',
@@ -160,7 +160,7 @@ test('el restablecimiento no inicia sesion por su cuenta', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
     $enlace   = enlaceParaRestablecer($objetivo);
 
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token'                 => tokenDelEnlace($enlace),
         'email'                 => $objetivo->email,
         'password'              => 'Nueva67890',
@@ -181,12 +181,12 @@ test('el enlace sirve una sola vez', function () {
     $enlace   = enlaceParaRestablecer($objetivo);
     $token    = tokenDelEnlace($enlace);
 
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token' => $token, 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
     ]);
 
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token' => $token, 'email' => $objetivo->email,
         'password' => 'Tercera12345', 'password_confirmation' => 'Tercera12345',
     ])->assertSessionHasErrors('email');
@@ -197,7 +197,7 @@ test('el enlace sirve una sola vez', function () {
 test('un token inventado se rechaza', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create(['password' => 'Vieja12345']);
 
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token' => 'esto-no-es-un-token', 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
     ])->assertSessionHasErrors('email');
@@ -211,7 +211,7 @@ test('el token de una cuenta no sirve para otra', function () {
 
     $tokenAjeno = tokenDelEnlace(enlaceParaRestablecer($ajeno));
 
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token' => $tokenAjeno, 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
     ])->assertSessionHasErrors('email');
@@ -226,7 +226,7 @@ test('un enlace vencido se rechaza', function () {
     // auth.passwords.users.expire son 60 minutos.
     $this->travel(61)->minutes();
 
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token' => $token, 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
     ])->assertSessionHasErrors('email');
@@ -240,7 +240,7 @@ test('generar un enlace nuevo invalida el anterior', function () {
     $primero = tokenDelEnlace(enlaceParaRestablecer($objetivo));
     enlaceParaRestablecer($objetivo);
 
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token' => $primero, 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
     ])->assertSessionHasErrors('email');
@@ -252,15 +252,38 @@ test('una contrasena debil se rechaza y el enlace sigue vivo', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
     $token    = tokenDelEnlace(enlaceParaRestablecer($objetivo));
 
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token' => $token, 'email' => $objetivo->email,
         'password' => 'corta', 'password_confirmation' => 'corta',
     ])->assertSessionHasErrors('password');
 
     // Un error de validación no puede quemar el enlace: dejaría a la persona
     // afuera por escribir mal una contraseña.
-    $this->post(route('password.restablecer.enviar'), [
+    $this->post(route('password.store'), [
         'token' => $token, 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
     ])->assertSessionHasNoErrors();
+});
+
+test('no se genera enlace para la propia cuenta', function () {
+    // No es sólo que no tenga sentido teniendo la pantalla de cambio propio: el
+    // enlace sería una credencial viva de la cuenta más privilegiada, en el
+    // portapapeles y en el historial, durante una hora y sin beneficio alguno.
+    $usuario = usuarioCon('usuario.resetear_password');
+
+    $this->actingAs($usuario)
+        ->post(route('usuarios.restablecer', $usuario))
+        ->assertSessionHas('error')
+        ->assertSessionMissing('enlace_restablecimiento');
+
+    expect(DB::table('password_reset_tokens')->where('email', $usuario->email)->exists())
+        ->toBeFalse();
+});
+
+test('el nombre de la ruta es el que espera la notificacion de Laravel', function () {
+    // La notificación ResetPassword arma la URL con route('password.reset').
+    // Si alguien renombra la ruta, el envío por correo de la Etapa 2 rompe con
+    // "Route [password.reset] not defined", y este test lo dice antes.
+    expect(route('password.reset', ['token' => 'x', 'email' => 'a@b.com']))
+        ->toContain('/restablecer/x');
 });

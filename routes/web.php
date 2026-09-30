@@ -40,11 +40,11 @@ Route::middleware('guest')->group(function () {
         ->name('login.attempt');
 
     Route::get('/restablecer/{token}', [RestablecerPasswordController::class, 'mostrar'])
-        ->name('password.restablecer');
+        ->name('password.reset');
 
     Route::post('/restablecer', [RestablecerPasswordController::class, 'restablecer'])
         ->middleware('throttle:5,1')
-        ->name('password.restablecer.enviar');
+        ->name('password.store');
 });
 
 //CIERRE DE SESIÓN Y CUENTA

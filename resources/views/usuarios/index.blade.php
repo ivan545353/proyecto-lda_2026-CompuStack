@@ -17,7 +17,7 @@
 
         @can('usuario.crear')
             <a href="{{ route('usuarios.create') }}" class="btn btn-acento">
-                <i class="bi bi-person-plus" aria-hidden="true"></i> Nueva persona
+                <i class="bi bi-person-plus" aria-hidden="true"></i> Nuevo Usuario
             </a>
         @endcan
     </div>
@@ -138,7 +138,7 @@
                             @endif
                         </div>
                     @else
-                        <span class="text-muted">Mostrando todas las personas</span>
+                        <span class="text-muted">Mostrando todos los usuarios</span>
                     @endif
                 </div>
 
@@ -164,7 +164,7 @@
                 <caption class="visually-hidden">Listado de cuentas del sistema</caption>
                 <thead class="table-light">
                     <tr>
-                        <th scope="col">Persona</th>
+                        <th scope="col">Usuario</th>
                         <th scope="col" class="d-none d-md-table-cell">Rol</th>
                         <th scope="col">Acceso</th>
                         <th scope="col" class="d-none d-lg-table-cell">Situación laboral</th>
@@ -240,7 +240,7 @@
                                     Ninguna persona coincide con el filtro.
                                     <a href="{{ route('usuarios.index') }}">Ver todas</a>.
                                 @else
-                                    Todavía no hay personas cargadas.
+                                    Todavía no hay Usuarios cargados.
                                 @endif
                             </td>
                         </tr>

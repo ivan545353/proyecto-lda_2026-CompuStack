@@ -45,7 +45,7 @@ class UsuarioFiltroRequest extends FormRequest
         throw new HttpResponseException(
             redirect()->route('usuarios.index')->with(
                 'error',
-                'Ese filtro no es válido. Se muestran todas las personas.'
+                'Ese filtro no es válido. Se muestran todoss los usuarios.'
             )
         );
     }

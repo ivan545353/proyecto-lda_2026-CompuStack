@@ -11,13 +11,13 @@
     $ambito = $rolActual?->ambito;
 @endphp
 
-@section('title', $esEdicion ? 'Editar persona' : 'Nueva persona')
+@section('title', $esEdicion ? 'Editar usuario' : 'Nuevo usuario')
 
 @section('content')
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="h3 mb-1">
-                {{ $esEdicion ? "Editar a {$usuario->nombre_completo}" : 'Nueva persona' }}
+                {{ $esEdicion ? "Editar a {$usuario->nombre_completo}" : 'Nuevo Usuario' }}
             </h1>
             <p class="text-body-secondary small mb-0">
                 Los campos con <span class="text-danger" aria-hidden="true">*</span> son obligatorios.
@@ -104,7 +104,7 @@
                         @endcan
                     </div>
                     <div class="form-text">
-                        El rol determina qué puede hacer la persona.
+                        El rol determina qué puede hacer el usuario.
                     </div>
                 @else
                     <label for="rol_id" class="form-label">
@@ -176,7 +176,7 @@
                             aria-describedby="ayudaActivo @error('activo') errorActivo @enderror">
                         <label class="form-check-label" for="activo">Puede iniciar sesión</label>
                         <div id="ayudaActivo" class="form-text">
-                            Quitar el acceso no borra nada: la persona conserva su historial.
+                            Quitar el acceso no borra nada: el usuario conserva su historial.
                         </div>
                         @error('activo')
                             <div id="errorActivo" class="invalid-feedback d-block">{{ $message }}</div>
@@ -353,7 +353,7 @@
         <div class="d-grid d-sm-flex gap-2 mt-4">
             <button type="submit" class="btn btn-acento">
                 <i class="bi bi-check-lg" aria-hidden="true"></i>
-                {{ $esEdicion ? 'Guardar cambios' : 'Crear persona' }}
+                {{ $esEdicion ? 'Guardar cambios' : 'Crear Usuario' }}
             </button>
 
             <a href="{{ route('usuarios.index') }}" class="btn btn-outline-secondary">Cancelar</a>
@@ -364,59 +364,74 @@
         @can('usuario.resetear_password')
             <div class="card card-body border-0 shadow-sm mt-4">
                 <h2 class="h5 mb-1">Acceso a la cuenta</h2>
-                <p class="text-body-secondary small">
-                    Si {{ $usuario->nombre }} no se acuerda de su contraseña, generá un enlace y pasáselo.
-                </p>
 
-                {{-- El enlace se muestra una sola vez, en el flash de la sesión.
-                     No se guarda: si se perdió, se genera otro. --}}
-                @if (session('enlace_restablecimiento'))
-                    <div class="alert alert-warning" role="alert">
-                        <p class="fw-semibold mb-1">
-                            <i class="bi bi-link-45deg" aria-hidden="true"></i>
-                            Enlace para {{ session('nombre_restablecido') }}
-                        </p>
+                @if ($usuario->is(auth()->user()))
+                    {{-- En la propia ficha el enlace no tiene sentido: la persona
+                         conoce su contraseña y tiene una pantalla para cambiarla.
+                         Se muestra el camino correcto en vez de esconder el
+                         bloque, que dejaría la pregunta sin respuesta. --}}
+                    <p class="text-body-secondary small mb-3">
+                        Esta es tu cuenta. Para cambiar tu propia contraseña no hace falta un enlace.
+                    </p>
 
-                        <p class="small mb-2">
-                            Copialo y pasáselo ahora. Vence en una hora, sirve una sola vez, y no se
-                            vuelve a mostrar.
-                        </p>
+                    <a href="{{ route('cuenta.password.edit') }}" class="btn btn-outline-dark align-self-start">
+                        <i class="bi bi-key" aria-hidden="true"></i> Cambiar mi contraseña
+                    </a>
+                @else
+                    <p class="text-body-secondary small">
+                        Si {{ $usuario->nombre }} no se acuerda de su contraseña, generá un enlace y pasáselo.
+                    </p>
 
-                        <div class="input-group">
-                            <input type="text" class="form-control font-monospace" id="enlaceRestablecimiento"
-                                value="{{ session('enlace_restablecimiento') }}" readonly
-                                aria-label="Enlace de restablecimiento">
+                    {{-- El enlace se muestra una sola vez, en el flash de la sesión.
+                         No se guarda: si se perdió, se genera otro. --}}
+                    @if (session('enlace_restablecimiento'))
+                        <div class="alert alert-warning" role="alert">
+                            <p class="fw-semibold mb-1">
+                                <i class="bi bi-link-45deg" aria-hidden="true"></i>
+                                Enlace para {{ session('nombre_restablecido') }}
+                            </p>
 
-                            <button class="btn btn-outline-dark" type="button" id="copiarEnlace">
-                                <i class="bi bi-clipboard" aria-hidden="true"></i> Copiar
-                            </button>
+                            <p class="small mb-2">
+                                Copialo y pasáselo ahora. Vence en una hora, sirve una sola vez, y no se
+                                vuelve a mostrar.
+                            </p>
+
+                            <div class="input-group">
+                                <input type="text" class="form-control font-monospace" id="enlaceRestablecimiento"
+                                    value="{{ session('enlace_restablecimiento') }}" readonly
+                                    aria-label="Enlace de restablecimiento">
+
+                                <button class="btn btn-outline-dark" type="button" id="copiarEnlace">
+                                    <i class="bi bi-clipboard" aria-hidden="true"></i> Copiar
+                                </button>
+                            </div>
                         </div>
-                    </div>
 
-                    <script>
-                        // Mejora progresiva: sin JavaScript el enlace se selecciona
-                        // y se copia a mano, que es lo que el campo readonly permite.
-                        document.getElementById('copiarEnlace')?.addEventListener('click', async function() {
-                            const campo = document.getElementById('enlaceRestablecimiento');
-                            campo.select();
+                        <script>
+                            // Mejora progresiva: sin JavaScript el enlace se selecciona
+                            // y se copia a mano, que es lo que el campo readonly permite.
+                            document.getElementById('copiarEnlace')?.addEventListener('click', async function() {
+                                const campo = document.getElementById('enlaceRestablecimiento');
+                                campo.select();
 
-                            try {
-                                await navigator.clipboard.writeText(campo.value);
-                                this.innerHTML = '<i class="bi bi-check-lg"></i> Copiado';
-                            } catch {
-                                document.execCommand('copy');
-                            }
-                        });
-                    </script>
+                                try {
+                                    await navigator.clipboard.writeText(campo.value);
+                                    this.innerHTML = '<i class="bi bi-check-lg"></i> Copiado';
+                                } catch {
+                                    document.execCommand('copy');
+                                }
+                            });
+                        </script>
+                    @endif
+
+                    <form method="POST" action="{{ route('usuarios.restablecer', $usuario) }}"
+                        onsubmit="return confirm(@js("Se va a generar un enlace para que {$usuario->nombre} configure su contraseña. La actual va a seguir sirviendo hasta que la cambie. ¿Continuar?"));">
+                        @csrf
+                        <button type="submit" class="btn btn-outline-dark">
+                            <i class="bi bi-key" aria-hidden="true"></i> Generar enlace de restablecimiento
+                        </button>
+                    </form>
                 @endif
-
-                <form method="POST" action="{{ route('usuarios.restablecer', $usuario) }}"
-                    onsubmit="return confirm(@js("Se va a generar un enlace para que {$usuario->nombre} configure su contraseña. La actual va a seguir sirviendo hasta que la cambie. ¿Continuar?"));">
-                    @csrf
-                    <button type="submit" class="btn btn-outline-dark">
-                        <i class="bi bi-key" aria-hidden="true"></i> Generar enlace de restablecimiento
-                    </button>
-                </form>
             </div>
         @endcan
     @endif
