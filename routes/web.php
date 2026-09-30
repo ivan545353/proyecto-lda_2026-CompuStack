@@ -6,6 +6,7 @@ use App\Http\Controllers\RolController;
 use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\UsuarioController;
+use App\Http\Controllers\CuentaController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -38,10 +39,16 @@ Route::middleware('guest')->group(function () {
         ->name('login.attempt');
 });
 
-// Cierre de sesión
-Route::post('/logout', [AuthController::class, 'logout'])
-    ->middleware('auth')
-    ->name('logout');
+//CIERRE DE SESIÓN Y CUENTA
+Route::middleware('auth')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+
+    Route::get('/cuenta/password', [CuentaController::class, 'editarPassword'])
+        ->name('cuenta.password.edit');
+
+    Route::put('/cuenta/password', [CuentaController::class, 'actualizarPassword'])
+        ->name('cuenta.password.update');
+});
 
 // Sistema de gestión
 Route::middleware(['auth', 'gestion'])->group(function () {

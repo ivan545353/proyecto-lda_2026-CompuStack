@@ -199,6 +199,28 @@ class UsuarioService
     }
 
     /**
+     * Cambia la contraseña de una cuenta.
+     *
+     * Borra los tokens de restablecimiento pendientes de ese correo. Si alguien
+     * pidió un token y después se acordó de la contraseña y la cambió a mano, el
+     * token viejo tiene que morir: si no, sigue sirviendo para cambiarla de
+     * nuevo hasta que expire.
+     */
+    public function cambiarPassword(User $usuario, string $password): User
+    {
+        return DB::transaction(function () use ($usuario, $password) {
+            // El cast 'hashed' del modelo lo encripta. Nunca se llama a bcrypt()
+            // acá: si el hash se hiciera en dos lugares, algún día uno de los
+            // dos se olvidaría.
+            $usuario->update(['password' => $password]);
+
+            DB::table('password_reset_tokens')->where('email', $usuario->email)->delete();
+
+            return $usuario->fresh();
+        });
+    }
+
+    /**
      * Crea o actualiza el satélite que corresponde al ámbito del rol.
      *
      * El `match` no tiene rama por defecto a propósito: si mañana apareciera un

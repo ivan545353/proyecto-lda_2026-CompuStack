@@ -93,10 +93,11 @@
                             <hr class="dropdown-divider">
                         </li>
 
-                        {{-- Perfil del usuario --}}
+                        {{-- Cuenta propia. No lleva @can: no requiere permiso. --}}
                         <li>
-                            <a class="dropdown-item" href="#">
-                                <i class="bi bi-person"></i> Mis datos
+                            <a class="dropdown-item {{ request()->routeIs('cuenta.password.*') ? 'active' : '' }}"
+                                href="{{ route('cuenta.password.edit') }}">
+                                <i class="bi bi-key" aria-hidden="true"></i> Cambiar mi contraseña
                             </a>
                         </li>
 
