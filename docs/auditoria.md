@@ -64,12 +64,12 @@ elseif (in_array($actual, ["confirmada","cobrada"]) && $nuevo === "anulada") →
 ```
 Agujeros concretos:
 
-| Transición | Qué pasa | Qué debería pasar |
-|---|---|---|
-| `presupuesto → cobrada` | Se marca cobrada **sin descontar stock** y sin pago registrado | Rechazar |
-| `anulada → confirmada` | Revive la venta sin volver a descontar stock | Rechazar |
-| `cobrada → confirmada` | Deja pagos registrados sobre una venta no cobrada | Rechazar |
-| `confirmada → confirmada` | Descuenta stock de nuevo | Rechazar (idempotencia) |
+| Transición                | Qué pasa                                                       | Qué debería pasar       |
+| ------------------------- | -------------------------------------------------------------- | ----------------------- |
+| `presupuesto → cobrada`   | Se marca cobrada **sin descontar stock** y sin pago registrado | Rechazar                |
+| `anulada → confirmada`    | Revive la venta sin volver a descontar stock                   | Rechazar                |
+| `cobrada → confirmada`    | Deja pagos registrados sobre una venta no cobrada              | Rechazar                |
+| `confirmada → confirmada` | Descuenta stock de nuevo                                       | Rechazar (idempotencia) |
 
 `SaleService::updateEstado()` sólo valida que el estado destino esté en la lista de válidos; nunca valida el origen. Este es el defecto más grave del módulo que hoy "funciona perfectamente".
 
@@ -125,7 +125,7 @@ Ninguna tabla tiene `created_at` / `updated_at` / `created_by`. `usuarios.fechaA
 Con el nuevo esquema de perfiles (cliente / administrador / empleado con subtipos vendedor-cajero-administrativo + proveedor), un modelo de flags por módulo se vuelve inmanejable. Corresponde pasar a permisos nombrados (`sale.void`, `purchase_order.approve`, `discount.override`).
 
 ### M-21 · `resetPass` bloquea sin salida
-`AuthenticationService` rechaza el login si `resetPass != 0` con "Su clave ha caducado", pero no hay endpoint público para restablecerla. El usuario queda bloqueado hasta que un admin lo destrabe. Falta el flujo de recuperación por email — que con clientes reales pasa a ser obligatorio.
+`AuthenticationService` rechaza el login si `resetPass != 0` con "Su clave ha caducado", pero no hay endpoint público para restablecerla. El usuario queda bloqueado hasta que un admin lo destrabe. Falta el flujo de recuperación por email — que con clientes reales pasa a ser obligatorio. CERRADO
 
 ### M-22 · Faltan campos que los nuevos requerimientos exigen
 El catálogo actual (`nombre, codigo, descripcion, categoriaId, precio, stock`) no soporta:
@@ -148,11 +148,11 @@ El catálogo actual (`nombre, codigo, descripcion, categoriaId, precio, stock`) 
 ### A-24 · Filtros que no filtran
 Tres desajustes silenciosos entre controller y DAO:
 
-| Controller manda | DAO espera | Efecto |
-|---|---|---|
-| `ItemController::list` → `categoriaId`, `limit` | `codigo`, `nombre`, `categoria`, `stock`, `limit`+`offset` | Ningún filtro se aplica |
-| `CategoryController::list` → `estado`, `limit` | `nombre`, `limit`+`offset` | `estado` no existe ni como columna |
-| `UserController::list` → `nombres`, `limit` | `perfil_id`, `estado`, `limit` | El filtro por nombre se ignora |
+| Controller manda                                | DAO espera                                                 | Efecto                             |
+| ----------------------------------------------- | ---------------------------------------------------------- | ---------------------------------- |
+| `ItemController::list` → `categoriaId`, `limit` | `codigo`, `nombre`, `categoria`, `stock`, `limit`+`offset` | Ningún filtro se aplica            |
+| `CategoryController::list` → `estado`, `limit`  | `nombre`, `limit`+`offset`                                 | `estado` no existe ni como columna |
+| `UserController::list` → `nombres`, `limit`     | `perfil_id`, `estado`, `limit`                             | El filtro por nombre se ignora     |
 
 Además `ItemDao::list` y `CategoryDao::list` sólo aplican `LIMIT` si vienen `limit` **y** `offset`, y ningún controller manda `offset` → el límite nunca se aplica.
 
@@ -234,23 +234,23 @@ No todo se tira. Estas decisiones están bien y hay que llevarlas:
 
 ## 6. Resumen por prioridad
 
-| # | Hallazgo | Sev. | Impacto en la migración |
-|---|---|---|---|
-| C-1 | Hashes de contraseña expuestos en `/user/list` y `/user/load` | C | Separar DTO entrada/salida desde el día 1 |
-| C-2 | Autorización con fallback `can_update` | C | Rediseñar permisos como acciones nombradas |
-| C-3 | Escalada de privilegios vía `perfil_id` en el body | C | Autorización a nivel de política, no de módulo |
-| C-9 | Transiciones de estado de venta sin validar | C | Máquina de estados formal, bloqueante para facturación |
-| C-10 | Sobrepago por validación fuera de transacción | C | Bloqueante para webhooks de Mercado Pago |
-| A-4 | Secretos y credenciales versionados | A | `.env` desde el inicio |
-| A-5 | JWT irrevocable, perfil embebido en el token | A | Sanctum + permisos consultados en cada request |
-| A-11 | Anulación no revierte pagos | A | Notas de crédito en el nuevo modelo |
-| A-12 | Descuento del 100% sin autorización | A | Tope por rol + vales controlados |
-| A-13 | Stock sin kardex ni reservas | A | Bloqueante para carrito y compra automática |
-| A-17 | `productos.precio` en `float` | A | Todo `decimal` en el esquema nuevo |
-| A-18 | `ventas.numero` sin UNIQUE, contador único | A | Numeración por punto de venta y tipo (AFIP) |
-| A-24 | Filtros rotos en tres módulos | A | Tests desde el inicio |
-| A-25 | Sin paginación | A | Paginación por defecto en toda colección |
-| A-26 | Dashboard calculado en el cliente | A | Endpoints de agregación por rol |
-| A-32 | Cobertura de tests ≈ 0 | A | Definir mínimo obligatorio |
-| M-20 | Permisos CRUD insuficientes | M | Rediseño del modelo de perfiles |
-| M-22 | Faltan campos para tienda, envíos y facturación | M | Entra en el modelado nuevo |
+| #    | Hallazgo                                                      | Sev. | Impacto en la migración                                |
+| ---- | ------------------------------------------------------------- | ---- | ------------------------------------------------------ |
+| C-1  | Hashes de contraseña expuestos en `/user/list` y `/user/load` | C    | Separar DTO entrada/salida desde el día 1              |
+| C-2  | Autorización con fallback `can_update`                        | C    | Rediseñar permisos como acciones nombradas             |
+| C-3  | Escalada de privilegios vía `perfil_id` en el body            | C    | Autorización a nivel de política, no de módulo         |
+| C-9  | Transiciones de estado de venta sin validar                   | C    | Máquina de estados formal, bloqueante para facturación |
+| C-10 | Sobrepago por validación fuera de transacción                 | C    | Bloqueante para webhooks de Mercado Pago               |
+| A-4  | Secretos y credenciales versionados                           | A    | `.env` desde el inicio                                 |
+| A-5  | JWT irrevocable, perfil embebido en el token                  | A    | Sanctum + permisos consultados en cada request         |
+| A-11 | Anulación no revierte pagos                                   | A    | Notas de crédito en el nuevo modelo                    |
+| A-12 | Descuento del 100% sin autorización                           | A    | Tope por rol + vales controlados                       |
+| A-13 | Stock sin kardex ni reservas                                  | A    | Bloqueante para carrito y compra automática            |
+| A-17 | `productos.precio` en `float`                                 | A    | Todo `decimal` en el esquema nuevo                     |
+| A-18 | `ventas.numero` sin UNIQUE, contador único                    | A    | Numeración por punto de venta y tipo (AFIP)            |
+| A-24 | Filtros rotos en tres módulos                                 | A    | Tests desde el inicio                                  |
+| A-25 | Sin paginación                                                | A    | Paginación por defecto en toda colección               |
+| A-26 | Dashboard calculado en el cliente                             | A    | Endpoints de agregación por rol                        |
+| A-32 | Cobertura de tests ≈ 0                                        | A    | Definir mínimo obligatorio                             |
+| M-20 | Permisos CRUD insuficientes                                   | M    | Rediseño del modelo de perfiles                        |
+| M-22 | Faltan campos para tienda, envíos y facturación               | M    | Entra en el modelado nuevo                             |
