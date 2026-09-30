@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Models\Rol;
 use App\Models\User;
+use App\Support\ReglasFiscales;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -76,7 +77,7 @@ class UsuarioRequest extends FormRequest
         // repetir M-31: "30-ABC" se convertiría en "30" y se guardaría.
         if (is_string($this->input('cliente.nro_doc'))) {
             $this->merge(['cliente' => array_merge($this->input('cliente'), [
-                'nro_doc' => preg_replace('/[\s.\-]/', '', $this->input('cliente.nro_doc')),
+                'nro_doc' => ReglasFiscales::normalizar($this->input('cliente.nro_doc')),
             ])]);
         }
     }
@@ -117,7 +118,16 @@ class UsuarioRequest extends FormRequest
 
         return match ($rol?->ambito) {
             'gestion' => array_merge($reglas, $this->reglasDeEmpleado($usuario?->empleado?->id, $esAlta)),
-            'tienda'  => array_merge($reglas, $this->reglasDeCliente($usuario?->cliente?->id)),
+            'tienda'  => array_merge(
+                $reglas,
+                ['cliente' => ['required', 'array']],
+                ReglasFiscales::para(
+                    condicionIva: $this->input('cliente.condicion_iva'),
+                    tipoDoc: $this->input('cliente.tipo_doc'),
+                    clienteId: $usuario?->cliente?->id,
+                    prefijo: 'cliente.',
+                ),
+            ),
             // Sin rol válido no hay satélite que exigir: el error que
             // corresponde es el de `rol_id`, no quince campos faltantes.
             default   => $reglas,
@@ -152,51 +162,10 @@ class UsuarioRequest extends FormRequest
         ];
     }
 
-    /** @return array<string, array<int, mixed>> */
-    private function reglasDeCliente(?int $clienteId): array
-    {
-        $tipo = $this->input('cliente.tipo_doc');
-
-        return [
-            'cliente'               => ['required', 'array'],
-            'cliente.razon_social'  => ['required', 'string', 'min:2', 'max:150'],
-            'cliente.tipo_doc'      => ['required', Rule::in(['dni', 'cuit', 'cuil'])],
-
-            'cliente.condicion_iva' => ['required', Rule::in([
-                'responsable_inscripto', 'monotributo', 'consumidor_final', 'exento',
-            ])],
-
-            'cliente.nro_doc' => [
-                // Quien factura A o es monotributista tiene que estar
-                // identificado; el consumidor final puede no estarlo, y por eso
-                // la columna es nullable.
-                Rule::requiredIf(fn () => in_array(
-                    $this->input('cliente.condicion_iva'),
-                    ['responsable_inscripto', 'monotributo'],
-                    true,
-                )),
-                'nullable',
-                match ($tipo) {
-                    'dni'          => 'digits_between:6,9',
-                    'cuit', 'cuil' => 'digits:11',
-                    default        => 'string',
-                },
-                // La base tiene UNIQUE(tipo_doc, nro_doc): la regla dice lo
-                // mismo antes, para que el usuario reciba un mensaje y no un
-                // error de integridad.
-                Rule::unique('clientes', 'nro_doc')
-                    ->where(fn ($query) => $query->where('tipo_doc', $tipo))
-                    ->ignore($clienteId),
-            ],
-
-            'cliente.email'    => ['nullable', 'email', 'max:150'],
-            'cliente.telefono' => ['nullable', 'string', 'max:30'],
-        ];
-    }
 
     public function messages(): array
     {
-        return [
+        return array_merge([
             'email.unique'   => 'Ya hay una cuenta con ese correo.',
             'rol_id.required' => 'Elegí un rol para el usuario.',
             'rol_id.exists'  => 'Ese rol no existe.',
@@ -214,11 +183,7 @@ class UsuarioRequest extends FormRequest
             'empleado.fecha_baja.before_or_equal'    => 'La fecha de baja no puede ser futura.',
             'empleado.fecha_baja.prohibited'         => 'No se puede dar de alta a alguien que ya no trabaja acá.',
 
-            'cliente.nro_doc.required' => 'Para esa condición frente al IVA hace falta el número de documento.',
-            'cliente.nro_doc.digits'   => 'El CUIT/CUIL tiene 11 dígitos.',
-            'cliente.nro_doc.digits_between' => 'El DNI se escribe sin puntos, entre 6 y 9 dígitos.',
-            'cliente.nro_doc.unique'   => 'Ya hay un cliente registrado con ese documento.',
-        ];
+        ], ReglasFiscales::mensajes('cliente.'));
     }
 
     public function attributes(): array
