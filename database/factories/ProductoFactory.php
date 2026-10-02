@@ -53,4 +53,19 @@ class ProductoFactory extends Factory
     {
         return $this->conStock(0);
     }
+
+    /**
+     * Stock y costo promedio juntos: las dos columnas que sólo mueve el
+     * StockService, puestas por asignación directa porque están fuera de
+     * $fillable.
+     */
+    public function conStockYCosto(int $cantidad, float $costo, int $reservado = 0): static
+    {
+        return $this->afterCreating(function ($producto) use ($cantidad, $costo, $reservado) {
+            $producto->stock           = $cantidad;
+            $producto->stock_reservado = $reservado;
+            $producto->costo_promedio  = $costo;
+            $producto->save();
+        });
+    }
 }

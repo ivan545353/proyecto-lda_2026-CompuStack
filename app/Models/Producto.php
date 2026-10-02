@@ -6,6 +6,7 @@ use App\Support\Like;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
@@ -106,6 +107,12 @@ class Producto extends Model
     public function proveedor(): BelongsTo
     {
         return $this->belongsTo(Proveedor::class, 'proveedor_id');
+    }
+
+    /** El kardex del producto: todo lo que entró y salió, en orden. */
+    public function movimientos(): HasMany
+    {
+        return $this->hasMany(MovimientoStock::class, 'producto_id');
     }
 
     public function getStockDisponibleAttribute(): int

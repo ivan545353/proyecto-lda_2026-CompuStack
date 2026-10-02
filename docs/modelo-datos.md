@@ -383,6 +383,31 @@ Reglas, todas validadas en el servidor (esto es lo que hoy no existe — hallazg
 - `cancelada` sólo desde `presupuesto` o `pendiente_pago`, es decir antes de que exista comprobante y antes de descontar stock. Después de facturar, el camino es la devolución.
 - La devolución es **parcial o total según cuánto se devuelva**, no según lo que elija el operador. La venta pasa a `devuelta_parcial` mientras quede algo sin devolver, y a `devuelta` cuando todas las líneas alcanzan `cantidad_devuelta = cantidad`. El estado se deriva de las líneas, no se fija a mano.
 - Una venta en `devuelta_parcial` **sigue admitiendo devoluciones**. Es el caso de quien devuelve el mouse en enero y la fuente en marzo.
+- **Venta con faltante (backorder): analizada y postergada.** Surgió una pregunta
+real del negocio: si el cliente quiere 4 auriculares y hay 3, ¿se le venden los 3
+y el cuarto se manda a pedir, en lugar de perder la venta? Y la variante de
+mostrador: reservarle un producto sin stock para entregárselo cuando llegue.
+
+No entra en la Etapa 1, y queda escrito qué haría falta, porque la mitad del costo
+está en decisiones que la Fase 6 toma igual:
+
+- `venta_lineas` necesita `cantidad_entregada` para distinguir lo entregado de lo
+  pendiente. Es un `ADD COLUMN` con default 0, barato en cualquier momento.
+- La línea de venta necesita apuntar a la línea de orden de compra que repone esa
+  unidad, o cuando la mercadería llega nadie sabe que era de un cliente. FK
+  nullable a una tabla que ya existe, también barato.
+- `ventas.estado` necesita un valor más (`entregada_parcial`), y **eso reescribe la
+  tabla**: es la única pieza que encarece esperar. Hoy no hay datos de producción,
+  así que sigue siendo barato, pero deja de serlo después de la entrega. Si la
+  venta con faltante se va a hacer alguna vez, el valor se declara en la Fase 6,
+  cuando se escriben los estados, no después.
+- La reserva de mostrador **con seña reabre una decisión ya tomada**: los pagos
+  parciales están fuera del alcance. Sin seña es un presupuesto que espera
+  mercadería, y eso ya se puede hacer con lo que hay.
+
+La promesa al cliente se puede hacer honesta sin nada nuevo: el plazo sale de
+`productos.proveedor_id` → `proveedores.plazo_entrega_dias`, así que la pantalla
+puede decir cuántos días, en lugar de «demora un poco más».
 
 **Por qué `presupuesto` sigue existiendo.** Es el flujo actual de mostrador y funciona. Un presupuesto no tiene valor fiscal: no genera comprobante ni descuenta stock. Se convierte en venta cuando se cobra, o se cancela.
 
