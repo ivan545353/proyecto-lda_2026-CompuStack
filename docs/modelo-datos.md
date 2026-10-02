@@ -216,12 +216,78 @@ Una columna enum reemplaza a un subsistema de autenticación completo, y el proc
 
 **Por qué `borrador` y no envío directo.** Lo aceptaste en el punto 27, pero vale dejar el motivo escrito: una compra que se dispara y se envía sola es un compromiso de plata sin supervisión. Si un ajuste de stock mal cargado deja un producto en cero, el sistema pide mercadería que no hace falta. El borrador convierte el automatismo en una sugerencia.
 
+**Por qué el número de orden es el `id` y no una columna propia.** El proveedor se
+refiere al pedido por un número, y el PDF lo imprime como `OC-00042`, derivado del
+`id` con relleno de ceros. No se agrega una columna `numero`: la orden de compra no
+es un comprobante fiscal —no la gobierna AFIP, no necesita ser correlativa sin
+huecos— y la clave primaria ya garantiza unicidad por construcción, sin contador,
+sin tabla auxiliar y sin condición de carrera. Es la lección de A-18 aplicada: el
+sistema original tenía `venta_numeracion`, una tabla de una sola fila sin clave
+primaria, para generar un número que `ventas.numero` tampoco garantizaba único.
+
+**Por qué el PDF no se archiva.** El documento se regenera a demanda desde la
+orden, y no se guarda el archivo. Es posible porque **el PDF imprime el pedido, no
+el estado de la orden**: lleva `cantidad_pedida` y `costo_unitario`, nunca
+`cantidad_recibida`. Las líneas quedan congeladas cuando la orden deja de ser
+borrador, y lo único que cambia después es la cantidad recibida, que el documento
+no muestra — así que el PDF regenerado dentro de un año es idéntico al que recibió
+el proveedor. Guardar el archivo traería los problemas de siempre con los binarios:
+una fila que puede apuntar a un archivo inexistente, backups más pesados y una
+copia que puede divergir del dato.
+
+**Por qué no hay `usuario_envio_id`.** Marcar la orden como enviada lo hace una
+persona, no el sistema, y la tabla no registra quién. Se decidió no agregar la
+columna: la orden de compra no es un documento fiscal, el responsable del
+compromiso es quien la aprueba —y eso sí queda en `usuario_aprobo_id` con su
+fecha—, y la acción de marcarla enviada se exige con el mismo permiso que
+aprobarla (`compra.aprobar`), así que quien la marca es necesariamente alguien con
+esa autoridad. `fecha_envio` responde el cuándo. Si el negocio pidiera separar las
+dos responsabilidades, se agrega la columna nullable más el permiso `compra.enviar`,
+sin tocar ninguna relación.
+
 ### `orden_compra_lineas`
 `id, orden_compra_id FK, producto_id FK, cantidad_pedida, cantidad_recibida (default 0), costo_unitario`
 
 `cantidad_recibida < cantidad_pedida` es la recepción parcial. Cuando todas las líneas se completan, la orden pasa a `recibida`. Cada recepción genera un movimiento de stock y recalcula `costo_promedio`.
 
 **El disparador de reposición** es un job diario: productos con `stock - stock_reservado <= stock_minimo` que no tengan ya una orden abierta, agrupados por `proveedor_id`, generan una orden en borrador con `cantidad_reposicion` por línea. Fijo, como pediste (26).
+
+el proveedor grande que sólo opera por su propio portal, el chico que
+podría entrar al sistema, y el informal al que se le pide por mail o WhatsApp.
+Darle login a los proveedores implicaría autenticación externa, permisos y un
+panel entero — para una minoría de casos, y sin resolver al proveedor grande, que
+nunca va a usar tu sistema.
+
+La salida es **desacoplar el proceso interno del canal de entrega**. El sistema
+siempre hace lo mismo: detecta stock crítico → genera la orden de compra en
+borrador → el administrativo la aprueba → la orden aprobada produce un **PDF
+formal** del pedido. Una columna enum reemplaza a un subsistema de autenticación
+completo, y el proceso interno, las métricas y el control de recepción son
+idénticos en los tres casos.
+
+**`canal_pedido` es un dato del proveedor, no una bandera de control.** No
+ramifica código: la orden aprobada genera siempre el mismo PDF, lo descarga una
+persona y es esa persona la que lo hace llegar. El canal es lo que la pantalla usa
+para decir cuál es el próximo paso, y de lo que depende que se muestre
+`portal_url`:
+
+- `email` → «Mandale el PDF a `ventas@…`», con el correo a la vista.
+- `portal_externo` → «Subí el PDF a su portal», con el enlace a `portal_url`.
+- `manual` → «Pasale el PDF por teléfono o WhatsApp», con el teléfono.
+
+**Por qué el sistema no manda el correo.** Se evaluó que el canal `email`
+disparara el envío automático y marcara la orden como enviada. Se descartó por una
+razón que no es de comodidad: sin un servidor SMTP —y en la Etapa 1 no hay uno—,
+el correo va a un archivo de log y la orden quedaría marcada como «enviada» con el
+proveedor sin enterarse de nada. El sistema estaría afirmando un hecho del mundo
+que no puede verificar, y la regla del proyecto es que el resultado dice lo que
+pasó de verdad. Además elimina un modo de falla sin buena salida: un SMTP que
+rechaza el mensaje deja la orden en un estado que nadie sabe si hay que reintentar.
+
+El ENUM conserva sus tres valores en la base, así que si la Etapa 2 vuelve a
+automatizar el envío no hace falta migración. Y si mañana un proveedor chico
+quiere entrar al sistema, se le crea un rol con sus permisos y se le muestran sus
+órdenes — sin tocar el modelo.
 
 ---
 

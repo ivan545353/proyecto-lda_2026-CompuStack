@@ -35,17 +35,17 @@ Implementar las fases del plan de acción adjunto, en orden. Indicame en qué fa
 
 **Archivos a adjuntar además del estado actual del código**
 
-| Archivo | Para qué |
-|---|---|
-| `plan-accion.md` | Este documento: los pasos a implementar |
-| `plan-migracion.md` | Fases, orden, criterios de terminado |
-| `modelo-datos.md` | Esquema completo con la justificación de cada decisión |
-| `der.puml` | Diagrama entidad-relación |
-| `auditoria.md` | Hallazgos del sistema original que no hay que repetir |
-| `trazabilidad.md` | Mapeo componente original → componente Laravel, con su estado |
-| `Proyecto - Etapa 01.pdf` | Consigna del profesor |
-| `lp_2025.sql` | Base de datos original, sólo como referencia |
-| Los `.rar` del sistema original | Sólo si hay que consultar cómo funcionaba algo puntual |
+| Archivo                         | Para qué                                                      |
+| ------------------------------- | ------------------------------------------------------------- |
+| `plan-accion.md`                | Este documento: los pasos a implementar                       |
+| `plan-migracion.md`             | Fases, orden, criterios de terminado                          |
+| `modelo-datos.md`               | Esquema completo con la justificación de cada decisión        |
+| `der.puml`                      | Diagrama entidad-relación                                     |
+| `auditoria.md`                  | Hallazgos del sistema original que no hay que repetir         |
+| `trazabilidad.md`               | Mapeo componente original → componente Laravel, con su estado |
+| `Proyecto - Etapa 01.pdf`       | Consigna del profesor                                         |
+| `lp_2025.sql`                   | Base de datos original, sólo como referencia                  |
+| Los `.rar` del sistema original | Sólo si hay que consultar cómo funcionaba algo puntual        |
 
 Del código actual, adjuntar el árbol del proyecto Laravel y los archivos de la fase en curso.
 
@@ -1023,24 +1023,47 @@ Schedule::command('compras:generar-reposicion')->dailyAt('07:00');
 
 > **La orden se genera en borrador y no se envía sola.** Un ajuste de stock mal cargado dispararía compras que nadie pidió. El administrativo aprueba, y recién ahí sale.
 
-### 5.3 Envío según el canal del proveedor
+### 5.3 El PDF de la orden y el envío
+
+La orden aprobada produce un PDF formal. El sistema no lo manda: lo descarga una
+persona y lo hace llegar por donde corresponda, y después declara que lo envió.
 
 ```php
-public function enviar(OrdenCompra $orden): void
+public function pdf(OrdenCompra $orden): Response
 {
-    $pdf = Pdf::loadView('compras.pdf', ['orden' => $orden]);
+    // Descargar es una lectura: no cambia el estado, se puede hacer las veces
+    // que haga falta, y también sobre una orden ya recibida (el administrativo
+    // necesita el papel para archivar).
+    $pdf = Pdf::loadView('compras.pdf', [
+        'orden' => $orden->load('proveedor', 'lineas.producto'),
+    ]);
 
-    match ($orden->proveedor->canal_pedido) {
-        // Se manda solo
-        'email' => Mail::to($orden->proveedor->email)
-                       ->send(new OrdenCompraMail($orden, $pdf->output())),
-
-        // El administrativo la carga en el portal del proveedor y marca enviada
-        'portal_externo', 'manual' => null,
-    };
-
-    $orden->update(['estado' => 'enviada', 'fecha_envio' => now()]);
+    return $pdf->download("orden-compra-{$orden->numeroFormateado()}.pdf");
 }
+
+public function marcarEnviada(OrdenCompra $orden, User $usuario): OrdenCompra
+{
+    return DB::transaction(function () use ($orden, $usuario) {
+        $o = OrdenCompra::lockForUpdate()->findOrFail($orden->id);
+
+        MaquinaEstadosCompra::validar($o->estado, 'enviada');
+
+        $o->update(['estado' => 'enviada', 'fecha_envio' => now()]);
+
+        return $o->fresh();
+    });
+}
+```
+
+> **El sistema no afirma lo que no puede verificar.** La versión anterior de este
+> plan mandaba el PDF por correo cuando `canal_pedido = 'email'` y marcaba la
+> orden como enviada. Sin SMTP, el correo va a `storage/logs` y el proveedor no se
+> entera: la orden quedaría diciendo «enviada» sobre un hecho que no ocurrió. El
+> canal pasa a ser un dato que la pantalla muestra para indicar qué hacer con el
+> PDF, y la confirmación la da la persona que lo mandó.
+
+> **El PDF imprime `cantidad_pedida`, nunca `cantidad_recibida`.** Es lo que
+> permite no archivar el archivo: regenerarlo da siempre el mismo documento.
 ```
 
 ---
@@ -1334,18 +1357,18 @@ Rama: `feat/fase-8-cierre`
 
 Verificar contra la auditoría, hallazgo por hallazgo:
 
-| Hallazgo | Verificación |
-|---|---|
-| C-1 hashes expuestos | `$hidden` en `User`; ninguna vista los muestra |
-| C-2 fallback permisivo | `Gate::before` deniega por defecto; test que lo comprueba |
-| C-3 escalada de privilegios | Cambio de rol separado, con autoasignación bloqueada |
-| C-9 transiciones arbitrarias | Máquina de estados con test de transición inválida |
-| C-10 sobrepago | Bloqueo antes de validar, dentro de la transacción |
-| A-4 secretos versionados | `.env` ignorado; `git log -p` sin credenciales |
-| A-6 sin límite de intentos | `throttle:5,1` en el login |
-| A-17 dinero en `float` | Todas las columnas monetarias en `decimal(12,2)` |
-| A-25 sin paginación | Todos los listados paginados |
-| A-26 panel en el cliente | Métricas agregadas en la base |
+| Hallazgo                     | Verificación                                              |
+| ---------------------------- | --------------------------------------------------------- |
+| C-1 hashes expuestos         | `$hidden` en `User`; ninguna vista los muestra            |
+| C-2 fallback permisivo       | `Gate::before` deniega por defecto; test que lo comprueba |
+| C-3 escalada de privilegios  | Cambio de rol separado, con autoasignación bloqueada      |
+| C-9 transiciones arbitrarias | Máquina de estados con test de transición inválida        |
+| C-10 sobrepago               | Bloqueo antes de validar, dentro de la transacción        |
+| A-4 secretos versionados     | `.env` ignorado; `git log -p` sin credenciales            |
+| A-6 sin límite de intentos   | `throttle:5,1` en el login                                |
+| A-17 dinero en `float`       | Todas las columnas monetarias en `decimal(12,2)`          |
+| A-25 sin paginación          | Todos los listados paginados                              |
+| A-26 panel en el cliente     | Métricas agregadas en la base                             |
 
 Buscar secretos en todo el historial, no sólo en el estado actual:
 
