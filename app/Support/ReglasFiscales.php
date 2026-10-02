@@ -13,6 +13,10 @@ use Illuminate\Validation\Rule;
  * cliente (`cliente.nro_doc`), y el de clientes (`nro_doc`). Hasta la Fase 4
  * las reglas vivían sólo en PersonalRequest; con el segundo uso quedó claro qué
  * es lo compartido —el juego de reglas— y qué cambia —el prefijo del campo—.
+ * `normalizar()` la usa además ProveedorRequest sobre `proveedores.cuit`: es el
+ * mismo dato y se guarda igual en las dos tablas, en once dígitos sin
+ * separadores. Las reglas de `para()` no se reusan ahí, porque un proveedor no
+ * tiene condición frente al IVA en este modelo.
  *
  * Métodos:
  *   para()        las reglas, con el prefijo que corresponda

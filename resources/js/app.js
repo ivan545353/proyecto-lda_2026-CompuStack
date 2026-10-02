@@ -92,3 +92,28 @@ document.addEventListener('DOMContentLoaded', () => iniciarSelectsBuscables());
 
 // Gestor de imágenes: ver componentes/gestor-imagenes.js
 document.addEventListener('DOMContentLoaded', () => iniciarGestoresDeImagenes());
+
+// Formulario de proveedor: la dirección del portal sólo corresponde a un canal.
+// Deshabilitado no viaja en el POST, así que un proveedor que deja de operar por
+// portal no manda una URL que el servidor va a rechazar. Es mejora progresiva:
+// sin JavaScript el campo queda visible y la validación del servidor explica por
+// qué no corresponde.
+document.addEventListener('DOMContentLoaded', () => {
+    const canal = document.getElementById('canal_pedido');
+    const portal = document.getElementById('portal_url');
+
+    if (!canal || !portal) return;
+
+    const grupo = portal.closest('[data-grupo-portal]');
+
+    const refrescar = () => {
+        const corresponde = canal.value === 'portal_externo';
+
+        portal.disabled = !corresponde;
+        portal.required = corresponde;
+        grupo?.classList.toggle('d-none', !corresponde);
+    };
+
+    canal.addEventListener('change', refrescar);
+    refrescar();
+});

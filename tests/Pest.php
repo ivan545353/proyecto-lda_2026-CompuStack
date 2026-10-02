@@ -206,3 +206,19 @@ function predeterminadasDe(\App\Models\Cliente $cliente): int
 {
     return $cliente->direcciones()->where('es_predeterminada', true)->count();
 }
+
+/** Datos válidos de un proveedor. */
+function datosDeProveedor(array $sobreescribir = []): array
+{
+    return array_merge([
+        'razon_social'       => 'Distribuidora Austral S.A.',
+        'cuit'               => '30712345678',
+        'email'              => 'ventas@austral.test',
+        'telefono'           => '297-4551122',
+        'contacto'           => 'Mesa de pedidos',
+        'canal_pedido'       => 'manual',
+        'portal_url'         => null,
+        'plazo_entrega_dias' => 7,
+        'activo'             => true,
+    ], $sobreescribir);
+}

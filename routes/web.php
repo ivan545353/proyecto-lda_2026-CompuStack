@@ -7,6 +7,7 @@ use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\PersonalController;
 use App\Http\Controllers\CuentaController;
+use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\Auth\RestablecerPasswordController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\DireccionController;
@@ -192,6 +193,25 @@ Route::middleware(['auth', 'gestion'])->group(function () {
 
     Route::delete('/categorias/{categoria}', [CategoriaController::class, 'destroy'])
         ->middleware('can:categoria.eliminar')->name('categorias.destroy');
+
+     // Compras — Proveedores
+    Route::get('/proveedores', [ProveedorController::class, 'index'])
+        ->middleware('can:proveedor.ver')->name('proveedores.index');
+
+    Route::get('/proveedores/crear', [ProveedorController::class, 'create'])
+        ->middleware('can:proveedor.crear')->name('proveedores.create');
+
+    Route::post('/proveedores', [ProveedorController::class, 'store'])
+        ->middleware('can:proveedor.crear')->name('proveedores.store');
+
+    Route::get('/proveedores/{proveedor}/editar', [ProveedorController::class, 'edit'])
+        ->middleware('can:proveedor.editar')->name('proveedores.edit');
+
+    Route::put('/proveedores/{proveedor}', [ProveedorController::class, 'update'])
+        ->middleware('can:proveedor.editar')->name('proveedores.update');
+
+    Route::delete('/proveedores/{proveedor}', [ProveedorController::class, 'destroy'])
+        ->middleware('can:proveedor.eliminar')->name('proveedores.destroy');
         
     // Administración — Roles y permisos
     Route::get('/roles', [RolController::class, 'index'])

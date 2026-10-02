@@ -34,10 +34,10 @@ class CatalogoDemoSeeder extends Seeder
         'Logitech', 'Seagate', 'Western Digital', 'Fifine',
     ];
 
-    private const PROVEEDORES = [
-        ['razon_social' => 'Distribuidora Austral S.A.', 'cuit' => '30-71234567-8', 'canal_pedido' => 'email',          'plazo' => 7],
-        ['razon_social' => 'Insumos del Sur S.R.L.',     'cuit' => '30-70987654-3', 'canal_pedido' => 'portal_externo', 'plazo' => 14],
-        ['razon_social' => 'Tecno Patagonia',            'cuit' => '20-33445566-9', 'canal_pedido' => 'manual',         'plazo' => 3],
+        private const PROVEEDORES = [
+        ['razon_social' => 'Distribuidora Austral S.A.', 'cuit' => '30712345678', 'canal_pedido' => 'email',          'plazo' => 7],
+        ['razon_social' => 'Insumos del Sur S.R.L.',     'cuit' => '30709876543', 'canal_pedido' => 'portal_externo', 'plazo' => 14],
+        ['razon_social' => 'Tecno Patagonia',            'cuit' => '20334455669', 'canal_pedido' => 'manual',         'plazo' => 3],
     ];
 
     /** [código, nombre, categoría, marca, precio lista, stock, mínimo, reposición] */

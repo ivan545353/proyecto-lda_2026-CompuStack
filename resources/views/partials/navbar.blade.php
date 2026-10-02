@@ -88,6 +88,25 @@
                     </li>
                 @endcanany
 
+                @canany(['proveedor.ver', 'compra.ver', 'stock.ver'])
+                    @php($enCompras = request()->routeIs('proveedores.*', 'compras.*', 'movimientos.*'))
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle text-black {{ $enCompras ? 'active' : '' }}" href="#"
+                            role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Compras
+                        </a>
+                        <ul class="dropdown-menu">
+                            @can('proveedor.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('proveedores.*') ? 'active' : '' }}"
+                                        href="{{ route('proveedores.index') }}"
+                                        @if (request()->routeIs('proveedores.*')) aria-current="page" @endif>Proveedores</a>
+                                </li>
+                            @endcan
+                        </ul>
+                    </li>
+                @endcanany
+
                 {{-- Cada módulo nuevo se suma acá dentro de su correspondiente @can --}}
             </ul>
 
