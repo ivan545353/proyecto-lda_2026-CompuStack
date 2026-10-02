@@ -184,6 +184,27 @@ Si más adelante querés agrupar, se agrega una columna nullable `grupo_id` y un
 
 **Por qué no hay tabla de recepciones de mercadería.** La recepción parcial (29) se resuelve con `cantidad_recibida` en la línea de la orden de compra, y **el historial de cada recepción ya está acá**: cada entrada genera un movimiento con su fecha y su usuario. La tabla de recepciones sería redundante.
 
+**Por qué no están las dimensiones.** El hallazgo M-22 pedía «peso y dimensiones»
+para la cotización de envíos. El peso está —`productos.peso_gramos`, con
+`categorias.peso_default_gramos` como respaldo—; las dimensiones no se crearon, y es
+una decisión, no un olvido. Sirven únicamente a la cotización de Zipnova, que es de
+la Etapa 2, y son tres columnas enteras nullables, sin clave foránea y sin `ENUM`:
+agregarlas es un `ADD COLUMN` que no migra datos ni reescribe la tabla. No caen bajo
+la regla que obliga a declarar todas las columnas desde el inicio, porque esa regla
+existe para no reescribir una tabla por un `ENUM` incompleto, no para prohibir una
+columna nullable más adelante.
+
+Hay una pregunta que sí conviene responder **antes** de escribir la cotización de la
+Etapa 2: si Zipnova cotiza por peso declarado o por peso volumétrico. Si es
+volumétrico, las tres columnas (`largo_mm`, `ancho_mm`, `alto_mm`) hacen falta y
+además hay que relevar las medidas producto por producto, que es trabajo de carga de
+datos y no de esquema. Si cotiza por peso declarado, no se agregan nunca.
+
+Por el mismo criterio, `peso_gramos` y `destacado` existen en la tabla pero no se
+cargan desde el formulario de la Etapa 1: el peso sirve al envío y el destaque a la
+vidriera de la tienda, y las dos pantallas son de la Etapa 2. La columna está para no
+tocar la tabla después; el campo aparece cuando aparezca su módulo.
+
 ---
 
 ## 3. Proveedores y reposición automática

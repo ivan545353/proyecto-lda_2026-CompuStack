@@ -249,14 +249,30 @@ El catálogo actual (`nombre, codigo, descripcion, categoriaId, precio, stock`) 
 ### B-23 · Datos basura en el dump
 `productos` contiene `asdasdas` y `afsadgasdgsdfg`; `ventas` tiene clientes `dasdasdasdasd` y `kjkhejkrg`. Sin soft-delete ni validación de contenido, la base de pruebas y la de producción son la misma. La `unique key` sobre `(nombre, categoriaId)` además impide dos productos homónimos de marcas distintas en la misma categoría.
 
-> **Cerrado** — Fases 1 y 3. La validación rechaza en lugar de aceptar cualquier
-> cosa, así que `asdasdas` ya no entra como nombre de producto. Las bajas son
-> lógicas (`activo`), así que nada se borra para limpiar la base. El `UNIQUE` sobre
-> `(nombre, categoriaId)` no se replicó: la unicidad va sobre `productos.codigo`,
-> que es lo que de verdad identifica un producto, y dos productos homónimos de
-> marcas distintas conviven sin problema. Y la base de pruebas es otra
-> (`lda_2026_testing`, configurada en `phpunit.xml`), así que los datos de prueba y
-> los reales ya no comparten base.
+> **Cerrado** — Fases 1 y 3. De los seis puntos, cuatro entraron al esquema y se
+> cargan desde la pantalla: imágenes (`productos.imagenes`, con vista previa y
+> orden por arrastre), costo de compra (`costo_promedio`, que recalcula la
+> recepción de mercadería), alícuota de IVA, y stock mínimo con cantidad de
+> reposición. La marca pasó a ser tabla propia, y `categorias` dejó de ser una
+> lista plana: tiene `parent_id`, `orden` y `peso_default_gramos`.
+>
+> Los otros tres quedaron fuera del alcance de la Etapa 1 a propósito, cada uno
+> con su motivo escrito:
+>
+> - `peso_gramos` y `destacado` **son columnas del esquema** desde la Fase 1, pero
+>   no se exponen en el formulario: sirven a la cotización de envíos y al destaque
+>   de la tienda, que son de la Etapa 2. Está anotado en el docblock de
+>   `ProductoRequest`, y `ProductoService` no las escribe porque enumera los campos
+>   uno por uno.
+> - Las **dimensiones** no se crearon como columnas, y es la única parte del
+>   hallazgo que no está en la base. El motivo está en `modelo-datos.md`, sección
+>   `productos`: son tres columnas nullables, baratas de agregar cuando exista el
+>   módulo que las usa.
+> - **Variantes y atributos técnicos** se descartaron al cerrar el modelo: separar
+>   producto de variante duplicaría la complejidad de carrito, stock, órdenes de
+>   compra y kardex para ganar sólo una agrupación visual en la tienda, y con un
+>   `codigo` por capacidad el control de stock ya es correcto. También en
+>   `modelo-datos.md`.
 
 ---
 
