@@ -148,9 +148,9 @@ Módulos nuevos de la Etapa 1. No hay componente que migrar; se construyen desde
 | ---------------------- | ------------------------------------------------------------------------------- | --------- |
 | Clientes               | Migración, modelo `Cliente`, `Direccion`, controlador, Form Requests, vistas    | Migrado   |
 | Empleados              | Migración, modelo `Empleado`, integrado al módulo de usuarios                   | Migrado   |
-| Proveedores            | Migración, modelo `Proveedor`, controlador, vistas                              | Pendiente |
+| Proveedores            | Migración, modelo `Proveedor`, controlador, vistas                              | Migrado   |
 | Órdenes de compra      | Migraciones, modelos `OrdenCompra` y `OrdenCompraLinea`, servicio de reposición | Pendiente |
-| Roles y permisos       | Migraciones `roles`, `permisos`, `rol_permiso`, controlador, vistas, Gates      | Pendiente |
+| Roles y permisos       | Migraciones `roles`, `permisos`, `rol_permiso`, controlador, vistas, Gates      | Migrado   |
 | Marcas                 | Migración, modelo `Marca`, controlador, vistas                                  | Migrado   |
 | Movimientos de stock   | Migración, modelo `MovimientoStock`, servicio de kardex                         | Pendiente |
 | Categorías jerárquicas | Ampliación de `Categoria` con `parent_id`                                       | Migrado   |

@@ -34,6 +34,17 @@ Toda acción fuera del CRUD (`cobrar`, `updateEstado`, `enable`, `disable`, `res
 
 Además el módulo se deduce del nombre del controlador (`$controller` → `modulos.nombre`), lo que acopla el routing a datos de la tabla `modulos`: renombrar un controlador rompe silenciosamente los permisos, sin error.
 
+> **Cerrado** — Fase 2. `Gate::before` concede si el rol tiene la clave y devuelve
+> `null` si no la tiene; como no hay ninguna otra regla definida, `null` deniega.
+> No hay valor por omisión que heredar: una acción que nadie asignó no se puede
+> hacer. Además el módulo ya no se deduce del nombre del controlador —cada ruta
+> declara su permiso con `can:` en `routes/web.php`—, así que renombrar un
+> controlador no puede cambiar quién accede. Lo fija el test «una accion sin
+> permiso definido se deniega», y cada módulo repite el dataset de permisos en las
+> dos direcciones: con todos los permisos del módulo menos el de la ruta se
+> deniega, y con sólo ése se permite. Sin la primera mitad, una ruta protegida por
+> el permiso equivocado pasaría desapercibida.
+
 ### C-3 · Escalada de privilegios vía `user/update`
 `UserController::update()` construye el `UserDto` directamente desde el body, que incluye `perfil_id`, y no compara el `id` del body contra el `usuarioID` del token. Un usuario con `can_update` sobre `user` puede reasignarse a sí mismo (o a cualquiera) el perfil Administrador. No hay separación entre "editar mi cuenta" y "editar a otro".
 
@@ -50,7 +61,15 @@ Además el módulo se deduce del nombre del controlador (`$controller` → `modu
 - Credenciales de base hardcodeadas en `Connection.php`: usuario `root`, password vacío.
 - No hay `.gitignore` en el repo del backend → `app/vendor/` completo versionado.
 
-Rotar el secreto hoy implica invalidar todas las sesiones y editar código. En Laravel esto va a `.env` + `config/`.
+Rotar el secreto hoy implica invalidar todas las sesiones y editar código. En Laravel esto va a `.env` + `config/`
+> **Cerrado** — Fases 0 y 1. El `JWT_SECRET` y las credenciales de `Connection.php`
+> se reemplazaron por marcadores **antes del primer commit**, así que no están en
+> ningún punto del historial, y `legacy/README.md` documenta qué se modificó y por
+> qué. La configuración vive en `.env`, ignorado por Git, con `.env.example`
+> versionado sin un solo valor real: ni contraseñas, ni correos personales. El
+> `.gitignore` excluye `vendor/`, `node_modules/` y `storage/*.key`. La Fase 8
+> vuelve a revisar el historial completo, que es lo único que este cierre no puede
+> probar por sí mismo.
 
 ### A-5 · El token no se puede revocar
 `AuthenticationService::logout()` es un no-op con comentario explicando que el logout es del lado del cliente. No hay `jti`, ni blacklist, ni refresh token. Consecuencias:
@@ -59,16 +78,42 @@ Rotar el secreto hoy implica invalidar todas las sesiones y editar código. En L
 - No se revalida `estado` ni `resetPass` en cada request, sólo en el login.
 
 Con clientes y pagos reales esto pasa de molestia a riesgo.
+> **Cerrado** — Fase 2. No hay token: la sesión vive en una cookie y el servidor la
+> puede invalidar. El rol ya no viaja dentro de una credencial —los permisos se
+> resuelven en cada request contra la tabla, con caché por rol que `RolService`
+> invalida al guardar la asignación—, así que cambiarle el rol a alguien surte
+> efecto de inmediato en lugar de esperar una hora. `VerificarUsuarioActivo` corre
+> en todo el grupo `web` y no sólo en el login: deshabilitar una cuenta en curso la
+> desconecta en el próximo request, y lo prueban los tests «deshabilitar un usuario
+> lo desconecta en el proximo request» y «la cache de permisos se invalida al
+> cambiar el rol».
 
 ### A-6 · Sin límite de intentos en el login
 `POST /authentication/login` no tiene rate limiting, captcha ni bloqueo por intentos. Fuerza bruta libre contra bcrypt.
-
+> **Cerrado** — Fase 2. `throttle:5,1` en el POST de login y en el de
+> restablecimiento, que son las dos rutas públicas que reciben credenciales. Lo
+> verifica el test «el login limita los intentos». Además el mensaje de error no
+> revela si falló el correo o la contraseña, para no convertir el login en un
+> verificador de cuentas existentes: lo cubre «rechaza credenciales incorrectas sin
+> revelar cual fallo».
+> 
 ### M-7 · CORS con origen hardcodeado
 `Access-Control-Allow-Origin: http://localhost:4200` fijo en el código. No configurable por entorno, y con Flutter (web/móvil) el origen cambia.
 
+> **Cerrado** — Fase 2. No hay CORS que configurar: con Blade el origen es el
+> mismo, así que la cabecera desapareció junto con el `CorsHandlerMiddleware`. Esto
+> no es una excusa para la Etapa 3: cuando la API tenga que servir a Flutter, los
+> orígenes se declaran en `config/cors.php` leyendo `.env`, nunca escritos en el
+> código, que es lo que el hallazgo señalaba.
+> 
 ### M-8 · Token en `localStorage`
 `AuthService` guarda el JWT en `localStorage`, accesible desde cualquier script. En Flutter esto se resuelve con `flutter_secure_storage` (Keychain/Keystore), que es un cambio de plataforma a favor.
 
+> **Cerrado** — Fase 2. No hay nada en `localStorage` que robar: la sesión viaja en
+> una cookie `HttpOnly`, inaccesible desde cualquier script de la página, con
+> `SameSite=lax`. Queda para la revisión de la Fase 8 poner
+> `SESSION_SECURE_COOKIE=true` en el entorno de producción, que es un asunto de
+> transporte y no de acceso desde scripts.
 ---
 
 ## 2. Lógica de negocio y concurrencia
@@ -122,12 +167,28 @@ El modo `descontar` hace `SELECT ... FOR UPDATE`; el modo `reponer` va directo a
 ### M-16 · Borrado físico de documentos financieros
 `SaleDao::delete()` es un `DELETE` plano y `detalle_ventas` tiene `ON DELETE CASCADE`. Borrar una venta borra su historial completo. Lo mismo en productos y usuarios. Con facturación real esto es inadmisible: una vez emitido un comprobante, nada se borra.
 
+> La política ya rige en los módulos que existen: el catálogo y los proveedores se
+> desactivan si algo los referencia, las cuentas de personal con historial también,
+> y un cliente referenciado rechaza la baja con un motivo. Falta el núcleo del
+> hallazgo —el borrado físico de documentos financieros—, que lo cierra la Fase 6,
+> cuando existan ventas y pagos.
+
 ---
 
 ## 3. Modelo de datos
 
 ### A-17 · Dinero en punto flotante
 `productos.precio` es `float(12,2)`. El resto del esquema usa `decimal(12,2)` correctamente. `float` acumula error de redondeo: un producto a 435345.00 se lee como `435344.99999...` según el caso. Todo importe debe ser `decimal` (o entero en centavos).
+
+> **Cerrado** — Fases 1 y 3. Toda columna monetaria del esquema es `decimal(12,2)`,
+> y el test «ninguna columna usa punto flotante» lo verifica consultando
+> `information_schema` sobre MariaDB: no es una revisión a ojo de las migraciones,
+> es una pregunta a la base real, y por eso las pruebas no corren en sqlite. Los
+> modelos castean los importes a `decimal:2` y los enteros a `integer`.
+> `App\Support\Importe` traduce el formato argentino —"1.500,50" ↔ "1500.50"— y
+> rechaza lo ambiguo en lugar de adivinar: leer "1.500" como 1.5 guardaría un
+> producto de mil quinientos pesos a uno con cincuenta sin reportar ningún error,
+> que es donde este hallazgo se cruza con M-31.
 
 ### A-18 · Numeración de ventas frágil
 - `ventas.numero` **no tiene índice UNIQUE**. Nada impide duplicados.
@@ -137,10 +198,27 @@ El modo `descontar` hace `SELECT ... FOR UPDATE`; el modo `reponer` va directo a
 ### M-19 · Sin trazabilidad temporal
 Ninguna tabla tiene `created_at` / `updated_at` / `created_by`. `usuarios.fechaAlta` es lo único, y es `date` (sin hora). Para el dashboard del requerimiento 14 y para cualquier auditoría, esto hace falta en todas las tablas.
 
+> **Cerrado** — Fase 1. Las diecisiete tablas llevan `created_at` y `updated_at`, y
+> el test «toda tabla del dominio tiene marcas de tiempo» recorre la lista completa
+> y falla nombrando la que falte. No hay un `created_by` general, y es a propósito:
+> la autoría se guarda donde la pregunta aparece y con el nombre de lo que esa
+> persona hizo —`movimientos_stock.usuario_id` responde quién ajustó el stock,
+> `ordenes_compra.usuario_creo_id` y `usuario_aprobo_id` separan quién pidió de
+> quién autorizó, `ventas.usuario_id` quién vendió y `pagos.usuario_id` quién
+> cobró—. Una columna genérica en cada tabla diría menos.
+> 
 ### M-20 · El modelo de permisos no llega
 `permisos` son 4 flags CRUD por (perfil, módulo). No modela acciones que no son CRUD — cobrar, anular, autorizar descuento, aprobar orden de compra, emitir nota de crédito. El fallback a `can_update` (C-2) es el síntoma de esa limitación, no la causa.
 
 Con el nuevo esquema de perfiles (cliente / administrador / empleado con subtipos vendedor-cajero-administrativo + proveedor), un modelo de flags por módulo se vuelve inmanejable. Corresponde pasar a permisos nombrados (`sale.void`, `purchase_order.approve`, `discount.override`).
+
+> **Cerrado** — Fases 1 y 2. Los permisos son claves nombradas en una tabla
+> (`venta.anular`, `compra.aprobar`, `stock.ajustar`), no cuatro banderas por
+> módulo, así que una acción que no es CRUD tiene su propio permiso y no hereda
+> nada de nadie. `RolPermisoSeeder` es la fuente de verdad y aborta con excepción
+> si una clave no existe: un permiso mal escrito rompe el seeder en lugar de
+> concederse o ignorarse en silencio. La tabla `modulos` desapareció, y con ella el
+> acoplamiento entre el routing y los datos.
 
 ### M-21 · `resetPass` bloquea sin salida
 `AuthenticationService` rechaza el login si `resetPass != 0` con "Su clave ha caducado", pero no hay endpoint público para restablecerla. El usuario queda bloqueado hasta que un admin lo destrabe. Falta el flujo de recuperación por email — que con clientes reales pasa a ser obligatorio.
@@ -171,6 +249,15 @@ El catálogo actual (`nombre, codigo, descripcion, categoriaId, precio, stock`) 
 ### B-23 · Datos basura en el dump
 `productos` contiene `asdasdas` y `afsadgasdgsdfg`; `ventas` tiene clientes `dasdasdasdasd` y `kjkhejkrg`. Sin soft-delete ni validación de contenido, la base de pruebas y la de producción son la misma. La `unique key` sobre `(nombre, categoriaId)` además impide dos productos homónimos de marcas distintas en la misma categoría.
 
+> **Cerrado** — Fases 1 y 3. La validación rechaza en lugar de aceptar cualquier
+> cosa, así que `asdasdas` ya no entra como nombre de producto. Las bajas son
+> lógicas (`activo`), así que nada se borra para limpiar la base. El `UNIQUE` sobre
+> `(nombre, categoriaId)` no se replicó: la unicidad va sobre `productos.codigo`,
+> que es lo que de verdad identifica un producto, y dos productos homónimos de
+> marcas distintas conviven sin problema. Y la base de pruebas es otra
+> (`lda_2026_testing`, configurada en `phpunit.xml`), así que los datos de prueba y
+> los reales ya no comparten base.
+
 ---
 
 ## 4. Arquitectura y calidad
@@ -188,8 +275,24 @@ Además `ItemDao::list` y `CategoryDao::list` sólo aplican `LIMIT` si vienen `l
 
 Que estos bugs convivan con la versión "final" es el indicador más claro de la falta de tests.
 
+> **Cerrado** — Fase 3. Cada filtro del listado es un scope del modelo con el mismo
+> nombre que el parámetro de la URL, y el juego completo está declarado además en un
+> Form Request de filtros: ya existe un lugar donde consta qué filtros acepta cada
+> listado, que es justamente lo que faltaba para que el desajuste tuviera dónde
+> detectarse. Un filtro inválido redirige al listado limpio con un aviso, en vez de
+> ignorarse. Y hay dos niveles de test por módulo —`{Modulo}FiltrosTest` prueba que
+> el scope filtra, `{Modulo}ModuloTest` que el parámetro de la URL llega al scope—,
+> porque el bug original era exactamente que la pieza funcionaba y el cableado no:
+> un solo nivel no lo habría encontrado en once commits.
+
 ### A-25 · Sin paginación
 Todos los listados devuelven la tabla completa. Se emite `SQL_CALC_FOUND_ROWS` pero `foundRows()` **nunca se llama** desde ningún service — y es una cláusula deprecada desde MySQL 8.0.17. Con catálogo real y tienda pública esto no sobrevive.
+
+> **Cerrado** — Fase 3. Todo listado usa `paginate(15)` con `withQueryString()`,
+> así que la página 2 conserva los filtros en lugar de perderlos. No quedó ningún
+> `SQL_CALC_FOUND_ROWS` —cláusula deprecada que además nunca se leía—: el total lo
+> da el paginador. Cada módulo tiene un test que verifica el tamaño de página, el
+> total y que el enlace a la página siguiente arrastre el filtro.
 
 ### A-26 · El dashboard se calcula en el navegador
 `HomeComponent` hace `forkJoin` de categorías + productos + ventas + usuarios **completos** y luego cuenta con `.length` y `.filter` en el cliente:
@@ -199,17 +302,48 @@ this.ventasHoy.set(res.ventas.filter(v => v.fecha.slice(0,10) === hoy && v.estad
 ```
 Descarga toda la base para mostrar cinco números, y de paso expone datos que el usuario no debería ver. El requerimiento 14 (dashboard con métricas por rol) es exactamente donde este patrón hay que reemplazarlo por endpoints de agregación en el servidor.
 
+> La mitad general del hallazgo ya rige: los conteos de los listados se calculan en
+> la base con `withCount()` y nunca se traen filas para contarlas en PHP. La otra
+> mitad —el panel con métricas por rol— la cierra la Fase 7, que es donde existen
+> esas consultas agregadas.
+
 ### M-27 · Routing por convención, sin verbos HTTP
 El `.htaccess` mapea `^([a-zA-Z]+)/([a-zA-Z]+)/([a-zA-Z0-9]+)$` a `controller/action/id`, y `RouterHandlerMiddleware` hace `ucfirst($controller) . "Controller"` + `method_exists`. El método HTTP nunca se valida: `save` responde a GET igual que a POST. Tres segmentos máximo, ids sólo alfanuméricos, sin rutas anidadas. El router de Laravel resuelve esto de fábrica.
+
+> **Cerrado** — Fase 2. `routes/web.php` declara cada ruta con su verbo, su nombre
+> y su permiso. Ya no hay `ucfirst()` sobre un segmento de la URL ni
+> `method_exists`, así que `store` no responde a GET, el nombre del controlador dejó
+> de ser parte de la URL, y las rutas anidadas —las direcciones de un cliente— se
+> escriben sin pelear con el límite de tres segmentos.
 
 ### M-28 · Sin inyección de dependencias
 Cada método instancia lo suyo: `new SaleService()` en el controller, `new SaleDao(Connection::get())` dentro de cada método del service. `SaleService::resolverPreciosYTotales()` crea su propio `ItemDao`. No hay forma de sustituir dependencias → los services son intesteables sin base de datos real.
 
+> **Cerrado** — Fase 3. Los controladores reciben su servicio por el constructor y
+> el contenedor lo resuelve; ningún método hace `new` de su dependencia. Eso es lo
+> que vuelve testeable la lógica de negocio sin pasar por HTTP, y es por lo que
+> existen los `{Modulo}ServiceTest`: prueban reglas de negocio llamando al servicio
+> directo, algo imposible con un `new SaleDao(Connection::get())` escrito adentro de
+> cada método.
+
 ### M-29 · Contrato de DAO inconsistente
 `ItemDao::load()` y `CategoryDao::load()` devuelven `(new Dto($data))->toArray()`; `UserDao::load()` y `SaleDao::load()` devuelven el array crudo de PDO. El DAO a veces conoce el DTO y a veces no. Además `SaleDao` guarda `$lastVentaId` propio porque `BaseDao::getLastInsertId()` es global a la conexión y no sirve tras insertar los detalles.
 
+> **Cerrado** — Fases 1 y 3. No hay DAOs: Eloquent devuelve siempre modelos y los
+> servicios devuelven modelos, así que no queda un contrato que cada clase
+> interprete a su manera —a veces el DTO, a veces el arreglo crudo de PDO—. El
+> `$lastVentaId` propio de `SaleDao` tampoco tiene equivalente: las relaciones de
+> Eloquent insertan los hijos sabiendo cuál es el padre.
+
 ### M-30 · Excepciones sin tipar
 Existen `NotFoundException`, `ValidationException`, `AuthorizationException` — pero `ItemDao`, `CategoryDao`, `UserDao`, `SaleDao` y `ItemService` lanzan `\Exception` plana. `ExceptionHandlerMiddleware` la mapea a **400**, así que "producto no encontrado" responde 400 en vez de 404. El frontend no puede distinguir un error de validación de un recurso inexistente.
+
+> **Cerrado** — Fases 3 y 4. Cada caso tiene su excepción y su código HTTP:
+> `findOrFail` devuelve 404, la validación falla con redirect y errores en sesión, y
+> `ReglaDeNegocioException` cubre la regla que el usuario violó y puede corregir. Se
+> traduce a mensaje en un solo lugar, `bootstrap/app.php`, y por eso no hay un
+> `try/catch` en ningún controlador. Nada mapea todo a 400, así que «producto no
+> encontrado» ya no se confunde con un error de validación.
 
 ### M-31 · Setters que corrompen en silencio
 ```php
@@ -220,11 +354,24 @@ Un nombre de 101 caracteres se convierte en cadena vacía. Un email inválido se
 
 Extras del mismo tipo: `ItemDto` usa `precio = 9999999` como default si falta el campo, y trunca `descripcion` a 255 cuando la columna es `TEXT`.
 
+> **Cerrado** — Fase 3. La validación vive en Form Requests, que rechazan la
+> petición entera, conservan con `old()` lo que el usuario escribió y explican qué
+> está mal; no quedó un solo setter que convierta en cadena vacía lo que no valida.
+> `prepareForValidation()` normaliza el formato y no el contenido: saca los guiones
+> de un CUIT, pero si hay letras siguen ahí y la regla las rechaza, porque convertir
+> "30-ABC" en "30" y guardarlo es este hallazgo exacto. Tampoco quedaron valores por
+> omisión que tapen un campo faltante, como el `precio = 9999999` de `ItemDto`, ni
+> truncados silenciosos de texto.
+
 ### A-32 · Cobertura de tests ≈ 0
 - `tests/` del backend son scripts procedurales con `echo` y `require_once '../../app/...'`, **rotos**: referencian `CategoriaDao`, `ProductoDto`, `UsuarioDto`, `PerfilUsuario` — clases renombradas a `CategoryDao`, `ItemDto`, `UserDto`. No compilan.
 - Frontend: un solo `.spec.ts`, el generado por el CLI.
 
 Sin tests, los bugs C-9, A-24 y C-1 pasaron once commits sin detectarse.
+
+> Cada fase entrega sus tests y ninguno de los archivos originales sobrevivió: se
+> reescribieron de cero con Pest sobre MariaDB. El cierre de este hallazgo es la
+> Fase 8, que es donde se revisa la cobertura completa contra esta lista.
 
 ### M-33 · Frontend sin control de acceso por rol
 `app.routes.ts` aplica sólo `authGuard` (¿hay token vigente?). No hay guard por perfil: cualquier usuario logueado puede navegar a `/user` o `/user/create`; el backend rechaza, pero la UI queda rota. Y el control de visibilidad es un string mágico:
@@ -233,8 +380,22 @@ readonly esAdmin = computed(() => this._payload()?.perfil === 'Administrador');
 ```
 La tabla `permisos` existe en la base pero **el frontend nunca la consulta**: no hay endpoint que devuelva los permisos del usuario. Los permisos son dinámicos en el backend y hardcodeados en el front.
 
+> **Cerrado** — Fase 2. La interfaz se construye con `@can` sobre los mismos
+> permisos que protegen las rutas, así que lo que no se puede hacer no se ofrece, y
+> el control real sigue estando en la ruta. En ningún lugar del sistema se compara
+> el nombre de un rol para decidir algo: para eso está `roles.ambito`, un dato
+> explícito que no depende de cómo se llame el rol, así que renombrarlo no rompe
+> nada en silencio. El test de cada módulo verifica que quien sólo puede ver no
+> recibe los enlaces de alta, edición ni baja.
+
 ### M-34 · Sin entornos ni lazy loading
 `API_URL` hardcodeado en `api.constants.ts`, sin `environment.ts` → no hay build de producción posible sin editar código. Todas las rutas importan sus componentes de forma eager. `.angular/` (caché de build) y `FRONT IVANSITO.zip` están versionados.
+
+> **Cerrado** — Fases 0 y 1. La configuración por entorno es `.env`, así que no hay
+> ninguna URL ni credencial escrita en el código y un build de producción no exige
+> editar archivos. `.angular/` y el comprimido versionado por error se excluyeron al
+> importar el legacy. El lazy loading no tiene equivalente y no hace falta: con
+> Blade cada pantalla es una respuesta del servidor, no hay bundle que partir.
 
 ### B-35 · Envelope de respuesta con metadatos de routing
 ```json
@@ -242,9 +403,20 @@ La tabla `permisos` existe en la base pero **el frontend nunca la consulta**: no
 ```
 `controller` y `action` son detalles internos que el cliente no necesita. `result` se inicializa como `""` y según el endpoint devuelve `""`, un objeto o un array → el cliente no puede tipar la respuesta sin defensas. Los errores viajan con HTTP 200 en algunos flujos porque `send()` se llama sin `setStatus`.
 
+> **Cerrado** — Fase 2. No hay envelope: los controladores devuelven vistas y
+> redirecciones, y el estado viaja en el código HTTP. Desaparecieron `controller` y
+> `action` del cuerpo de la respuesta, y con ellos el `result` que era `""`, un
+> objeto o un arreglo según el endpoint. La API de la Etapa 3 va a usar
+> `JsonResource`, que tipa la salida, en lugar de un envelope armado a mano.
+
 ### B-36 · Logging inexistente
 `APP_FILE_LOG_ERRORS` y `APP_FILE_LOG_ACCESS` están definidos pero **nunca se usan**. El `error_log()` del `ExceptionHandlerMiddleware` está comentado. `log.txt` en la raíz es una nota manual de una línea. Ante un 500 en producción no queda rastro.
 
+> **Cerrado** — Fase 1. El logging es el de Laravel: canal `stack` configurado en
+> `.env`, y toda excepción no atendida queda en `storage/logs/laravel.log` con su
+> traza. Ya no hay constantes de log definidas que nadie usa, ni un `error_log()`
+> comentado, ni un `log.txt` escrito a mano. Queda para la Fase 8 bajar `LOG_LEVEL`
+> de `debug` a `warning` en producción.
 ---
 
 ## 5. Qué conviene conservar

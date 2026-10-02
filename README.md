@@ -17,7 +17,7 @@ Universidad Nacional de la Patagonia Austral — Unidad Académica Caleta Olivia
 | 2    | Autenticación, roles y permisos              | Completada |
 | 3    | Catálogo: categorías, marcas, productos      | Completada |
 | 4    | Usuarios, clientes y personal                | Completada |
-| 5    | Proveedores, compras y stock                 | Pendiente  |
+| 5    | Proveedores, compras y stock                 | Completada |
 | 6    | Ventas y pagos                               | Pendiente  |
 | 7    | Panel de métricas y exportación a PDF        | Pendiente  |
 | 8    | Cierre: pruebas, seguridad, documentación    | Pendiente  |
