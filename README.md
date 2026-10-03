@@ -216,6 +216,12 @@ Cubierto hasta ahora:
 - Clientes: las once rutas con su permiso, la dirección de otro cliente
   respondiendo 404, las reglas fiscales por condición frente al IVA y por tipo
   de documento, y la invariante de la dirección predeterminada.
+- Stock: el kardex con sus cinco filtros y el ajuste de inventario; el bloqueo de
+  fila verificado en los cuatro métodos del servicio leyendo el `query log`; el
+  descuento validado contra el stock disponible y no contra el de depósito; el
+  costo promedio ponderado; el motivo obligatorio del ajuste; el conflicto de
+  concurrencia cuando el stock cambió mientras se contaba; y el kardex que no se
+  puede editar ni borrar.
 
 El rollback se verifica a mano, porque `RefreshDatabase` envuelve cada prueba en
 una transacción y el DDL de MySQL provoca commits implícitos:

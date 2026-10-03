@@ -11,6 +11,7 @@ use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\Auth\RestablecerPasswordController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\DireccionController;
+use App\Http\Controllers\StockController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -194,7 +195,7 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::delete('/categorias/{categoria}', [CategoriaController::class, 'destroy'])
         ->middleware('can:categoria.eliminar')->name('categorias.destroy');
 
-     // Compras — Proveedores
+    // Compras — Proveedores
     Route::get('/proveedores', [ProveedorController::class, 'index'])
         ->middleware('can:proveedor.ver')->name('proveedores.index');
 
@@ -212,6 +213,16 @@ Route::middleware(['auth', 'gestion'])->group(function () {
 
     Route::delete('/proveedores/{proveedor}', [ProveedorController::class, 'destroy'])
         ->middleware('can:proveedor.eliminar')->name('proveedores.destroy');
+
+    // Compras — Stock y kardex
+    Route::get('/stock', [StockController::class, 'index'])
+        ->middleware('can:stock.ver')->name('stock.index');
+
+    Route::get('/stock/{producto}/ajuste', [StockController::class, 'crearAjuste'])
+        ->middleware('can:stock.ajustar')->name('stock.ajuste.create');
+
+    Route::post('/stock/{producto}/ajuste', [StockController::class, 'guardarAjuste'])
+        ->middleware('can:stock.ajustar')->name('stock.ajuste.store');
         
     // Administración — Roles y permisos
     Route::get('/roles', [RolController::class, 'index'])

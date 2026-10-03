@@ -117,3 +117,31 @@ document.addEventListener('DOMContentLoaded', () => {
     canal.addEventListener('change', refrescar);
     refrescar();
 });
+
+// Ajuste de inventario: mostrar la diferencia mientras se escribe, para que el
+// operario vea la consecuencia antes de guardar. Un 30 escrito en lugar de un 3
+// se delata solo cuando el aviso dice "+27".
+document.addEventListener('DOMContentLoaded', () => {
+    const contado = document.getElementById('stock_contado');
+    const aviso = document.getElementById('diferenciaAjuste');
+
+    if (!contado || !aviso) return;
+
+    const actual = Number(aviso.dataset.stockActual);
+
+    const refrescar = () => {
+        if (contado.value === '') {
+            aviso.textContent = '';
+            return;
+        }
+
+        const diferencia = Number(contado.value) - actual;
+
+        aviso.textContent = diferencia === 0
+            ? `El conteo coincide con las ${actual} registradas: no hay nada que ajustar.`
+            : `Se va a registrar un movimiento de ${diferencia > 0 ? '+' : ''}${diferencia} unidad(es).`;
+    };
+
+    contado.addEventListener('input', refrescar);
+    refrescar();
+});

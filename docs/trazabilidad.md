@@ -152,7 +152,7 @@ Módulos nuevos de la Etapa 1. No hay componente que migrar; se construyen desde
 | Órdenes de compra      | Migraciones, modelos `OrdenCompra` y `OrdenCompraLinea`, servicio de reposición | Pendiente |
 | Roles y permisos       | Migraciones `roles`, `permisos`, `rol_permiso`, controlador, vistas, Gates      | Migrado   |
 | Marcas                 | Migración, modelo `Marca`, controlador, vistas                                  | Migrado   |
-| Movimientos de stock   | Migración, modelo `MovimientoStock`, servicio de kardex                         | Pendiente |
+| Movimientos de stock   | Migración, modelo `MovimientoStock`, servicio de kardex                         | Migrado   |
 | Categorías jerárquicas | Ampliación de `Categoria` con `parent_id`                                       | Migrado   |
 
 ## 11. Descartado del modelo original

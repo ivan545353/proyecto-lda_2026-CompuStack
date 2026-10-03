@@ -222,3 +222,13 @@ function datosDeProveedor(array $sobreescribir = []): array
         'activo'             => true,
     ], $sobreescribir);
 }
+
+/** Datos válidos de un ajuste de inventario. */
+function datosDeAjuste(int $contado, int $esperado, array $sobreescribir = []): array
+{
+    return array_merge([
+        'stock_contado'  => $contado,
+        'stock_esperado' => $esperado,
+        'motivo'         => 'Faltante detectado en inventario',
+    ], $sobreescribir);
+}

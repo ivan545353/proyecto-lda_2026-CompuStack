@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Str;
 use LogicException;
 
 /**
@@ -29,6 +31,13 @@ use LogicException;
  * movimiento, y los eventos de abajo lo impiden también por código: corregir un
  * asiento en lugar de compensarlo con uno nuevo destruye justamente lo que A-13
  * pedía. Un error se arregla con un ajuste que queda registrado.
+  * Scopes (uno por filtro del listado; el contrato está declarado acá y en
+ * MovimientoFiltroRequest):
+ *   ?producto_id=  → deProducto($id)    el kardex de un producto
+ *   ?tipo=         → deTipo($tipo)      lista cerrada de TIPOS
+ *   ?usuario_id=   → deUsuario($id)     quién lo registró
+ *   ?desde=        → desde($fecha)      desde esa fecha, inclusive
+ *   ?hasta=        → hasta($fecha)      hasta esa fecha, inclusive
  *
  * No hay factory a propósito: un movimiento sin su cambio de stock sería una fila
  * que afirma algo que no pasó. Los tests los crean llamando al StockService.
@@ -96,9 +105,97 @@ class MovimientoStock extends Model
         return self::TIPOS[$this->tipo] ?? $this->tipo;
     }
 
+        /**
+     * De dónde salió el movimiento, en palabras del negocio.
+     *
+     * `origen_type` guarda un nombre de clase de PHP, y eso no se le muestra a
+     * nadie: la regla del proyecto es lenguaje del negocio, nunca del programador.
+     * Un ajuste no tiene origen y devuelve null, porque su `motivo` ocupa ese
+     * lugar en la pantalla.
+     */
+    public function origenTexto(): ?string
+    {
+        if ($this->origen_type === null) {
+            return null;
+        }
+
+        return match (class_basename($this->origen_type)) {
+            'OrdenCompra' => 'Orden de compra OC-'.str_pad((string) $this->origen_id, 5, '0', STR_PAD_LEFT),
+            'Venta'       => "Venta #{$this->origen_id}",
+            // Cualquier otro documento: se nombra sin filtrar la clase.
+            default       => 'Documento interno',
+        };
+    }
+
     /** Un ingreso suma, una salida resta. Lo usa la vista para el signo y el color. */
     public function esIngreso(): bool
     {
         return $this->cantidad > 0;
+    }
+
+        // ------------------------------------------------------------------
+    // Filtros
+    // ------------------------------------------------------------------
+
+    public function scopeDeProducto(Builder $query, int|string|null $id): Builder
+    {
+        return $query->when(
+            ctype_digit((string) $id),
+            fn (Builder $query) => $query->where('producto_id', (int) $id),
+        );
+    }
+
+    /**
+     * Filtro por tipo.
+     *
+     * Se compara contra las claves de TIPOS y no con filled(): un tipo
+     * inexistente no filtra nada, en lugar de devolver un listado vacío que
+     * parecería estar diciendo «no hubo movimientos de ese tipo».
+     */
+    public function scopeDeTipo(Builder $query, ?string $tipo): Builder
+    {
+        return $query->when(
+            array_key_exists((string) $tipo, self::TIPOS),
+            fn (Builder $query) => $query->where('tipo', $tipo),
+        );
+    }
+
+    /** Quién registró el movimiento. Es la pregunta literal de A-13. */
+    public function scopeDeUsuario(Builder $query, int|string|null $id): Builder
+    {
+        return $query->when(
+            ctype_digit((string) $id),
+            fn (Builder $query) => $query->where('usuario_id', (int) $id),
+        );
+    }
+
+    /**
+     * Desde la fecha, inclusive.
+     *
+     * Los dos extremos usan `whereDate()`, que compara sólo la parte de fecha.
+     * En el extremo de abajo `created_at >= '2026-03-15'` funcionaría igual, pero
+     * en el de arriba `created_at <= '2026-03-15'` dejaría afuera todo lo del día
+     * 15 después de medianoche —que es casi todo el día—. Usar el mismo criterio
+     * en los dos hace que el rango signifique lo que el usuario eligió en el
+     * calendario: días completos.
+     *
+     * Una fecha ilegible no filtra: la rechaza el Form Request de filtros, que
+     * redirige al listado limpio con un aviso.
+     */
+    public function scopeDesde(Builder $query, ?string $fecha): Builder
+    {
+        return $query->when(
+            filled($fecha) && strtotime($fecha) !== false,
+            fn (Builder $query) => $query->whereDate('created_at', '>=', $fecha),
+        );
+    }
+
+    /** Hasta la fecha, inclusive. Ver el comentario de scopeDesde(). */
+    public function scopeHasta(Builder $query, ?string $fecha): Builder
+    {
+        return $query->when(
+            filled($fecha) && strtotime($fecha) !== false,
+            fn (Builder $query) => $query->whereDate('created_at', '<=', $fecha),
+        );
     }
 }
