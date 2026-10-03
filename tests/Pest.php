@@ -232,3 +232,23 @@ function datosDeAjuste(int $contado, int $esperado, array $sobreescribir = []): 
         'motivo'         => 'Faltante detectado en inventario',
     ], $sobreescribir);
 }
+
+/** Datos válidos de una orden de compra. */
+function datosDeOrdenCompra(\App\Models\Proveedor $proveedor, array $lineas, array $sobreescribir = []): array
+{
+    return array_merge([
+        'proveedor_id'  => $proveedor->id,
+        'observaciones' => null,
+        'lineas'        => $lineas,
+    ], $sobreescribir);
+}
+
+/** Una línea de orden de compra, ya normalizada como la deja el Form Request. */
+function lineaDeOrden(\App\Models\Producto $producto, int $cantidad = 5, float $costo = 1000): array
+{
+    return [
+        'producto_id'     => $producto->id,
+        'cantidad_pedida' => $cantidad,
+        'costo_unitario'  => $costo,
+    ];
+}

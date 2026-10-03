@@ -1,10 +1,10 @@
 <?php
 
+use App\Models\OrdenCompra;
 use App\Models\Producto;
 use App\Models\Proveedor;
 use Database\Seeders\RolPermisoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -389,14 +389,7 @@ test('un proveedor con productos se desactiva y el mensaje lo dice', function ()
 
 test('un proveedor con ordenes de compra se desactiva y el mensaje lo dice', function () {
     $proveedor = Proveedor::factory()->create();
-
-    // Por query builder porque el modelo OrdenCompra es de un paso posterior.
-    DB::table('ordenes_compra')->insert([
-        'proveedor_id' => $proveedor->id,
-        'estado'       => 'borrador',
-        'created_at'   => now(),
-        'updated_at'   => now(),
-    ]);
+    OrdenCompra::factory()->create(['proveedor_id' => $proveedor->id]);
 
     $this->actingAs(usuarioCon('proveedor.eliminar'))
         ->delete(route('proveedores.destroy', $proveedor))
@@ -405,3 +398,16 @@ test('un proveedor con ordenes de compra se desactiva y el mensaje lo dice', fun
     $this->assertModelExists($proveedor);
     expect($proveedor->fresh()->activo)->toBeFalse();
 });
+
+test('el listado avisa cuando el proveedor tiene ordenes de compra', function () {
+    $proveedor = Proveedor::factory()->create();
+    OrdenCompra::factory()->count(2)->create(['proveedor_id' => $proveedor->id]);
+
+    // Sin esto el confirm() diría «¿Eliminar?» sobre un proveedor que en realidad
+    // se va a desactivar: el sistema anunciaría una cosa y haría otra.
+    $this->actingAs(usuarioCon('proveedor.ver'))
+        ->get(route('proveedores.index'))
+        ->assertOk()
+        ->assertSee('2 orden(es)');
+});
+

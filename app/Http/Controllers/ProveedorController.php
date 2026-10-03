@@ -33,7 +33,7 @@ class ProveedorController extends Controller
         $proveedores = Proveedor::query()
             // Cuenta en la base (A-26). El panel original traía las tablas
             // enteras al navegador para contarlas con .filter().
-            ->withCount('productos')
+            ->withCount('productos','ordenesCompra')
             ->buscar($request->query('q'))
             ->conEstado($request->query('estado'))
             ->conCanal($request->query('canal'))

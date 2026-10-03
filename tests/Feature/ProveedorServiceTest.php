@@ -1,10 +1,10 @@
 <?php
 
+use App\Models\OrdenCompra;
 use App\Models\Producto;
 use App\Models\Proveedor;
 use App\Services\ProveedorService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -128,16 +128,7 @@ test('un proveedor con productos se desactiva en lugar de borrarse', function ()
 
 test('un proveedor con ordenes de compra se desactiva en lugar de borrarse', function () {
     $proveedor = Proveedor::factory()->create();
-
-    // Se inserta por query builder porque el modelo OrdenCompra es de un paso
-    // posterior. El chequeo del servicio es sobre la tabla, igual que
-    // UsuarioService::HISTORIAL, así que ya funciona.
-    DB::table('ordenes_compra')->insert([
-        'proveedor_id' => $proveedor->id,
-        'estado'       => 'borrador',
-        'created_at'   => now(),
-        'updated_at'   => now(),
-    ]);
+    OrdenCompra::factory()->create(['proveedor_id' => $proveedor->id]);
 
     // ordenes_compra.proveedor_id RESTRINGE: sin el chequeo, el usuario recibiría
     // un error de integridad de MariaDB en vez de un mensaje (M-30).

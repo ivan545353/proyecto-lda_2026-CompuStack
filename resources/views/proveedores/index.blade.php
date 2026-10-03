@@ -124,6 +124,7 @@
                     <tr>
                         <th scope="col">Proveedor</th>
                         <th scope="col">Canal de pedido</th>
+                        <th scope="col" class="text-center d-none d-sm-table-cell">Vinculado a</th>
                         <th scope="col" class="d-none d-md-table-cell">Tiempo de Entrega</th>
                         <th scope="col">Estado</th>
                         <th scope="col" class="text-center d-none d-sm-table-cell">Productos</th>
@@ -144,6 +145,9 @@
                                 {{-- En móvil se oculta la columna, así que el dato baja acá --}}
                                 <div class="small text-body-secondary d-sm-none">
                                     {{ $proveedor->productos_count }} producto(s)
+                                    @if ($proveedor->ordenes_compra_count > 0)
+                                        · {{ $proveedor->ordenes_compra_count }} orden(es)
+                                    @endif
                                 </div>
                             </td>
 
@@ -159,6 +163,14 @@
                                     </a>
                                 @elseif ($proveedor->canal_pedido === 'email' && $proveedor->email)
                                     <div class="small text-body-secondary">{{ $proveedor->email }}</div>
+                                @endif
+                            </td>
+
+                            <td class="text-center d-none d-sm-table-cell small">
+                                {{ $proveedor->productos_count }} producto(s)
+                                @if ($proveedor->ordenes_compra_count > 0)
+                                    <div class="text-body-secondary">{{ $proveedor->ordenes_compra_count }} orden(es)
+                                    </div>
                                 @endif
                             </td>
 
@@ -189,7 +201,7 @@
 
                                 @can('proveedor.eliminar')
                                     <form method="POST" action="{{ route('proveedores.destroy', $proveedor) }}"
-                                        class="d-inline" onsubmit="return confirm(@js($proveedor->productos_count > 0 ? "«{$proveedor->razon_social}» tiene {$proveedor->productos_count} producto(s). No se va a eliminar: se desactiva y su historial queda intacto. ¿Continuar?" : "¿Eliminar el proveedor «{$proveedor->razon_social}»?"));">
+                                        class="d-inline" onsubmit="return confirm(@js($proveedor->productos_count + $proveedor->ordenes_compra_count > 0 ? "«{$proveedor->razon_social}» tiene {$proveedor->productos_count} producto(s) y {$proveedor->ordenes_compra_count} orden(es) de compra. No se va a eliminar: se desactiva y su historial queda intacto. ¿Continuar?" : "¿Eliminar el proveedor «{$proveedor->razon_social}»?"));">
                                         @csrf
                                         @method('DELETE')
                                         <button class="btn btn-sm btn-outline-danger"

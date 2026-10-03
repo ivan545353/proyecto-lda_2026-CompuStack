@@ -70,6 +70,12 @@ class Proveedor extends Model
     {
         return $this->hasMany(Producto::class, 'proveedor_id');
     }
+    
+    /** Las compras que se le hicieron. El historial de pedidos del proveedor. */
+    public function ordenesCompra(): HasMany
+    {
+        return $this->hasMany(OrdenCompra::class, 'proveedor_id');
+    }
 
     /** Productos activos del proveedor: se muestra antes de desactivarlo. */
     public function productosActivos(): int
