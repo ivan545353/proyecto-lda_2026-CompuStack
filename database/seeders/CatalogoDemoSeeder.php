@@ -59,13 +59,15 @@ class CatalogoDemoSeeder extends Seeder
     {
         $categorias = $this->crearCategorias();
         $marcas     = $this->crearMarcas();
-        $proveedor  = $this->crearProveedores();
+        $proveedores = $this->crearProveedores();
 
-        foreach (self::PRODUCTOS as [$codigo, $nombre, $categoria, $marca, $lista, $stock, $minimo, $reposicion]) {
+        foreach (self::PRODUCTOS as $indice => $datos) {
+            [$codigo, $nombre, $categoria, $marca, $lista, $stock, $minimo, $reposicion] = $datos;
+
             $producto = Producto::create([
                 'categoria_id'        => $categorias[$categoria],
                 'marca_id'            => $marcas[$marca],
-                'proveedor_id'        => $proveedor->id,
+                'proveedor_id'        => $proveedores[$indice % 3]->id,
                 'codigo'              => $codigo,
                 'nombre'              => $nombre,
                 'descripcion'         => "Producto de demostración: {$nombre}.",
@@ -82,6 +84,21 @@ class CatalogoDemoSeeder extends Seeder
             $producto->stock          = $stock;
             $producto->costo_promedio = round($lista * 0.62, 2);
             $producto->save();
+
+            // Cada producto se consigue en los tres proveedores a precios
+            // distintos, para que el comparador tenga algo que comparar. En
+            // algunos el preferido NO es el más barato, a propósito: es el caso
+            // real donde el barato entrega en tres semanas, y la pantalla tiene que
+            // mostrar las dos cosas sin opinar.
+            $factores = [0.58, 0.62, 0.66];
+
+            foreach ($proveedores as $posicion => $proveedor) {
+                $producto->proveedores()->attach($proveedor->id, [
+                    'costo_ultimo'     => round($datos[4] * $factores[($posicion + $indice) % 3], 2),
+                    'codigo_proveedor' => strtoupper(substr($proveedor->razon_social, 0, 3)).'-'.$datos[0],
+                    'es_preferido'     => $posicion === $indice % 3,
+                ]);
+            }
         }
     }
 
@@ -129,12 +146,13 @@ class CatalogoDemoSeeder extends Seeder
         return $ids;
     }
 
-    private function crearProveedores(): Proveedor
+    /** @return \Illuminate\Support\Collection<int, Proveedor> */
+     private function crearProveedores(): \Illuminate\Support\Collection
     {
-        $primero = null;
+        $creados = collect();
 
         foreach (self::PROVEEDORES as $datos) {
-            $proveedor = Proveedor::create([
+            $creados->push(Proveedor::create([
                 'razon_social'       => $datos['razon_social'],
                 'cuit'               => $datos['cuit'],
                 'email'              => 'ventas@'.Str::slug($datos['razon_social']).'.com.ar',
@@ -145,11 +163,9 @@ class CatalogoDemoSeeder extends Seeder
                                             ? 'https://pedidos.'.Str::slug($datos['razon_social']).'.com.ar'
                                             : null,
                 'plazo_entrega_dias' => $datos['plazo'],
-            ]);
-
-            $primero ??= $proveedor;
+            ]));
         }
 
-        return $primero;
+        return $creados;
     }
 }

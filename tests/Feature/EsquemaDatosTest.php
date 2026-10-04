@@ -15,7 +15,8 @@ uses(RefreshDatabase::class);
 const TABLAS_DOMINIO = [
     'roles', 'permisos', 'rol_permiso', 'users',
     'empleados', 'clientes', 'direcciones',
-    'categorias', 'marcas', 'proveedores', 'productos', 'movimientos_stock',
+    'categorias', 'marcas', 'proveedores', 'productos', 'producto_proveedor',
+    'movimientos_stock',
     'ordenes_compra', 'orden_compra_lineas',
     'ventas', 'venta_lineas', 'pagos',
 ];
@@ -34,7 +35,10 @@ function tipoDeColumna(string $tabla, string $columna): string
     return $fila->tipo;
 }
 
-test('existen las diecisiete tablas de la etapa 1', function () {
+test('existen las dieciocho tablas de la etapa 1', function () {
+    // Eran diecisiete hasta que un producto pasó a tener varios proveedores: la
+    // tabla dieciocho es `producto_proveedor`, y la decisión está escrita en
+    // docs/modelo-datos.md.
     foreach (TABLAS_DOMINIO as $tabla) {
         expect(Schema::hasTable($tabla))->toBeTrue("Falta la tabla {$tabla}");
     }

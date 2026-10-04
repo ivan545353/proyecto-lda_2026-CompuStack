@@ -54,10 +54,16 @@ class ProductoService
         $nuevas = $this->guardarNuevas($imagenes, $orden);
 
         try {
-            return DB::transaction(fn () => Producto::create([
-                ...$this->atributos($datos),
-                'imagenes' => $this->componerImagenes([], $nuevas, $orden) ?: null,
-            ]));
+            return DB::transaction(function () use ($datos, $nuevas, $orden) {
+                $producto = Producto::create([
+                    ...$this->atributos($datos),
+                    'imagenes' => $this->componerImagenes([], $nuevas, $orden) ?: null,
+                ]);
+
+                $this->sincronizarProveedorDeTransicion($producto, $datos['proveedor_id'] ?? null);
+
+                return $producto;
+            });
         } catch (Throwable $e) {
             $this->borrarArchivos(array_values($nuevas));
 
@@ -81,6 +87,8 @@ class ProductoService
                     ...$this->atributos($datos),
                     'imagenes' => $final ?: null,
                 ]);
+
+                $this->sincronizarProveedorDeTransicion($producto, $datos['proveedor_id'] ?? null);
 
                 return $producto->fresh();
             });
@@ -277,5 +285,31 @@ class ProductoService
         if ($rutas !== []) {
             Storage::disk('public')->delete($rutas);
         }
+    }
+
+    /**
+     * Mantiene la pivote de acuerdo con `productos.proveedor_id`.
+     *
+     * **Código de transición: se borra en el paso 3 del plan de varios
+     * proveedores**, cuando el formulario de producto deje de tener el selector y
+     * los vínculos se administren en su propia pantalla.
+     *
+     * Existe para que entre el paso 1 y el 3 las dos estructuras digan lo mismo: el
+     * listado de proveedores ya cuenta por la pivote, así que un producto creado
+     * por este formulario sin su fila de pivote haría que ese conteo mienta.
+     */
+    private function sincronizarProveedorDeTransicion(Producto $producto, int|string|null $proveedorId): void
+    {
+        if ($proveedorId === null || $proveedorId === '') {
+            $producto->proveedores()->detach();
+
+            return;
+        }
+
+        // sync deja exactamente este proveedor y se lleva los demás, que es lo que
+        // significa la columna vieja: uno solo.
+        $producto->proveedores()->sync([
+            (int) $proveedorId => ['es_preferido' => true],
+        ]);
     }
 }

@@ -5,37 +5,26 @@ namespace App\Services;
 use App\Models\Proveedor;
 use Illuminate\Support\Facades\DB;
 
-/**
- * Reglas de negocio de proveedores.
- *
- * Mismo patrón que los servicios del catálogo y de personas: recibe datos ya
- * validados, no conoce la petición HTTP ni la sesión, y devuelve modelos. En la
- * Etapa 3 el controlador de la API llama a estos mismos métodos.
- *
- * Reglas propias:
- *
- *   1. La dirección del portal sólo existe si el canal es el portal. El Form
- *      Request ya rechaza una URL con otro canal; esto es la segunda barrera, y
- *      es la que va a proteger a la API de la Etapa 3.
- *
- *   2. Un proveedor referenciado se DESACTIVA, no se borra ni rechaza la baja.
- *      Es distinto del cliente, que rechaza la baja, y el criterio es el mismo
- *      que decide las tres políticas del proyecto: la baja lógica existe para lo
- *      que aparece en listas de las que uno elige. Un proveedor se elige de un
- *      desplegable en dos lugares —el formulario de producto y el alta de una
- *      orden de compra—, así que desactivarlo es exactamente lo que hace falta:
- *      deja de ofrecerse y el historial de compras queda intacto. Un cliente, en
- *      cambio, se busca, y esconderlo de un buscador es lo contrario de lo que
- *      se necesita.
- *
- *   3. La cascada la pide el usuario y sólo aplica al desactivar. Que se te caiga
- *      un proveedor no significa que dejes de vender lo que tenés en depósito.
- *
- * Métodos:
- *   crear()       alta
- *   actualizar()  edición, con la cascada opcional de productos
- *   eliminar()    baja física o lógica según esté referenciado; devuelve cuál fue
- */
+ /**
+     * Tablas que referencian a un proveedor, con la columna que lo apunta.
+     *
+     * El chequeo es sobre la TABLA, no sobre el modelo —igual que
+     * UsuarioService::HISTORIAL—, así la baja respeta las referencias desde el
+     * primer día en que exista una fila, sin depender de que el modelo tenga
+     * declarada la relación.
+     *
+     * Las tres se comportan distinto en la base, y por eso el chequeo no se le
+     * puede dejar a la foreign key:
+     *   productos.proveedor_id            nullOnDelete     (columna de
+     *       transición: se elimina en el paso 4 del plan de varios proveedores)
+     *   producto_proveedor.proveedor_id   cascadeOnDelete
+     *   ordenes_compra.proveedor_id       RESTRICT
+     *
+     * Un DELETE sin este chequeo dejaría productos sin proveedor y vínculos
+     * borrados en silencio en dos de los casos, y en el tercero estallaría con
+     * un error de integridad que el usuario no puede interpretar. Desactivar es
+     * la respuesta correcta en los tres (M-16).
+     */
 class ProveedorService
 {
     /**
@@ -49,6 +38,7 @@ class ProveedorService
      */
     private const REFERENCIAS = [
         'productos'      => 'proveedor_id',
+        'producto_proveedor' => 'proveedor_id',
         'ordenes_compra' => 'proveedor_id',
     ];
 

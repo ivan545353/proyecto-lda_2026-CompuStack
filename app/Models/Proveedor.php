@@ -13,9 +13,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * proveedores, ni productos.proveedorId, ni compras.
  *
  * Relaciones:
- *   productos()  HasMany  los que se le compran
- *
- * (`ordenesCompra()` se agrega cuando exista el modelo OrdenCompra.)
+ *   productos()     HasMany  los que se le compran (columna de transición;
+ *                            pasa a BelongsToMany en el paso 3 del plan)
+ *   ordenesCompra() HasMany  el historial de pedidos que se le hicieron
  *
  * Scopes (uno por filtro del listado; el contrato está declarado acá y en
  * ProveedorFiltroRequest):
@@ -70,7 +70,7 @@ class Proveedor extends Model
     {
         return $this->hasMany(Producto::class, 'proveedor_id');
     }
-    
+
     /** Las compras que se le hicieron. El historial de pedidos del proveedor. */
     public function ordenesCompra(): HasMany
     {

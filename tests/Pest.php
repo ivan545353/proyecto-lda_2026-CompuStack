@@ -252,3 +252,14 @@ function lineaDeOrden(\App\Models\Producto $producto, int $cantidad = 5, float $
         'costo_unitario'  => $costo,
     ];
 }
+
+/** Datos válidos del vínculo de un producto con un proveedor. */
+function datosDeVinculo(\App\Models\Proveedor $proveedor, array $sobreescribir = []): array
+{
+    return array_merge([
+        'proveedor_id'     => $proveedor->id,
+        'costo_ultimo'     => 15000,
+        'codigo_proveedor' => 'AUS-001',
+        'es_preferido'     => false,
+    ], $sobreescribir);
+}

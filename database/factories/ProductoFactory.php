@@ -4,7 +4,9 @@ namespace Database\Factories;
 
 use App\Models\Categoria;
 use App\Models\Marca;
+use App\Models\Producto;
 use App\Models\Proveedor;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /** @extends Factory<\App\Models\Producto> */
@@ -66,6 +68,38 @@ class ProductoFactory extends Factory
             $producto->stock_reservado = $reservado;
             $producto->costo_promedio  = $costo;
             $producto->save();
+        });
+    }
+
+        /**
+     * Vincula el producto a un proveedor con su costo y su código.
+     *
+     * Se puede encadenar con proveedores distintos. El primero queda preferido, y
+     * pasar `preferido: true` en uno posterior desmarca a los demás: la factory no
+     * implementa la invariante —eso es del servicio— pero tampoco la rompe, porque
+     * datos de prueba inválidos hacen que los tests prueben otra cosa.
+     */
+    public function conProveedor(
+        Proveedor $proveedor,
+        ?float $costo = null,
+        ?string $codigo = null,
+        bool $preferido = false,
+    ): static {
+        return $this->afterCreating(function (Producto $producto) use ($proveedor, $costo, $codigo, $preferido) {
+            $esElPrimero = ! $producto->proveedores()->exists();
+
+            $producto->proveedores()->attach($proveedor->id, [
+                'costo_ultimo'     => $costo,
+                'codigo_proveedor' => $codigo,
+                'es_preferido'     => $preferido || $esElPrimero,
+            ]);
+
+            if ($preferido) {
+                DB::table('producto_proveedor')
+                    ->where('producto_id', $producto->id)
+                    ->where('proveedor_id', '!=', $proveedor->id)
+                    ->update(['es_preferido' => false]);
+            }
         });
     }
 }

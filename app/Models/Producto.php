@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
@@ -36,7 +37,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * reservado), que es la misma definición que usa la reposición automática. Si
  * el filtro y el job usaran definiciones distintas, dirían cosas distintas
  * sobre el mismo producto.
- * 
+  *   proveedores()  BelongsToMany  a quiénes se le compra, con el precio de cada uno
  */
 class Producto extends Model
 {
@@ -104,9 +105,85 @@ class Producto extends Model
         return $this->belongsTo(Marca::class, 'marca_id');
     }
 
+    /**
+     * @deprecated Se va con la columna `productos.proveedor_id` en el paso 4 del
+     *             plan de varios proveedores. No usar en código nuevo: la relación
+     *             buena es proveedores().
+     */
     public function proveedor(): BelongsTo
     {
         return $this->belongsTo(Proveedor::class, 'proveedor_id');
+    }
+
+    /**
+     * Los proveedores a los que se le puede comprar, cada uno con su precio.
+     *
+     * `withPivot` trae las columnas del vínculo, que es lo que hace útil la
+     * relación: sin `costo_ultimo` no se puede comparar nada.
+     */
+    public function proveedores(): BelongsToMany
+    {
+        return $this->belongsToMany(Proveedor::class, 'producto_proveedor', 'producto_id', 'proveedor_id')
+            ->withPivot(['costo_ultimo', 'codigo_proveedor', 'es_preferido'])
+            ->withTimestamps();
+    }
+
+    /**
+     * A quién se le pide la reposición de este producto.
+     *
+     * La regla, en orden: el preferido si está marcado; si no hay, el de menor
+     * `costo_ultimo`; y si ninguno tiene costo cargado, el primero por razón
+     * social, para que la decisión sea determinista y no dependa del orden en que
+     * se cargaron los vínculos.
+     *
+     * Que el preferido gane sobre el precio es a propósito: a veces el barato
+     * entrega en tres semanas, y eso no es más barato.
+     *
+     * Sólo se consideran los proveedores activos: a uno dado de baja no se le
+     * manda un pedido automático.
+     */
+    public function proveedorParaReponer(): ?Proveedor
+    {
+        $this->loadMissing('proveedores');
+
+        $candidatos = $this->proveedores->where('activo', true);
+
+        return $candidatos->firstWhere('pivot.es_preferido', true)
+            ?? $candidatos->sortBy(fn (Proveedor $proveedor) => [
+                // Los que no tienen costo cargado van al final, no adelante como
+                // haría un null tratado como cero.
+                $proveedor->pivot->costo_ultimo === null ? 1 : 0,
+                (float) ($proveedor->pivot->costo_ultimo ?? 0),
+                $proveedor->razon_social,
+            ])->first();
+    }
+
+    /** El más barato de los activos, para marcarlo en el comparador. */
+    public function proveedorMasBarato(): ?Proveedor
+    {
+        $this->loadMissing('proveedores');
+
+        return $this->proveedores
+            ->where('activo', true)
+            ->whereNotNull('pivot.costo_ultimo')
+            ->sortBy(fn (Proveedor $proveedor) => (float) $proveedor->pivot->costo_ultimo)
+            ->first();
+    }
+
+    /**
+     * Un producto que se repone pero no se le puede comprar a nadie.
+     *
+     * La reposición automática lo iba a detectar como crítico todas las noches sin
+     * poder pedirle a nadie, en silencio. El listado lo avisa y el comando lo
+     * informa.
+     */
+    public function noSePuedeReponer(): bool
+    {
+        $this->loadMissing('proveedores');
+
+        return $this->activo
+            && $this->stock_minimo > 0
+            && $this->proveedores->where('activo', true)->isEmpty();
     }
 
     /** El kardex del producto: todo lo que entró y salió, en orden. */
