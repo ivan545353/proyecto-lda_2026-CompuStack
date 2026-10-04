@@ -12,6 +12,7 @@ use App\Http\Controllers\Auth\RestablecerPasswordController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\DireccionController;
 use App\Http\Controllers\StockController;
+use App\Http\Controllers\CompraController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -223,6 +224,22 @@ Route::middleware(['auth', 'gestion'])->group(function () {
 
     Route::post('/stock/{producto}/ajuste', [StockController::class, 'guardarAjuste'])
         ->middleware('can:stock.ajustar')->name('stock.ajuste.store');
+
+    // Compras — Órdenes de compra
+    Route::get('/compras', [CompraController::class, 'index'])
+        ->middleware('can:compra.ver')->name('compras.index');
+
+    Route::get('/compras/crear', [CompraController::class, 'create'])
+        ->middleware('can:compra.crear')->name('compras.create');
+
+    Route::post('/compras', [CompraController::class, 'store'])
+        ->middleware('can:compra.crear')->name('compras.store');
+
+    Route::get('/compras/{orden}/editar', [CompraController::class, 'edit'])
+        ->middleware('can:compra.editar')->name('compras.edit');
+
+    Route::put('/compras/{orden}', [CompraController::class, 'update'])
+        ->middleware('can:compra.editar')->name('compras.update');
         
     // Administración — Roles y permisos
     Route::get('/roles', [RolController::class, 'index'])

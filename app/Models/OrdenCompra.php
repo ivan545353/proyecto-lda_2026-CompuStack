@@ -135,6 +135,25 @@ class OrdenCompra extends Model
         return self::ESTADOS[$this->estado] ?? $this->estado;
     }
 
+    /**
+     * Clase del badge de estado.
+     *
+     * Vive en el modelo y no en la vista porque el listado y la ficha tienen que
+     * pintar lo mismo, y dos `match` en dos archivos se desincronizan. El texto
+     * viaja siempre junto al badge: el color acompaña, no comunica solo.
+     */
+    public function estadoClase(): string
+    {
+        return match ($this->estado) {
+            'borrador'         => 'text-bg-light border',
+            'aprobada', 'enviada' => 'text-bg-dark',
+            'recibida_parcial' => 'text-bg-warning',
+            'recibida'         => 'text-bg-success',
+            'cancelada'        => 'text-bg-secondary',
+            default            => 'text-bg-light border',
+        };
+    }
+
     public function estaAbierta(): bool
     {
         return in_array($this->estado, self::ESTADOS_ABIERTOS, true);

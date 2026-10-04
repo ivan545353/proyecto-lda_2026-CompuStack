@@ -2,6 +2,7 @@ import './bootstrap';
 import * as bootstrap from 'bootstrap';
 import { iniciarSelectsBuscables } from './componentes/selects-buscables';
 import { iniciarGestoresDeImagenes } from './componentes/gestor-imagenes';
+import { iniciarLineasDeOrden } from './componentes/lineas-orden';
 
 window.bootstrap = bootstrap;
 
@@ -145,3 +146,6 @@ document.addEventListener('DOMContentLoaded', () => {
     contado.addEventListener('input', refrescar);
     refrescar();
 });
+
+// Líneas repetibles de la orden de compra: ver componentes/lineas-orden.js
+document.addEventListener('DOMContentLoaded', () => iniciarLineasDeOrden());

@@ -103,6 +103,15 @@
                                         @if (request()->routeIs('proveedores.*')) aria-current="page" @endif>Proveedores</a>
                                 </li>
                             @endcan
+
+                            @can('compra.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('compras.*') ? 'active' : '' }}"
+                                        href="{{ route('compras.index') }}"
+                                        @if (request()->routeIs('compras.*')) aria-current="page" @endif>Órdenes de compra</a>
+                                </li>
+                            @endcan
+
                             @can('stock.ver')
                                 <li>
                                     <a class="dropdown-item {{ request()->routeIs('stock.*') ? 'active' : '' }}"
