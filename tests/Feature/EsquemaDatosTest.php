@@ -118,3 +118,13 @@ test('las lineas de venta congelan precio, alicuota y costo', function () {
         expect(Schema::hasColumn('venta_lineas', $columna))->toBeTrue("Falta venta_lineas.{$columna}");
     }
 });
+
+test('productos ya no tiene la columna de un solo proveedor', function () {
+    // El contract del parallel change, afirmado contra la base y no contra las
+    // migraciones. Mientras la columna exista, algo puede volver a escribirla y el
+    // sistema tendría dos respuestas para «a quién se le compra este producto».
+    expect(Schema::hasColumn('productos', 'proveedor_id'))
+        ->toBeFalse('productos.proveedor_id sigue existiendo: el paso 4 del plan no se aplicó')
+        ->and(Schema::hasTable('producto_proveedor'))
+        ->toBeTrue('falta la pivote que reemplaza a la columna');
+});

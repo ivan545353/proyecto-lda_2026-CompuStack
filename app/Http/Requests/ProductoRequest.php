@@ -81,7 +81,6 @@ class ProductoRequest extends FormRequest
 
             'categoria_id' => ['required', 'integer', $this->referenciaActiva('categorias', 'categoria_id')],
             'marca_id'     => ['nullable', 'integer', $this->referenciaActiva('marcas', 'marca_id')],
-            'proveedor_id' => ['nullable', 'integer', $this->referenciaActiva('proveedores', 'proveedor_id')],
 
             // decimal:0,2 RECHAZA un tercer decimal en vez de dejar que la
             // base lo redondee en silencio. 9.999.999.999,99 es el máximo que
@@ -224,7 +223,6 @@ class ProductoRequest extends FormRequest
             'categoria_id.required' => 'Elegí una categoría.',
             'categoria_id.exists'   => 'La categoría elegida no existe o está inactiva.',
             'marca_id.exists'       => 'La marca elegida no existe o está inactiva.',
-            'proveedor_id.exists'   => 'El proveedor elegido no existe o está inactivo.',
 
             'precio_lista.required'  => 'El producto necesita un precio de lista.',
             'precio_lista.numeric'   => 'Escribí el precio como 1500, 1500,50 o 1.500,50.',
@@ -258,7 +256,6 @@ class ProductoRequest extends FormRequest
             'descripcion'         => 'descripción',
             'categoria_id'        => 'categoría',
             'marca_id'            => 'marca',
-            'proveedor_id'        => 'proveedor',
             'precio_lista'        => 'precio de lista',
             'precio_contado'      => 'precio de contado',
             'alicuota_iva'        => 'alícuota de IVA',

@@ -144,16 +144,24 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 
 Módulos nuevos de la Etapa 1. No hay componente que migrar; se construyen desde cero.
 
-| Módulo                 | Componentes Laravel                                                             | Estado    |
-| ---------------------- | ------------------------------------------------------------------------------- | --------- |
-| Clientes               | Migración, modelo `Cliente`, `Direccion`, controlador, Form Requests, vistas    | Migrado   |
-| Empleados              | Migración, modelo `Empleado`, integrado al módulo de usuarios                   | Migrado   |
-| Proveedores            | Migración, modelo `Proveedor`, controlador, vistas                              | Migrado   |
-| Órdenes de compra      | Migraciones, modelos `OrdenCompra` y `OrdenCompraLinea`, servicio de reposición | Pendiente |
-| Roles y permisos       | Migraciones `roles`, `permisos`, `rol_permiso`, controlador, vistas, Gates      | Migrado   |
-| Marcas                 | Migración, modelo `Marca`, controlador, vistas                                  | Migrado   |
-| Movimientos de stock   | Migración, modelo `MovimientoStock`, servicio de kardex                         | Migrado   |
-| Categorías jerárquicas | Ampliación de `Categoria` con `parent_id`                                       | Migrado   |
+| Módulo                     | Componentes Laravel                                                                                                                                                               | Estado    |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| Clientes                   | Migración, modelo `Cliente`, `Direccion`, controlador, Form Requests, vistas                                                                                                      | Migrado   |
+| Empleados                  | Migración, modelo `Empleado`, integrado al módulo de usuarios                                                                                                                     | Migrado   |
+| Proveedores                | Migración, modelo `Proveedor`, controlador, vistas                                                                                                                                | Migrado   |
+| Proveedores de un producto | Migración `producto_proveedor`, `Producto::proveedores()`, `ProductoProveedorService`, `ProductoProveedorRequest`, `ProductoProveedorController`, pantalla comparadora de precios | Migrado   |
+| Órdenes de compra          | Migraciones, modelos `OrdenCompra` y `OrdenCompraLinea`, servicio de reposición                                                                                                   | Pendiente |
+| Roles y permisos           | Migraciones `roles`, `permisos`, `rol_permiso`, controlador, vistas, Gates                                                                                                        | Migrado   |
+| Marcas                     | Migración, modelo `Marca`, controlador, vistas                                                                                                                                    | Migrado   |
+| Movimientos de stock       | Migración, modelo `MovimientoStock`, servicio de kardex                                                                                                                           | Migrado   |
+| Categorías jerárquicas     | Ampliación de `Categoria` con `parent_id`                                                                                                                                         | Migrado   |
+
+> `producto_proveedor` no reemplaza a ningún componente original: el sistema
+> original no tenía proveedores. Reemplaza a una decisión **propia** —
+> `productos.proveedor_id`, un producto con un solo proveedor— que se tomó al
+> cerrar el modelo de datos y se revirtió en la Fase 5 cuando apareció el
+> requerimiento de comprar al mejor precio. La columna se eliminó con disciplina
+> expand/contract y `EsquemaDatosTest` afirma que ya no existe.
 
 ## 11. Descartado del modelo original
 

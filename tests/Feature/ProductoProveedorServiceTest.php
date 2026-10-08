@@ -3,6 +3,8 @@
 use App\Models\Producto;
 use App\Models\Proveedor;
 use App\Services\ProductoProveedorService;
+use App\Exceptions\ReglaDeNegocioException;
+use App\Models\OrdenCompra;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -237,4 +239,197 @@ test('las operaciones bloquean la fila del producto', function () {
 
     expect(strtolower($consultas))->toContain('for update')
         ->and(strtolower($consultas))->toContain('productos');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Vincular dos veces al mismo proveedor
+|--------------------------------------------------------------------------
+|
+| La PK compuesta ya lo impide, pero estallando: un 500 y una traza. M-30 pide
+| que una regla que el usuario violó y puede corregir tenga su excepción. La
+| pantalla además lo frena con una regla `unique`, pero el servicio es la barrera
+| que va a proteger a la API de la Etapa 3.
+|
+*/
+
+test('vincular al mismo proveedor dos veces se rechaza con una regla de negocio', function () {
+    $producto  = Producto::factory()->create();
+    $proveedor = Proveedor::factory()->create();
+
+    $this->service->vincular($producto, datosDeVinculo($proveedor));
+
+    expect(fn () => $this->service->vincular($producto, datosDeVinculo($proveedor, [
+        'costo_ultimo' => 99999,
+    ])))->toThrow(ReglaDeNegocioException::class);
+
+    // Rechazar no es editar: el costo que estaba guardado no se movió.
+    expect($producto->proveedores()->count())->toBe(1)
+        ->and((float) $producto->proveedores()->findOrFail($proveedor->id)->pivot->costo_ultimo)
+        ->toBe(15000.0);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Marcar preferido
+|--------------------------------------------------------------------------
+*/
+
+test('marcar preferido desmarca al que lo era', function () {
+    $producto = Producto::factory()->create();
+    $primero  = Proveedor::factory()->create();
+    $segundo  = Proveedor::factory()->create();
+
+    $this->service->vincular($producto, datosDeVinculo($primero));
+    $this->service->vincular($producto, datosDeVinculo($segundo));
+
+    $this->service->marcarPreferido($producto, $segundo->id);
+
+    expect(preferidosDe($producto))->toBe(1)
+        ->and($producto->fresh()->proveedorParaReponer()->id)->toBe($segundo->id);
+});
+
+test('marcar preferido no toca el costo ni el codigo del vinculo', function () {
+    // Es la razón de que sea una acción propia y no un caso de actualizar(), que
+    // reescribe los dos campos con lo que venga en $datos.
+    $producto  = Producto::factory()->create();
+    $otro      = Proveedor::factory()->create();
+    $proveedor = Proveedor::factory()->create();
+
+    $this->service->vincular($producto, datosDeVinculo($otro));
+    $this->service->vincular($producto, datosDeVinculo($proveedor, [
+        'costo_ultimo'     => 12345,
+        'codigo_proveedor' => 'ZZ-9',
+    ]));
+
+    $this->service->marcarPreferido($producto, $proveedor->id);
+
+    $vinculo = $producto->proveedores()->findOrFail($proveedor->id);
+
+    expect((float) $vinculo->pivot->costo_ultimo)->toBe(12345.0)
+        ->and($vinculo->pivot->codigo_proveedor)->toBe('ZZ-9');
+});
+
+test('marcar preferido a un proveedor que no provee el producto responde 404', function () {
+    $producto = Producto::factory()->create();
+    $ajeno    = Proveedor::factory()->create();
+
+    expect(fn () => $this->service->marcarPreferido($producto, $ajeno->id))
+        ->toThrow(ModelNotFoundException::class);
+});
+
+test('marcar preferido tambien bloquea la fila del producto', function () {
+    $producto  = Producto::factory()->create();
+    $proveedor = Proveedor::factory()->create();
+
+    $this->service->vincular($producto, datosDeVinculo($proveedor));
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $this->service->marcarPreferido($producto, $proveedor->id);
+
+    $consultas = collect(DB::getQueryLog())->pluck('query')->implode(' | ');
+    DB::disableQueryLog();
+
+    expect(strtolower($consultas))->toContain('for update')
+        ->and(strtolower($consultas))->toContain('productos');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Desvincular con órdenes de compra de ese par
+|--------------------------------------------------------------------------
+|
+| Las cerradas no impiden nada: la cabecera guarda el proveedor y la línea el
+| producto con su costo congelado, así que el par se reconstruye sin la pivote.
+| Las abiertas sí, porque el formulario de la orden ofrece sólo los productos que
+| ese proveedor provee, y una línea cuyo producto el selector no ofrece se
+| perdería al volver a guardar.
+|
+*/
+
+dataset('ordenes que bloquean la baja', [
+    'borrador'         => [fn () => OrdenCompra::factory()],
+    'aprobada'         => [fn () => OrdenCompra::factory()->aprobada()],
+    'enviada'          => [fn () => OrdenCompra::factory()->enviada()],
+    'recibida parcial' => [fn () => OrdenCompra::factory()->recibidaParcial()],
+]);
+
+dataset('ordenes que no bloquean la baja', [
+    'recibida'  => [fn () => OrdenCompra::factory()->recibida()],
+    'cancelada' => [fn () => OrdenCompra::factory()->cancelada()],
+]);
+
+test('desvincular se rechaza si hay un pedido en curso de ese par', function (callable $fabrica) {
+    $producto  = Producto::factory()->create();
+    $proveedor = Proveedor::factory()->create();
+
+    $this->service->vincular($producto, datosDeVinculo($proveedor));
+
+    $fabrica()->conLinea($producto, 5)->create(['proveedor_id' => $proveedor->id]);
+
+    expect(fn () => $this->service->desvincular($producto, $proveedor->id))
+        ->toThrow(ReglaDeNegocioException::class);
+
+    expect($producto->proveedores()->count())->toBe(1);
+})->with('ordenes que bloquean la baja');
+
+test('desvincular se permite si la orden de ese par ya esta cerrada', function (callable $fabrica) {
+    $producto  = Producto::factory()->create();
+    $proveedor = Proveedor::factory()->create();
+
+    $this->service->vincular($producto, datosDeVinculo($proveedor));
+
+    $fabrica()->conLinea($producto, 5)->create(['proveedor_id' => $proveedor->id]);
+
+    $this->service->desvincular($producto, $proveedor->id);
+
+    // La orden sigue contando qué se le pidió a quién: el historial no vivía acá.
+    expect($producto->proveedores()->count())->toBe(0)
+        ->and(OrdenCompra::first()->lineas()->where('producto_id', $producto->id)->exists())->toBeTrue();
+})->with('ordenes que no bloquean la baja');
+
+test('una orden abierta a OTRO proveedor no impide desvincular', function () {
+    $producto = Producto::factory()->create();
+    $aQuitar  = Proveedor::factory()->create();
+    $elOtro   = Proveedor::factory()->create();
+
+    $this->service->vincular($producto, datosDeVinculo($aQuitar));
+    $this->service->vincular($producto, datosDeVinculo($elOtro));
+
+    OrdenCompra::factory()->conLinea($producto, 5)->create(['proveedor_id' => $elOtro->id]);
+
+    $this->service->desvincular($producto, $aQuitar->id);
+
+    expect($producto->proveedores()->count())->toBe(1);
+});
+
+test('una orden abierta del mismo proveedor por OTRO producto no impide desvincular', function () {
+    $producto = Producto::factory()->create();
+    $ajeno    = Producto::factory()->create();
+    $proveedor = Proveedor::factory()->create();
+
+    $this->service->vincular($producto, datosDeVinculo($proveedor));
+
+    OrdenCompra::factory()->conLinea($ajeno, 5)->create(['proveedor_id' => $proveedor->id]);
+
+    $this->service->desvincular($producto, $proveedor->id);
+
+    expect($producto->proveedores()->count())->toBe(0);
+});
+
+test('el mapa de pedidos en curso trae uno por proveedor, el mas antiguo', function () {
+    $producto = Producto::factory()->create();
+    [$conPedido, $sinPedido] = Proveedor::factory()->count(2)->create()->all();
+
+    $primera = OrdenCompra::factory()->conLinea($producto, 5)->create(['proveedor_id' => $conPedido->id]);
+    OrdenCompra::factory()->conLinea($producto, 3)->create(['proveedor_id' => $conPedido->id]);
+    OrdenCompra::factory()->recibida()->conLinea($producto, 2)->create(['proveedor_id' => $sinPedido->id]);
+
+    $mapa = $this->service->pedidosEnCurso($producto);
+
+    expect($mapa)->toHaveCount(1)
+        ->and($mapa[$conPedido->id]->id)->toBe($primera->id)
+        ->and($mapa->has($sinPedido->id))->toBeFalse();
 });

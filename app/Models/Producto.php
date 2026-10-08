@@ -37,7 +37,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * reservado), que es la misma definición que usa la reposición automática. Si
  * el filtro y el job usaran definiciones distintas, dirían cosas distintas
  * sobre el mismo producto.
-  *   proveedores()  BelongsToMany  a quiénes se le compra, con el precio de cada uno
+ *
+ * A quién se le compra NO es un campo del producto: se le puede comprar a varios,
+ * a precios distintos, y eso vive en la pivote `producto_proveedor`. La columna
+ * `productos.proveedor_id` existió hasta la Fase 5 y se eliminó: la relación es
+ * proveedores(), y la administra ProductoProveedorService.
+ * 
+ * @
+ *   proveedores()  BelongsToMany  a quiénes se le compra, con el precio de cada uno
  */
 class Producto extends Model
 {
@@ -66,7 +73,7 @@ class Producto extends Model
     protected $table = 'productos';
 
     protected $fillable = [
-        'categoria_id', 'marca_id', 'proveedor_id', 'codigo', 'nombre',
+        'categoria_id', 'marca_id', 'codigo', 'nombre',
         'descripcion', 'imagenes', 'precio_lista', 'precio_contado',
         'alicuota_iva', 'stock_minimo', 'cantidad_reposicion',
         'peso_gramos', 'destacado', 'activo',
@@ -105,16 +112,7 @@ class Producto extends Model
         return $this->belongsTo(Marca::class, 'marca_id');
     }
 
-    /**
-     * @deprecated Se va con la columna `productos.proveedor_id` en el paso 4 del
-     *             plan de varios proveedores. No usar en código nuevo: la relación
-     *             buena es proveedores().
-     */
-    public function proveedor(): BelongsTo
-    {
-        return $this->belongsTo(Proveedor::class, 'proveedor_id');
-    }
-
+   
     /**
      * Los proveedores a los que se le puede comprar, cada uno con su precio.
      *

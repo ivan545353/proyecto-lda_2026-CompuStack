@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Categoria;
 use App\Models\Marca;
-use App\Models\Proveedor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Throwable;
@@ -33,7 +32,11 @@ use Throwable;
  *      partir de lo que el producto tiene, nunca de lo que envía el usuario.
  *   4. Un producto referenciado —en ventas, órdenes de compra o el kardex— o
  *      con stock distinto de cero no se borra.
- *
+ *   5. Los proveedores del producto NO se administran acá. Viven en la pivote
+ *      `producto_proveedor`, los administra ProductoProveedorService, y se cargan
+ *      desde /productos/{producto}/proveedores. Este servicio no los lee ni los
+ *      escribe: un producto se le puede comprar a varios, y el formulario del
+ *      producto no tiene con qué expresar eso.
  * Métodos:
  *   crear()        alta, con imágenes opcionales
  *   actualizar()   edición, agregando y quitando imágenes
@@ -45,6 +48,7 @@ class ProductoService
 
     private const REFERENCIAS = ['venta_lineas', 'orden_compra_lineas', 'movimientos_stock'];
 
+
      /**
      * @param  array<int, UploadedFile>  $imagenes
      * @param  array<int, array>|null    $orden  ver ProductoRequest::ordenDeImagenes()
@@ -54,16 +58,10 @@ class ProductoService
         $nuevas = $this->guardarNuevas($imagenes, $orden);
 
         try {
-            return DB::transaction(function () use ($datos, $nuevas, $orden) {
-                $producto = Producto::create([
-                    ...$this->atributos($datos),
-                    'imagenes' => $this->componerImagenes([], $nuevas, $orden) ?: null,
-                ]);
-
-                $this->sincronizarProveedorDeTransicion($producto, $datos['proveedor_id'] ?? null);
-
-                return $producto;
-            });
+            return DB::transaction(fn () => Producto::create([
+                ...$this->atributos($datos),
+                'imagenes' => $this->componerImagenes([], $nuevas, $orden) ?: null,
+            ]));
         } catch (Throwable $e) {
             $this->borrarArchivos(array_values($nuevas));
 
@@ -87,8 +85,6 @@ class ProductoService
                     ...$this->atributos($datos),
                     'imagenes' => $final ?: null,
                 ]);
-
-                $this->sincronizarProveedorDeTransicion($producto, $datos['proveedor_id'] ?? null);
 
                 return $producto->fresh();
             });
@@ -136,9 +132,9 @@ class ProductoService
      * Mismo criterio que ProductoRequest::referenciaActiva() y que
      * CategoriaService::padresPosibles(): si la actual no apareciera, el
      * selector se abriría en otra opción y guardar sin tocar nada le
-     * cambiaría la marca, la categoría o el proveedor al producto.
+     * cambiaría la marca o la categoría al producto.
      *
-     * @return array{categorias: Collection, marcas: Collection, proveedores: Collection}
+     * @return array{categorias: Collection, marcas: Collection}
      */
     public function opciones(?Producto $producto = null): array
     {
@@ -146,8 +142,7 @@ class ProductoService
             'categorias' => $this->activasOActual(Categoria::query()->with('padre.padre'), $producto?->categoria_id)
                 ->sortBy('ruta', SORT_NATURAL | SORT_FLAG_CASE)
                 ->values(),
-            'marcas'      => $this->activasOActual(Marca::query()->orderBy('nombre'), $producto?->marca_id),
-            'proveedores' => $this->activasOActual(Proveedor::query()->orderBy('razon_social'), $producto?->proveedor_id),
+            'marcas' => $this->activasOActual(Marca::query()->orderBy('nombre'), $producto?->marca_id),
         ];
     }
 
@@ -257,7 +252,6 @@ class ProductoService
             'descripcion'         => $datos['descripcion'] ?? null,
             'categoria_id'        => $datos['categoria_id'],
             'marca_id'            => $datos['marca_id'] ?? null,
-            'proveedor_id'        => $datos['proveedor_id'] ?? null,
             'precio_lista'        => $datos['precio_lista'],
             'precio_contado'      => $datos['precio_contado'] ?? $datos['precio_lista'],
             'alicuota_iva'        => $datos['alicuota_iva'],
@@ -287,29 +281,4 @@ class ProductoService
         }
     }
 
-    /**
-     * Mantiene la pivote de acuerdo con `productos.proveedor_id`.
-     *
-     * **Código de transición: se borra en el paso 3 del plan de varios
-     * proveedores**, cuando el formulario de producto deje de tener el selector y
-     * los vínculos se administren en su propia pantalla.
-     *
-     * Existe para que entre el paso 1 y el 3 las dos estructuras digan lo mismo: el
-     * listado de proveedores ya cuenta por la pivote, así que un producto creado
-     * por este formulario sin su fila de pivote haría que ese conteo mienta.
-     */
-    private function sincronizarProveedorDeTransicion(Producto $producto, int|string|null $proveedorId): void
-    {
-        if ($proveedorId === null || $proveedorId === '') {
-            $producto->proveedores()->detach();
-
-            return;
-        }
-
-        // sync deja exactamente este proveedor y se lleva los demás, que es lo que
-        // significa la columna vieja: uno solo.
-        $producto->proveedores()->sync([
-            (int) $proveedorId => ['es_preferido' => true],
-        ]);
-    }
 }

@@ -19,13 +19,11 @@ class ProductoFactory extends Factory
         return [
             'categoria_id'        => Categoria::factory(),
             'marca_id'            => Marca::factory(),
-            'proveedor_id'        => Proveedor::factory(),
             'codigo'              => fake()->unique()->bothify('??-#####'),
             'nombre'              => fake()->unique()->words(3, true),
             'descripcion'         => fake()->sentence(12),
             'imagenes'            => null,
             'precio_lista'        => $lista,
-            // Invariante del negocio: contado nunca supera al de lista.
             'precio_contado'      => round($lista * 0.90, 2),
             'alicuota_iva'        => 21.00,
             'stock_minimo'        => fake()->numberBetween(2, 10),

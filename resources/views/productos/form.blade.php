@@ -101,22 +101,21 @@
                     @enderror
                 </div>
 
-                <div class="col-12 col-sm-6 col-md-4">
-                    <label for="proveedor_id" class="form-label">Proveedor</label>
-                    <select class="form-select @error('proveedor_id') is-invalid @enderror" id="proveedor_id"
-                        name="proveedor_id" data-buscable
-                        aria-describedby="ayudaProveedor @error('proveedor_id') errorProveedor @enderror">
-                        <option value="">Sin proveedor</option>
-                        @foreach ($proveedores as $opcion)
-                            <option value="{{ $opcion->id }}" @selected((string) old('proveedor_id', $producto->proveedor_id) === (string) $opcion->id)>
-                                {{ $opcion->razon_social }}{{ $opcion->activo ? '' : ' (inactivo)' }}
-                            </option>
-                        @endforeach
-                    </select>
-                    <div id="ayudaProveedor" class="form-text">A quién se le pide cuando hay que reponer.</div>
-                    @error('proveedor_id')
-                        <div id="errorProveedor" class="invalid-feedback">{{ $message }}</div>
-                    @enderror
+                {{-- El proveedor dejó de ser un campo del producto: se le puede
+                     comprar a varios, con un costo distinto cada uno, y eso no
+                     entra en un selector. Queda el camino a la pantalla que lo
+                     administra, para que quitar el campo no parezca que la
+                     funcionalidad desapareció. --}}
+                <div class="col-12">
+                    <div class="form-text mb-0">
+                        @if ($esEdicion)
+                            A quién se le compra este producto y a qué precio se administra en
+                            <a href="{{ route('producto-proveedores.index', $producto) }}">sus proveedores</a>.
+                        @else
+                            Los proveedores de este producto se cargan después de crearlo, desde el
+                            listado del catálogo.
+                        @endif
+                    </div>
                 </div>
             </div>
         </fieldset>

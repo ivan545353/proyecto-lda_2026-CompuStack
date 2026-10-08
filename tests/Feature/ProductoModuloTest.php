@@ -3,6 +3,7 @@
 use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\Producto;
+use App\Models\Proveedor;
 use Database\Seeders\RolPermisoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -436,4 +437,27 @@ test('un producto con stock o con historial se desactiva y el mensaje lo dice', 
         $this->assertModelExists($producto);
         expect($producto->fresh()->activo)->toBeFalse();
     }
+});
+
+test('el listado avisa cuando un producto se repone y no se le puede comprar a nadie', function () {
+    $conProveedor = Producto::factory()
+        ->conProveedor(Proveedor::factory()->create())
+        ->create(['stock_minimo' => 5, 'cantidad_reposicion' => 10]);
+
+    $sinProveedor = Producto::factory()
+        ->create(['stock_minimo' => 5, 'cantidad_reposicion' => 10]);
+
+    $usuario = usuarioCon('producto.ver');
+
+    // Se filtra de a uno con ?q= para que el aviso de una fila no se confunda con
+    // el de la otra: assertSee mira la página entera.
+    $this->actingAs($usuario)
+        ->get(route('productos.index', ['q' => $sinProveedor->codigo]))
+        ->assertOk()
+        ->assertSee('Sin proveedor');
+
+    $this->actingAs($usuario)
+        ->get(route('productos.index', ['q' => $conProveedor->codigo]))
+        ->assertOk()
+        ->assertDontSee('Sin proveedor');
 });

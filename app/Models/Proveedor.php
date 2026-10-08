@@ -6,6 +6,7 @@ use App\Support\Like;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -13,9 +14,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * proveedores, ni productos.proveedorId, ni compras.
  *
  * Relaciones:
- *   productos()     HasMany  los que se le compran (columna de transición;
- *                            pasa a BelongsToMany en el paso 3 del plan)
- *   ordenesCompra() HasMany  el historial de pedidos que se le hicieron
+ *   productos()     BelongsToMany  los que provee, con el costo de cada vínculo
+ *   ordenesCompra() HasMany        el historial de pedidos que se le hicieron
  *
  * Scopes (uno por filtro del listado; el contrato está declarado acá y en
  * ProveedorFiltroRequest):
@@ -66,9 +66,28 @@ class Proveedor extends Model
         ];
     }
 
-    public function productos(): HasMany
+    /**
+     * Los productos que este proveedor provee.
+     *
+     * Pasó de `HasMany` sobre `productos.proveedor_id` a `BelongsToMany` sobre la
+     * pivote: un producto se le puede comprar a varios proveedores, así que la
+     * relación es de muchos a muchos y la columna vieja dejó de ser la fuente de
+     * verdad. La columna se elimina en el paso 4 del plan.
+     *
+     * **El nombre de la relación no cambia, y es a propósito.** El
+     * `withCount('productos')` de ProveedorController y el `productos_count` de la
+     * vista siguen funcionando sin tocarse, y a partir de ahora cuentan lo
+     * correcto: los productos que se le compran, no los que tienen su id escrito
+     * en una columna que nadie actualiza.
+     *
+     * `withPivot` trae el costo y el código del vínculo, para que recorrer los
+     * productos de un proveedor no exija una consulta más por fila.
+     */
+    public function productos(): BelongsToMany
     {
-        return $this->hasMany(Producto::class, 'proveedor_id');
+        return $this->belongsToMany(Producto::class, 'producto_proveedor', 'proveedor_id', 'producto_id')
+            ->withPivot(['costo_ultimo', 'codigo_proveedor', 'es_preferido'])
+            ->withTimestamps();
     }
 
     /** Las compras que se le hicieron. El historial de pedidos del proveedor. */
@@ -77,10 +96,17 @@ class Proveedor extends Model
         return $this->hasMany(OrdenCompra::class, 'proveedor_id');
     }
 
-    /** Productos activos del proveedor: se muestra antes de desactivarlo. */
+    /**
+     * Productos activos del proveedor. Es el número que el formulario muestra antes
+     * de ofrecer la cascada de desactivación, así que contar de más haría que el
+     * aviso prometa desactivar más productos de los que la cascada va a tocar.
+     */
     public function productosActivos(): int
     {
-        return $this->productos()->where('activo', true)->count();
+        // `productos.activo` calificado: la consulta ahora une dos tablas. Hoy la
+        // pivote no tiene ninguna columna `activo`, pero dejar el nombre sin tabla
+        // haría que agregarle una más adelante rompa esto en silencio.
+        return $this->productos()->where('productos.activo', true)->count();
     }
 
     /** Texto del canal para la pantalla. Nunca se muestra el valor del ENUM. */

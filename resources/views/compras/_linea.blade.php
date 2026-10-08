@@ -11,6 +11,13 @@
             id="producto_{{ $indice }}" name="lineas[{{ $indice }}][producto_id]" data-buscable required
             data-producto>
             <option value="">Elegí un producto</option>
+            {{-- El costo que se sugiere es `costo_promedio`: el promedio ponderado de
+                 todas las compras del producto, a todos los proveedores. Alcanza como
+                 sugerencia, pero no es lo último que cobró el proveedor al que se le
+                 va a pedir. Ese dato es `producto_proveedor.costo_ultimo`, y recién
+                 se puede usar cuando cada línea tenga su proveedor: paso 5 del plan
+                 de varios proveedores. El requisito «el costo unitario se
+                 autocompleta con el costo anterior» queda cerrado ahí, no antes. --}}
             @foreach ($productos as $opcion)
                 <option value="{{ $opcion->id }}" data-costo-sugerido="{{ $opcion->costo_promedio }}"
                     @selected((string) ($linea['producto_id'] ?? '') === (string) $opcion->id)>

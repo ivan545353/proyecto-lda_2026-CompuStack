@@ -67,7 +67,6 @@ class CatalogoDemoSeeder extends Seeder
             $producto = Producto::create([
                 'categoria_id'        => $categorias[$categoria],
                 'marca_id'            => $marcas[$marca],
-                'proveedor_id'        => $proveedores[$indice % 3]->id,
                 'codigo'              => $codigo,
                 'nombre'              => $nombre,
                 'descripcion'         => "Producto de demostración: {$nombre}.",

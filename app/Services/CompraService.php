@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\ReglaDeNegocioException;
 use App\Models\OrdenCompra;
 use App\Models\OrdenCompraLinea;
+use App\Models\Producto;
 use App\Models\User;
 use App\Support\MaquinaEstadosCompra;
 use Illuminate\Support\Facades\DB;
@@ -32,21 +33,30 @@ use Illuminate\Support\Facades\DB;
  *
  *   3. **Todo cambio de estado pasa por la máquina de estados**, y `estado` está
  *      fuera de `$fillable` para que no pueda llegar desde una petición.
+ *   4. **El costo del vínculo se graba al recibir, no al pedir.** Un borrador puede
+ *      cambiar de costo, o no llegar nunca; lo que se graba en
+ *      `producto_proveedor.costo_ultimo` es el costo de la línea de una orden que
+ *      efectivamente entró al depósito. Es el costo **acordado**, no el facturado:
+ *      la recepción no pide un costo, así que si el proveedor facturara otro hoy no
+ *      hay dónde registrarlo. Está anotado en los pendientes de usabilidad.
  *
  * Métodos:
  *   crearBorrador()       alta; sin usuario significa que la generó el sistema
- *   generarBorrador()     el alta que usa la tarea de reposición
  *   actualizarBorrador()  reemplaza las líneas de un borrador
  *   aprobar()             autoriza el gasto y congela las líneas
  *   marcarEnviada()       el administrativo declara que el pedido salió
- *   recibir()             recepción total o parcial; ingresa stock por StockService
  *   cerrarIncompleta()    cierra una orden que el proveedor no va a completar
  *   cancelar()            antes de que entre mercadería
+ *   generarBorrador()     el alta que usa la tarea de reposición, con el costo del
+ *                         vínculo de ese proveedor
+ *   recibir()             recepción total o parcial; ingresa stock y graba el costo
  */
 class CompraService
 {
-    public function __construct(private StockService $stock)
-    {
+    public function __construct(
+        private StockService $stock,
+        private ProductoProveedorService $proveedores,
+    ) {
     }
 
     public function crearBorrador(array $datos, ?User $usuario = null): OrdenCompra
@@ -77,10 +87,12 @@ class CompraService
     /**
      * El alta de la tarea de reposición.
      *
-     * El costo de cada línea sale de `costo_promedio`, que es lo último que se
-     * pagó. Si el producto nunca se compró el costo es cero, y queda a la vista
-     * para que el administrativo lo complete antes de aprobar: un borrador es una
-     * sugerencia, y una sugerencia con el precio en cero se nota.
+     * El costo de cada línea sale de `producto_proveedor.costo_ultimo` **de este
+     * proveedor**: es lo último que ESE proveedor cobró por ESE producto, que es el
+     * número que el pedido necesita. `productos.costo_promedio` no sirve acá —es el
+     * promedio ponderado de todas las compras a todos los proveedores, y no es el
+     * precio de ninguno—; queda donde es correcto, en el margen de la venta.
+     *
      */
     public function generarBorrador(int $proveedorId, iterable $productos): OrdenCompra
     {
@@ -90,7 +102,7 @@ class CompraService
             $lineas[] = [
                 'producto_id'     => $producto->id,
                 'cantidad_pedida' => $producto->cantidad_reposicion,
-                'costo_unitario'  => $producto->costo_promedio,
+                'costo_unitario'  => $this->costoDelProveedor($producto, $proveedorId),
             ];
         }
 
@@ -231,6 +243,12 @@ class CompraService
                     $usuario,
                 );
 
+                $this->proveedores->registrarCosto(
+                    $linea->producto,
+                    $o->proveedor_id,
+                    $linea->costo_unitario,
+                );
+
                 $linea->cantidad_recibida = $linea->cantidad_recibida + $cantidad;
                 $linea->save();
             }
@@ -354,5 +372,20 @@ class CompraService
                 .'por producto, con la cantidad total.'
             );
         }
+    }
+
+    /**
+     * Lo último que este proveedor cobró por este producto, o cero si no consta.
+     *
+     * Devuelve el valor de la pivote tal como lo da la base, sin castear: lo
+     * consume `reemplazarLineas()`, que escribe en una columna `decimal(12,2)`.
+     */
+    private function costoDelProveedor(Producto $producto, int $proveedorId): string|float
+    {
+        $vinculo = $producto->loadMissing('proveedores')
+            ->proveedores
+            ->firstWhere('id', $proveedorId);
+
+        return $vinculo?->pivot->costo_ultimo ?? 0;
     }
 }

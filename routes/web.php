@@ -13,6 +13,7 @@ use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\DireccionController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\CompraController;
+use App\Http\Controllers\ProductoProveedorController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -111,6 +112,33 @@ Route::middleware(['auth', 'gestion'])->group(function () {
 
     Route::delete('/productos/{producto}', [ProductoController::class, 'destroy'])
         ->middleware('can:producto.eliminar')->name('productos.destroy');
+    
+    // Proveedores de un producto: el comparador de precios.
+    // Recurso anidado, igual que las direcciones de un cliente. Las seis rutas
+    // exigen `producto.editar`: administrar a quién se le compra un producto es
+    // editar el producto, y no hay escenario donde tenga sentido una cosa sin la
+    // otra. Es el mismo criterio con el que las cinco rutas de direcciones exigen
+    // `cliente.editar`.
+    Route::middleware('can:producto.editar')->group(function () {
+    Route::get('/productos/{producto}/proveedores', [ProductoProveedorController::class, 'index'])
+        ->name('producto-proveedores.index');
+
+    Route::post('/productos/{producto}/proveedores', [ProductoProveedorController::class, 'store'])
+        ->name('producto-proveedores.store');
+
+    Route::get('/productos/{producto}/proveedores/{proveedor}/editar', [ProductoProveedorController::class, 'edit'])
+        ->name('producto-proveedores.edit');
+
+    Route::put('/productos/{producto}/proveedores/{proveedor}', [ProductoProveedorController::class, 'update'])
+        ->name('producto-proveedores.update');
+
+    // Acción propia: elegir a quién pedirle sin reenviar el costo ni el código.
+    Route::patch('/productos/{producto}/proveedores/{proveedor}/preferido', [ProductoProveedorController::class, 'preferido'])
+        ->name('producto-proveedores.preferido');
+
+    Route::delete('/productos/{producto}/proveedores/{proveedor}', [ProductoProveedorController::class, 'destroy'])
+        ->name('producto-proveedores.destroy');
+});
 
     // Personas — Personal (cuentas de ámbito gestión)
     Route::get('/personal', [PersonalController::class, 'index'])

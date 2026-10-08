@@ -166,8 +166,8 @@
             <div class="col-12">
                 <hr class="my-2">
                 <div class="form-check">
-                    <input class="form-check-input" type="checkbox" value="1" id="activo" name="activo"
-                        @checked(old('activo', $proveedor->activo ?? true))>
+                    <input class="form-check-input interruptor-activo" type="checkbox" value="1" id="activo"
+                        name="activo" @checked(old('activo', $proveedor->activo ?? true))>
                     <label class="form-check-label" for="activo">Proveedor activo</label>
                     <div class="form-text">
                         Un proveedor inactivo no se ofrece al cargar productos ni al generar órdenes de compra.

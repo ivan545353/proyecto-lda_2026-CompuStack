@@ -34,7 +34,7 @@ class ProductoController extends Controller
     {
         $productos = Producto::query()
             // La ruta de la categoría y la marca sin una consulta por fila.
-            ->with(['categoria.padre.padre', 'marca'])
+            ->with(['categoria.padre.padre', 'marca', 'proveedores'])
             ->buscar($request->query('q'))
             ->deCategoria($request->query('categoria_id'))
             ->deMarca($request->query('marca_id'))

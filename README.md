@@ -80,14 +80,14 @@ Laravel está en `docs/trazabilidad.md`.
 
 ## Modelo de datos
 
-Diecisiete tablas en esta etapa:
+Dieciocho tablas en esta etapa:
 
 | Área               | Tablas                                                                              |
 | ------------------ | ----------------------------------------------------------------------------------- |
 | Identidad y acceso | `users`, `roles`, `permisos`, `rol_permiso`, `empleados`, `clientes`, `direcciones` |
 | Catálogo           | `categorias`, `marcas`, `productos`                                                 |
 | Stock              | `movimientos_stock`                                                                 |
-| Compras            | `proveedores`, `ordenes_compra`, `orden_compra_lineas`                              |
+| Compras            | `proveedores`, `producto_proveedor`, `ordenes_compra`, `orden_compra_lineas`        |
 | Ventas             | `ventas`, `venta_lineas`, `pagos`                                                   |
 
 El esquema completo, con la justificación de cada decisión, está en
@@ -192,7 +192,7 @@ que la de producción. Se configura en `phpunit.xml` (`DB_DATABASE=lda_2026_test
 
 Cubierto hasta ahora:
 
-- Existencia de las diecisiete tablas.
+- Existencia de las dieciocho tablas, y que productos.proveedor_id ya no existe.
 - Ninguna columna de la base en punto flotante.
 - `ventas.estado` declara sus diez valores y `movimientos_stock.tipo` los cinco.
 - `pagos.mp_payment_id` tiene índice único (idempotencia de webhooks).
@@ -288,7 +288,7 @@ app/
 └── Services/               lógica de negocio (RolService)
 
 database/
-├── migrations/             17 migraciones de la Etapa 1, en orden de dependencia
+├── migrations/             18 migraciones de la Etapa 1, en orden de dependencia
 ├── seeders/                roles y permisos, administrador, datos ficticios
 └── factories/
 

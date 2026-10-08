@@ -66,7 +66,7 @@ test('la direccion del portal no sobrevive a un canal que no es el portal', func
 
 test('desactivar un proveedor no desactiva sus productos', function () {
     $proveedor = Proveedor::factory()->create();
-    $producto  = Producto::factory()->create(['proveedor_id' => $proveedor->id]);
+    $producto  = Producto::factory()->conProveedor($proveedor)->create();
 
     $this->service->actualizar($proveedor, datosDeProveedor([
         'cuit'   => $proveedor->cuit,
@@ -80,7 +80,7 @@ test('desactivar un proveedor no desactiva sus productos', function () {
 
 test('con la opcion, desactivar el proveedor desactiva sus productos', function () {
     $proveedor = Proveedor::factory()->create();
-    $producto  = Producto::factory()->create(['proveedor_id' => $proveedor->id]);
+    $producto  = Producto::factory()->conProveedor($proveedor)->create();
     $ajeno     = Producto::factory()->create();
 
     $this->service->actualizar($proveedor, datosDeProveedor([
@@ -94,7 +94,7 @@ test('con la opcion, desactivar el proveedor desactiva sus productos', function 
 
 test('la cascada no se aplica si el proveedor sigue activo', function () {
     $proveedor = Proveedor::factory()->create();
-    $producto  = Producto::factory()->create(['proveedor_id' => $proveedor->id]);
+    $producto  = Producto::factory()->conProveedor($proveedor)->create();
 
     // Marcar la opción sin desactivar al proveedor no desactiva nada: desactivar
     // no es un efecto que se dispare por tener el checkbox puesto.
@@ -116,10 +116,10 @@ test('un proveedor que nadie referencia se elimina', function () {
 
 test('un proveedor con productos se desactiva en lugar de borrarse', function () {
     $proveedor = Proveedor::factory()->create();
-    Producto::factory()->create(['proveedor_id' => $proveedor->id]);
+    Producto::factory()->conProveedor($proveedor)->create();
 
-    // productos.proveedor_id es nullOnDelete: sin el chequeo, el producto
-    // quedaría sin proveedor en silencio y nadie sabría a quién reponerle.
+    // producto_proveedor.proveedor_id es cascadeOnDelete: sin el chequeo, los
+    // vínculos se irían en silencio y nadie sabría a quién reponerle.
     expect($this->service->eliminar($proveedor))->toBeFalse();
 
     $this->assertModelExists($proveedor);
@@ -136,4 +136,26 @@ test('un proveedor con ordenes de compra se desactiva en lugar de borrarse', fun
 
     $this->assertModelExists($proveedor);
     expect($proveedor->fresh()->activo)->toBeFalse();
+});
+
+test('los productos del proveedor salen de la pivote', function () {
+    $proveedor = Proveedor::factory()->create();
+    $suyo      = Producto::factory()->conProveedor($proveedor)->create();
+    Producto::factory()->create();   // de otro proveedor
+
+    // conProveedor() escribe SÓLO la pivote, nunca productos.proveedor_id. Si la
+    // relación volviera a ser HasMany sobre la columna vieja, acá daría cero.
+    expect($proveedor->productos()->pluck('productos.id')->all())->toBe([$suyo->id]);
+});
+
+test('la cuenta de productos activos no incluye los inactivos', function () {
+    $proveedor = Proveedor::factory()->create();
+    Producto::factory()->conProveedor($proveedor)->create();
+    Producto::factory()->inactivo()->conProveedor($proveedor)->create();
+
+    // Este número es el que el formulario muestra antes de ofrecer la cascada.
+    // Contar los ya inactivos haría que el aviso prometa desactivar dos productos
+    // cuando la cascada sólo va a cambiar uno.
+    expect($proveedor->productos()->count())->toBe(2)
+        ->and($proveedor->productosActivos())->toBe(1);
 });

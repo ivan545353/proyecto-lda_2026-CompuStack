@@ -201,6 +201,9 @@
                             @if ($producto->marca && !$producto->marca->activo)
                                 <span class="badge text-bg-light border text-warning-emphasis">Marca inactiva</span>
                             @endif
+                            @if ($producto->noSePuedeReponer())
+                                <span class="badge text-bg-warning">Sin proveedor</span>
+                            @endif
                             @unless ($producto->activo)
                                 <span class="badge text-bg-secondary d-md-none">Inactivo</span>
                             @endunless
@@ -240,6 +243,15 @@
                                     aria-label="Ver los movimientos de stock de {{ $producto->nombre }}">
                                     <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
                                     <span class="d-none d-lg-inline">Stock</span>
+                                </a>
+                            @endcan
+
+                            @can('producto.editar')
+                                <a href="{{ route('producto-proveedores.index', $producto) }}"
+                                    class="btn btn-sm btn-outline-dark"
+                                    aria-label="Ver y administrar los proveedores de {{ $producto->nombre }}">
+                                    <i class="bi bi-truck" aria-hidden="true"></i>
+                                    <span class="d-none d-xl-inline">Proveedores</span>
                                 </a>
                             @endcan
 

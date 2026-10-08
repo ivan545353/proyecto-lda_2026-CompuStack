@@ -4,6 +4,11 @@ namespace App\Services;
 
 use App\Models\Producto;
 use App\Models\Proveedor;
+use App\Exceptions\ReglaDeNegocioException;
+use App\Models\OrdenCompra;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -28,9 +33,13 @@ use Illuminate\Support\Facades\DB;
  * de pivote que bloquear.
  *
  * Métodos:
- *   vincular()      agrega un proveedor; el primero queda preferido
- *   actualizar()    cambia costo, código y preferencia; desmarcarlo no lo desmarca
- *   desvincular()   quita el proveedor; si era el preferido, asciende el más antiguo
+ *   vincular()        agrega un proveedor; el primero queda preferido
+ *   actualizar()      cambia costo, código y preferencia; desmarcarlo no lo desmarca
+ *   marcarPreferido() elige a quién comprarle, sin tocar el resto del vínculo
+ *   desvincular()     quita el proveedor; si era el preferido, asciende el más antiguo
+ *   registrarCosto()  graba lo que se pagó en una recepción
+ *   pedidoEnCurso()   la orden abierta de ese par, si hay; es lo que bloquea la baja
+ *   pedidosEnCurso()  el mismo dato para toda la tabla, en una consulta
  */
 class ProductoProveedorService
 {
@@ -39,6 +48,15 @@ class ProductoProveedorService
         DB::transaction(function () use ($producto, $datos) {
             $this->bloquear($producto->id);
 
+             if ($producto->proveedores()->whereKey((int) $datos['proveedor_id'])->exists()) {
+                $proveedor = Proveedor::findOrFail($datos['proveedor_id']);
+
+                throw new ReglaDeNegocioException(
+                    "{$proveedor->razon_social} ya figura como proveedor de «{$producto->nombre}». "
+                    .'Editá el vínculo que ya existe para cambiarle el costo o el código.'
+                );
+            }
+
             $esElPrimero = ! $producto->proveedores()->exists();
 
             $preferido = $esElPrimero || (bool) ($datos['es_preferido'] ?? false);
@@ -46,10 +64,7 @@ class ProductoProveedorService
             $producto->proveedores()->attach($datos['proveedor_id'], [
                 'costo_ultimo'     => $datos['costo_ultimo'] ?? null,
                 'codigo_proveedor' => $datos['codigo_proveedor'] ?? null,
-                // El primero queda preferido aunque nadie lo pida: un producto con
-                // un solo proveedor y ninguno elegido es un estado sin sentido, y
-                // obligar a marcar la casilla en el primer alta es pedirle al
-                // usuario que resuelva un detalle del modelo.
+                // El primero queda preferido aunque nadie lo pida
                 'es_preferido'     => $preferido,
             ]);
 
@@ -85,17 +100,53 @@ class ProductoProveedorService
         });
     }
 
+    /**
+     * Marca a este proveedor como el preferido, y desmarca al que lo fuera.
+     */
+    public function marcarPreferido(Producto $producto, int $proveedorId): void
+    {
+        DB::transaction(function () use ($producto, $proveedorId) {
+            $this->bloquear($producto->id);
+
+            // Dentro del bloqueo: si el vínculo se desvinculó en otra pestaña entre
+            // que se dibujó la tabla y se apretó el botón, esto da 404 en lugar de
+            // marcar preferido a un proveedor que ya no provee el producto.
+            $producto->proveedores()->findOrFail($proveedorId);
+
+            $producto->proveedores()->updateExistingPivot($proveedorId, ['es_preferido' => true]);
+
+            $this->desmarcarLosDemas($producto->id, $proveedorId);
+        });
+    }
+
     public function desvincular(Producto $producto, int $proveedorId): void
     {
         DB::transaction(function () use ($producto, $proveedorId) {
             $this->bloquear($producto->id);
 
             $vinculo = $producto->proveedores()->findOrFail($proveedorId);
-            $era     = (bool) $vinculo->pivot->es_preferido;
+
+            // La baja se rechaza, no se convierte en otra cosa. No hay `activo` en
+            // la pivote y es una decisión: la baja lógica existe para lo que
+            // aparece en listas de las que uno elige, y un vínculo no se elige de
+            // una lista. Sumaría un estado a filtrar en todas las consultas de la
+            // pivote para resolver algo que el congelado del dato en la línea de la
+            // orden resuelve mejor.
+            $enCurso = $this->pedidoEnCurso($producto, $proveedorId);
+
+            if ($enCurso !== null) {
+                throw new ReglaDeNegocioException(
+                    "No se puede quitar a {$vinculo->razon_social} de «{$producto->nombre}»: "
+                    ."la orden {$enCurso->numeroFormateado()} está «{$enCurso->estadoTexto()}» y "
+                    .'le pide ese producto a ese proveedor. Recibila o cancelala primero.'
+                );
+            }
+
+            $era = (bool) $vinculo->pivot->es_preferido;
 
             $producto->proveedores()->detach($proveedorId);
 
-            // Quedarse con proveedores y ninguno preferido es el mismo estado sin
+            // Quedarse con proveedores y ninguno preferido es un estado sin
             // sentido. Asciende el más antiguo, que es el que más tiempo viene
             // usándose y el que menos sorprende.
             if ($era) {
@@ -136,6 +187,64 @@ class ProductoProveedorService
         $producto->proveedores()->updateExistingPivot($proveedorId, [
             'costo_ultimo' => round((float) $costo, 2),
         ]);
+    }
+
+    /**
+     * La orden ABIERTA más antigua que le pide este producto a este proveedor.
+     *
+     * **Las órdenes cerradas no impiden nada.** La orden guarda su propio
+     * historial: el proveedor en la cabecera, y el producto con su
+     * `costo_unitario` congelado en la línea. El par se reconstruye con un join
+     * sin pasar por la pivote, así que desvincular no borra ni un dato del
+     * historial. Lo único que vive sólo acá es `codigo_proveedor`, y por eso se
+     * congela en la línea de la orden al escribirla (paso 5 del plan).
+     *
+     * **Las abiertas sí.** Hay un pedido en curso que nombra a ese par, y el
+     * formulario de edición de la orden ofrece sólo los productos que el proveedor
+     * provee: con el vínculo borrado, la línea apuntaría a un producto que el
+     * selector no ofrece y volver a guardar la orden la perdería sin avisar. Es el
+     * mismo pozo que `CompraController::productosDisponibles()` ya tapa para los
+     * productos desactivados.
+     *
+     * La más antigua y no cualquiera: es la que viene esperando hace más tiempo, y
+     * la que conviene nombrar en el mensaje.
+     */
+    public function pedidoEnCurso(Producto $producto, int $proveedorId): ?OrdenCompra
+    {
+        return $this->ordenesEnCurso($producto)
+            ->where('proveedor_id', $proveedorId)
+            ->orderBy('id')
+            ->first();
+    }
+
+    /**
+     * Lo mismo para toda la tabla del comparador, en una consulta y no una por fila.
+     *
+     * Comparte el constructor de consulta con `pedidoEnCurso()`, así «pedido en
+     * curso» tiene **una sola definición**: con dos, la pantalla ofrecería un botón
+     * que el servicio rechaza, o lo esconderia sin motivo. Es el desajuste de A-24
+     * en su forma de pantalla.
+     *
+     * `keyBy` conserva la ÚLTIMA aparición de cada clave, así que el orden
+     * descendente deja la de id más bajo: la misma orden que elige
+     * `pedidoEnCurso()`.
+     *
+     * @return Collection<int, OrdenCompra>  proveedor_id => orden
+     */
+    public function pedidosEnCurso(Producto $producto): Collection
+    {
+        return $this->ordenesEnCurso($producto)
+            ->orderByDesc('id')
+            ->get()
+            ->keyBy('proveedor_id');
+    }
+
+    /** Las órdenes vivas que piden este producto, sin filtrar por proveedor. */
+    private function ordenesEnCurso(Producto $producto): Builder
+    {
+        return OrdenCompra::query()
+            ->abiertas()
+            ->whereHas('lineas', fn (Builder $lineas) => $lineas->where('producto_id', $producto->id));
     }
 
     /**

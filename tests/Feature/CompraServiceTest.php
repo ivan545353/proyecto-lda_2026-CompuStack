@@ -339,3 +339,85 @@ test('el estado no se puede escribir por asignacion masiva', function () {
     expect($orden->fresh()->estado)->toBe('borrador')
         ->and($orden->fresh()->total_estimado)->not->toBe('999.00');
 });
+
+// ---------- La reposición automática ----------
+
+test('el borrador automatico toma el ultimo costo de ESE proveedor', function () {
+    $barato = Proveedor::factory()->create();
+    $caro   = Proveedor::factory()->create();
+
+    $producto = Producto::factory()
+        ->conProveedor($barato, costo: 10000)
+        ->conProveedor($caro, costo: 12000)
+        ->create(['cantidad_reposicion' => 7]);
+
+    $orden = $this->service->generarBorrador($caro->id, [$producto]);
+
+    // 12.000: lo que cobra el proveedor al que se le está pidiendo. Ni los 10.000
+    // del otro, ni el promedio ponderado del producto.
+    expect($orden->lineas)->toHaveCount(1)
+        ->and($orden->lineas->first()->costo_unitario)->toBe('12000.00')
+        ->and($orden->lineas->first()->cantidad_pedida)->toBe(7)
+        ->and($orden->proveedor_id)->toBe($caro->id)
+        ->and($orden->fueGeneradaPorElSistema())->toBeTrue();
+});
+
+test('el borrador automatico deja el costo en cero si ese proveedor no tiene costo cargado', function () {
+    $otro     = Proveedor::factory()->create();
+    $sinCosto = Proveedor::factory()->create();
+
+    // Con costo promedio distinto de cero, para que el cero del resultado no pueda
+    // venir de ahí por casualidad.
+    $producto = Producto::factory()
+        ->conStockYCosto(5, 9999)
+        ->conProveedor($otro, costo: 10000)
+        ->conProveedor($sinCosto, costo: null)
+        ->create(['cantidad_reposicion' => 3]);
+
+    $orden = $this->service->generarBorrador($sinCosto->id, [$producto]);
+
+    // Cero y no 9.999 ni 10.000: un número que parece un precio acordado y no lo
+    // es se aprueba sin mirar. El cero se nota antes de aprobar.
+    expect($orden->lineas->first()->costo_unitario)->toBe('0.00');
+});
+
+// ---------- La recepción mantiene la comparación de precios ----------
+
+test('la recepcion graba el costo en el vinculo con el proveedor de la orden', function () {
+    $proveedor = Proveedor::factory()->create();
+    $otro      = Proveedor::factory()->create();
+
+    $producto = Producto::factory()
+        ->conProveedor($proveedor, costo: 10000)
+        ->conProveedor($otro, costo: 11000)
+        ->create();
+
+    $orden = OrdenCompra::factory()->aprobada()
+        ->conLinea($producto, 5, 12500)
+        ->create(['proveedor_id' => $proveedor->id]);
+
+    $this->service->recibir($orden, [$orden->lineas->first()->id => 5], admin());
+
+    $vinculos = $producto->fresh()->proveedores;
+
+    // Se actualiza SÓLO el del proveedor de la orden. El vínculo del otro no
+    // participó de esta compra y su costo sigue siendo el que era.
+    expect((float) $vinculos->firstWhere('id', $proveedor->id)->pivot->costo_ultimo)->toBe(12500.0)
+        ->and((float) $vinculos->firstWhere('id', $otro->id)->pivot->costo_ultimo)->toBe(11000.0);
+});
+
+test('la recepcion no crea el vinculo si el proveedor ya no provee el producto', function () {
+    $proveedor = Proveedor::factory()->create();
+    $producto  = Producto::factory()->create();   // sin ningún vínculo
+
+    $orden = OrdenCompra::factory()->aprobada()
+        ->conLinea($producto, 2, 8000)
+        ->create(['proveedor_id' => $proveedor->id]);
+
+    $this->service->recibir($orden, [$orden->lineas->first()->id => 2], admin());
+
+    // Se desvinculó después de hacer la orden, que es un caso posible. La
+    // mercadería entra igual: el kardex no depende de la pivote.
+    expect($producto->fresh()->proveedores()->count())->toBe(0)
+        ->and($producto->fresh()->stock)->toBe(2);
+});

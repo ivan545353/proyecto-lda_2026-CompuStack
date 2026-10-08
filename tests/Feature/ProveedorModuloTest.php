@@ -308,7 +308,7 @@ test('el checkbox desmarcado desactiva el proveedor', function () {
 test('la casilla de cascada solo aparece si el proveedor tiene productos activos', function () {
     $sinProductos = Proveedor::factory()->create();
     $conProductos = Proveedor::factory()->create();
-    Producto::factory()->create(['proveedor_id' => $conProductos->id]);
+    Producto::factory()->conProveedor($conProductos)->create();
 
     $usuario = usuarioCon('proveedor.editar');
 
@@ -326,7 +326,7 @@ test('la casilla de cascada solo aparece si el proveedor tiene productos activos
 
 test('desactivar desde la pantalla no desactiva los productos, y el mensaje lo dice', function () {
     $proveedor = Proveedor::factory()->create();
-    $producto  = Producto::factory()->create(['proveedor_id' => $proveedor->id]);
+    $producto  = Producto::factory()->conProveedor($proveedor)->create();
 
     $datos = datosDeProveedor(['cuit' => $proveedor->cuit]);
     unset($datos['activo']);
@@ -340,7 +340,7 @@ test('desactivar desde la pantalla no desactiva los productos, y el mensaje lo d
 
 test('con la casilla, desactivar el proveedor desactiva sus productos', function () {
     $proveedor = Proveedor::factory()->create();
-    $producto  = Producto::factory()->create(['proveedor_id' => $proveedor->id]);
+    $producto  = Producto::factory()->conProveedor($proveedor)->create();
     $ajeno     = Producto::factory()->create();
 
     $datos = datosDeProveedor(['cuit' => $proveedor->cuit, 'desactivar_productos' => 1]);
@@ -377,7 +377,7 @@ test('un proveedor que nadie referencia se elimina y el mensaje lo dice', functi
 
 test('un proveedor con productos se desactiva y el mensaje lo dice', function () {
     $proveedor = Proveedor::factory()->create();
-    Producto::factory()->create(['proveedor_id' => $proveedor->id]);
+    Producto::factory()->conProveedor($proveedor)->create();
 
     $this->actingAs(usuarioCon('proveedor.eliminar'))
         ->delete(route('proveedores.destroy', $proveedor))
