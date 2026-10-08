@@ -90,7 +90,8 @@
                                 <a href="{{ request()->fullUrlWithoutQuery(['q', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de búsqueda">
-                                    <span class="text-secondary fw-normal">Texto:</span> "{{ Str::limit(request('q'), 18) }}"
+                                    <span class="text-secondary fw-normal">Texto:</span>
+                                    "{{ Str::limit(request('q'), 18) }}"
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
                             @endif
@@ -99,7 +100,8 @@
                                 <a href="{{ request()->fullUrlWithoutQuery(['categoria_id', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de categoría">
-                                    <span class="text-secondary fw-normal">Categoría:</span> {{ $categorias->firstWhere('id', (int) request('categoria_id'))?->nombre ?? request('categoria_id') }}
+                                    <span class="text-secondary fw-normal">Categoría:</span>
+                                    {{ $categorias->firstWhere('id', (int) request('categoria_id'))?->nombre ?? request('categoria_id') }}
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
                             @endif
@@ -108,7 +110,8 @@
                                 <a href="{{ request()->fullUrlWithoutQuery(['marca_id', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de marca">
-                                    <span class="text-secondary fw-normal">Marca:</span> {{ $marcas->firstWhere('id', (int) request('marca_id'))?->nombre ?? request('marca_id') }}
+                                    <span class="text-secondary fw-normal">Marca:</span>
+                                    {{ $marcas->firstWhere('id', (int) request('marca_id'))?->nombre ?? request('marca_id') }}
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
                             @endif
@@ -117,7 +120,8 @@
                                 <a href="{{ request()->fullUrlWithoutQuery(['stock', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de stock">
-                                    <span class="text-secondary fw-normal">Stock:</span> {{ match(request('stock')) { 'disponible' => 'Con stock', 'agotado' => 'Sin stock', 'critico' => 'Stock bajo/agotado', default => request('stock') } }}
+                                    <span class="text-secondary fw-normal">Stock:</span>
+                                    {{ match (request('stock')) {'disponible' => 'Con stock','agotado' => 'Sin stock','critico' => 'Stock bajo/agotado',default => request('stock')} }}
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
                             @endif
@@ -126,7 +130,8 @@
                                 <a href="{{ request()->fullUrlWithoutQuery(['estado', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de estado">
-                                    <span class="text-secondary fw-normal">Estado:</span> {{ request('estado') === 'activos' ? 'Activos' : 'Inactivos' }}
+                                    <span class="text-secondary fw-normal">Estado:</span>
+                                    {{ request('estado') === 'activos' ? 'Activos' : 'Inactivos' }}
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
                             @endif
@@ -196,6 +201,9 @@
                             @if ($producto->marca && !$producto->marca->activo)
                                 <span class="badge text-bg-light border text-warning-emphasis">Marca inactiva</span>
                             @endif
+                            @if ($producto->noSePuedeReponer())
+                                <span class="badge text-bg-warning">Sin proveedor</span>
+                            @endif
                             @unless ($producto->activo)
                                 <span class="badge text-bg-secondary d-md-none">Inactivo</span>
                             @endunless
@@ -229,6 +237,24 @@
                         </td>
 
                         <td class="text-end text-nowrap">
+                            @can('stock.ver')
+                                <a href="{{ route('stock.index', ['producto_id' => $producto->id]) }}"
+                                    class="btn btn-sm btn-outline-dark"
+                                    aria-label="Ver los movimientos de stock de {{ $producto->nombre }}">
+                                    <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
+                                    <span class="d-none d-lg-inline">Stock</span>
+                                </a>
+                            @endcan
+
+                            @can('producto.editar')
+                                <a href="{{ route('producto-proveedores.index', $producto) }}"
+                                    class="btn btn-sm btn-outline-dark"
+                                    aria-label="Ver y administrar los proveedores de {{ $producto->nombre }}">
+                                    <i class="bi bi-truck" aria-hidden="true"></i>
+                                    <span class="d-none d-xl-inline">Proveedores</span>
+                                </a>
+                            @endcan
+
                             @can('producto.editar')
                                 <a href="{{ route('productos.edit', $producto) }}" class="btn btn-sm btn-outline-dark"
                                     aria-label="Editar {{ $producto->nombre }}">

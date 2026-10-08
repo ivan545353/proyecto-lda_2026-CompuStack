@@ -132,7 +132,6 @@ entity "productos" as productos {
   --
   * categoria_id : bigint <<FK>>
   marca_id : bigint <<FK>>
-  proveedor_id : bigint <<FK>>
   * codigo : varchar(30) <<UK>>
   * nombre : varchar(150)
   descripcion : text
@@ -198,6 +197,18 @@ entity "proveedores" as proveedores {
   portal_url : varchar(255)
   plazo_entrega_dias : int
   activo : boolean
+}
+
+entity "producto_proveedor" as prodprov {
+  * producto_id : bigint <<PK>> <<FK>>
+  * proveedor_id : bigint <<PK>> <<FK>>
+  --
+  costo_ultimo : decimal(12,2)
+  .. lo ultimo que ESTE proveedor cobro ..
+  codigo_proveedor : varchar(40)
+  .. su codigo; va impreso en el pedido ..
+  * es_preferido : boolean
+  .. a quien le pide la reposicion ..
 }
 
 entity "ordenes_compra" as oc {
@@ -443,7 +454,8 @@ clientes     ||--o{  ventas      : "compra"
 categorias   ||--o{  categorias  : "padre de"
 categorias   ||--o{  productos   : "agrupa"
 marcas       ||--o{  productos   : "identifica"
-proveedores  ||--o{  productos   : "provee"
+productos    ||--o{  prodprov    : "se le compra a"
+proveedores  ||--o{  prodprov    : "provee"
 
 productos    ||--o{  movimientos : "se mueve en"
 productos    ||--o{  cl          : "aparece en"
@@ -472,7 +484,7 @@ comp         ||--o{  comp        : "NC acredita a factura"
 
 note as N_alcance
   **Alcance de la Etapa 1**
-  Se crean 17 tablas: identidad y permisos,
+  Se crean 18 tablas: identidad y permisos,
   catalogo, stock, compras y ventas.
 
   Las marcadas <<Etapa 2/3>> se crean
@@ -540,6 +552,23 @@ note bottom of ventas
   entrar en estado "pagada". En online la
   transicion la dispara el webhook de
   Mercado Pago, nunca el cliente.
+end note
+
+note bottom of prodprov
+  Un producto se le puede comprar a varios
+  proveedores, a precios distintos: es lo que
+  permite pedirle al mejor precio.
+
+  El modelo decia "un producto, un proveedor"
+  con una columna en productos. Se cambio en la
+  Fase 5 con disciplina expand/contract, y es la
+  unica excepcion a la regla de modelo cerrado:
+  aparecio un requerimiento que el esquema no
+  podia expresar.
+
+  costo_ultimo es lo que cobro ESE proveedor.
+  productos.costo_promedio es el ponderado de
+  todas las compras y no es el precio de ninguno.
 end note
 
 @enduml

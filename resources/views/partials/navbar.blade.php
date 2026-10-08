@@ -88,6 +88,41 @@
                     </li>
                 @endcanany
 
+                @canany(['proveedor.ver', 'compra.ver', 'stock.ver'])
+                    @php($enCompras = request()->routeIs('proveedores.*', 'compras.*', 'stock.*'))
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle text-black {{ $enCompras ? 'active' : '' }}" href="#"
+                            role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Compras
+                        </a>
+                        <ul class="dropdown-menu">
+                            @can('proveedor.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('proveedores.*') ? 'active' : '' }}"
+                                        href="{{ route('proveedores.index') }}"
+                                        @if (request()->routeIs('proveedores.*')) aria-current="page" @endif>Proveedores</a>
+                                </li>
+                            @endcan
+
+                            @can('compra.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('compras.*') ? 'active' : '' }}"
+                                        href="{{ route('compras.index') }}"
+                                        @if (request()->routeIs('compras.*')) aria-current="page" @endif>Órdenes de compra</a>
+                                </li>
+                            @endcan
+
+                            @can('stock.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('stock.*') ? 'active' : '' }}"
+                                        href="{{ route('stock.index') }}"
+                                        @if (request()->routeIs('stock.*')) aria-current="page" @endif>Movimientos de stock</a>
+                                </li>
+                            @endcan
+                        </ul>
+                    </li>
+                @endcanany
+
                 {{-- Cada módulo nuevo se suma acá dentro de su correspondiente @can --}}
             </ul>
 

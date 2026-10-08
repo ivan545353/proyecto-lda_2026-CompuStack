@@ -206,3 +206,60 @@ function predeterminadasDe(\App\Models\Cliente $cliente): int
 {
     return $cliente->direcciones()->where('es_predeterminada', true)->count();
 }
+
+/** Datos válidos de un proveedor. */
+function datosDeProveedor(array $sobreescribir = []): array
+{
+    return array_merge([
+        'razon_social'       => 'Distribuidora Austral S.A.',
+        'cuit'               => '30712345678',
+        'email'              => 'ventas@austral.test',
+        'telefono'           => '297-4551122',
+        'contacto'           => 'Mesa de pedidos',
+        'canal_pedido'       => 'manual',
+        'portal_url'         => null,
+        'plazo_entrega_dias' => 7,
+        'activo'             => true,
+    ], $sobreescribir);
+}
+
+/** Datos válidos de un ajuste de inventario. */
+function datosDeAjuste(int $contado, int $esperado, array $sobreescribir = []): array
+{
+    return array_merge([
+        'stock_contado'  => $contado,
+        'stock_esperado' => $esperado,
+        'motivo'         => 'Faltante detectado en inventario',
+    ], $sobreescribir);
+}
+
+/** Datos válidos de una orden de compra. */
+function datosDeOrdenCompra(\App\Models\Proveedor $proveedor, array $lineas, array $sobreescribir = []): array
+{
+    return array_merge([
+        'proveedor_id'  => $proveedor->id,
+        'observaciones' => null,
+        'lineas'        => $lineas,
+    ], $sobreescribir);
+}
+
+/** Una línea de orden de compra, ya normalizada como la deja el Form Request. */
+function lineaDeOrden(\App\Models\Producto $producto, int $cantidad = 5, float $costo = 1000): array
+{
+    return [
+        'producto_id'     => $producto->id,
+        'cantidad_pedida' => $cantidad,
+        'costo_unitario'  => $costo,
+    ];
+}
+
+/** Datos válidos del vínculo de un producto con un proveedor. */
+function datosDeVinculo(\App\Models\Proveedor $proveedor, array $sobreescribir = []): array
+{
+    return array_merge([
+        'proveedor_id'     => $proveedor->id,
+        'costo_ultimo'     => 15000,
+        'codigo_proveedor' => 'AUS-001',
+        'es_preferido'     => false,
+    ], $sobreescribir);
+}

@@ -10,13 +10,13 @@ Migración del backend PHP a Laravel 12, con la interfaz renderizada desde Blade
 
 ## 1. Correspondencia con los hitos de la consigna
 
-| Hito de la consigna | Fases de este plan | Estado |
-|---|---|---|
-| Relevar y ejecutar el sistema original | — | Completado (auditoría) |
-| Definir y aprobar alcance, modelo de datos y plan de migración | — | Completado (modelo de datos y este documento) |
-| Crear la base Laravel e implementar autenticación, roles y persistencia | Fases 0 a 2 | Pendiente |
-| Migrar los casos de uso acordados e integrar la interfaz web | Fases 3 a 7 | Pendiente |
-| Completar pruebas, seguridad, documentación y demostración | Fase 8 (y trabajo continuo) | Pendiente |
+| Hito de la consigna                                                     | Fases de este plan          | Estado                                        |
+| ----------------------------------------------------------------------- | --------------------------- | --------------------------------------------- |
+| Relevar y ejecutar el sistema original                                  | —                           | Completado (auditoría)                        |
+| Definir y aprobar alcance, modelo de datos y plan de migración          | —                           | Completado (modelo de datos y este documento) |
+| Crear la base Laravel e implementar autenticación, roles y persistencia | Fases 0 a 2                 | Pendiente                                     |
+| Migrar los casos de uso acordados e integrar la interfaz web            | Fases 3 a 7                 | Pendiente                                     |
+| Completar pruebas, seguridad, documentación y demostración              | Fase 8 (y trabajo continuo) | Pendiente                                     |
 
 Las pruebas, la documentación y la seguridad **no se dejan para la Fase 8**. Cada fase entrega sus propios tests y actualiza el README y la tabla de trazabilidad. La Fase 8 cierra lo transversal: auditoría final, README completo y ensayo de la demostración.
 
@@ -160,11 +160,19 @@ Las Fases 3, 4 y 5 son independientes entre sí y pueden reordenarse. La Fase 3 
 - Órdenes de compra con líneas, aprobación y recepción parcial.
 - Recepción que ingresa stock y recalcula el costo promedio ponderado.
 - Tarea programada que detecta stock bajo el mínimo y genera órdenes en borrador.
-- Envío de la orden por mail con PDF, según el canal del proveedor.
+- PDF formal de la orden, descargable, y marcado manual de «enviada».
+- Historial consultable: listado de órdenes filtrable por proveedor y kardex por
+  producto, enlazados desde sus fichas.
 
-**Entregable.** Ciclo completo de reposición, desde la detección hasta la recepción.
+**Entregable.** Ciclo completo de reposición, desde la detección hasta la
+recepción, con historial auditable de qué se pidió y qué llegó.
 
-**Criterio de terminado.** Test del ciclo entero, y test que verifica que no se genera una orden duplicada si ya hay una abierta para el mismo producto.
+**Criterio de terminado.** Test del ciclo entero; test que verifica que no se
+genera una orden duplicada si ya hay una abierta para el mismo producto; y test
+que verifica que descargar el PDF no cambia el estado de la orden.
+
+**Hallazgos que cierra.** A-13 (stock sin trazabilidad) y M-15 (`moverStock` en
+modo reponer no bloqueaba la fila).
 
 **Hallazgos que cierra.** A-13 (stock sin trazabilidad).
 
@@ -259,13 +267,13 @@ Un commit por cambio con sentido propio. Ni un commit gigante por fase, ni veint
 
 ## 5. Riesgos
 
-| Riesgo | Impacto | Mitigación |
-|---|---|---|
-| `ENUM` incompleto en la Fase 1 | Reescribir tablas en la Etapa 2 | Declarar todos los valores desde el inicio y revisar contra el modelo antes de cerrar la fase |
-| El módulo de ventas se lleva más tiempo del previsto | Llegar sin margen a la entrega | Es la Fase 6, con las 3, 4 y 5 ya cerradas; si aprieta, el panel de la Fase 7 se recorta antes que las ventas |
-| Quitar Tailwind rompe el layout del starter kit | Reescribir vistas a mitad de camino | Resolverlo en la Fase 1, antes de escribir una sola vista propia |
-| Los tests quedan para el final | Incumplir el requisito de pruebas | Cada fase entrega sus tests; una fase sin tests no está terminada |
-| Un secreto queda en el historial de Git | Incumplimiento explícito de la consigna | Se limpia en la Fase 0, antes del primer commit |
+| Riesgo                                               | Impacto                                 | Mitigación                                                                                                    |
+| ---------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `ENUM` incompleto en la Fase 1                       | Reescribir tablas en la Etapa 2         | Declarar todos los valores desde el inicio y revisar contra el modelo antes de cerrar la fase                 |
+| El módulo de ventas se lleva más tiempo del previsto | Llegar sin margen a la entrega          | Es la Fase 6, con las 3, 4 y 5 ya cerradas; si aprieta, el panel de la Fase 7 se recorta antes que las ventas |
+| Quitar Tailwind rompe el layout del starter kit      | Reescribir vistas a mitad de camino     | Resolverlo en la Fase 1, antes de escribir una sola vista propia                                              |
+| Los tests quedan para el final                       | Incumplir el requisito de pruebas       | Cada fase entrega sus tests; una fase sin tests no está terminada                                             |
+| Un secreto queda en el historial de Git              | Incumplimiento explícito de la consigna | Se limpia en la Fase 0, antes del primer commit                                                               |
 
 ---
 
@@ -273,13 +281,13 @@ Un commit por cambio con sentido propio. Ni un commit gigante por fase, ni veint
 
 Los requisitos de la consigna y dónde se cumplen:
 
-| Requisito | Dónde |
-|---|---|
-| Resumen ejecutivo | Fase 8 |
-| Modelo de datos actualizado | Ya entregado; migraciones en la Fase 1 |
-| Repositorio en GitHub | Fase 0 |
-| Backend Laravel funcional con los módulos nuevos | Fases 2 a 7 |
-| Front integrado | Blade en cada fase; reemplaza a Angular |
-| Documentación y README | Continuo, cierra en la Fase 8 |
-| Presentación y defensa | Fase 8 |
-| **Promoción:** vistas renderizadas desde Laravel con Blade | Todas las fases desde la 2 |
+| Requisito                                                  | Dónde                                   |
+| ---------------------------------------------------------- | --------------------------------------- |
+| Resumen ejecutivo                                          | Fase 8                                  |
+| Modelo de datos actualizado                                | Ya entregado; migraciones en la Fase 1  |
+| Repositorio en GitHub                                      | Fase 0                                  |
+| Backend Laravel funcional con los módulos nuevos           | Fases 2 a 7                             |
+| Front integrado                                            | Blade en cada fase; reemplaza a Angular |
+| Documentación y README                                     | Continuo, cierra en la Fase 8           |
+| Presentación y defensa                                     | Fase 8                                  |
+| **Promoción:** vistas renderizadas desde Laravel con Blade | Todas las fases desde la 2              |

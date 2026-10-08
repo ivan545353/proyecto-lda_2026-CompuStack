@@ -2,6 +2,7 @@ import './bootstrap';
 import * as bootstrap from 'bootstrap';
 import { iniciarSelectsBuscables } from './componentes/selects-buscables';
 import { iniciarGestoresDeImagenes } from './componentes/gestor-imagenes';
+import { iniciarLineasDeOrden } from './componentes/lineas-orden';
 
 window.bootstrap = bootstrap;
 
@@ -92,3 +93,59 @@ document.addEventListener('DOMContentLoaded', () => iniciarSelectsBuscables());
 
 // Gestor de imágenes: ver componentes/gestor-imagenes.js
 document.addEventListener('DOMContentLoaded', () => iniciarGestoresDeImagenes());
+
+// Formulario de proveedor: la dirección del portal sólo corresponde a un canal.
+// Deshabilitado no viaja en el POST, así que un proveedor que deja de operar por
+// portal no manda una URL que el servidor va a rechazar. Es mejora progresiva:
+// sin JavaScript el campo queda visible y la validación del servidor explica por
+// qué no corresponde.
+document.addEventListener('DOMContentLoaded', () => {
+    const canal = document.getElementById('canal_pedido');
+    const portal = document.getElementById('portal_url');
+
+    if (!canal || !portal) return;
+
+    const grupo = portal.closest('[data-grupo-portal]');
+
+    const refrescar = () => {
+        const corresponde = canal.value === 'portal_externo';
+
+        portal.disabled = !corresponde;
+        portal.required = corresponde;
+        grupo?.classList.toggle('d-none', !corresponde);
+    };
+
+    canal.addEventListener('change', refrescar);
+    refrescar();
+});
+
+// Ajuste de inventario: mostrar la diferencia mientras se escribe, para que el
+// operario vea la consecuencia antes de guardar. Un 30 escrito en lugar de un 3
+// se delata solo cuando el aviso dice "+27".
+document.addEventListener('DOMContentLoaded', () => {
+    const contado = document.getElementById('stock_contado');
+    const aviso = document.getElementById('diferenciaAjuste');
+
+    if (!contado || !aviso) return;
+
+    const actual = Number(aviso.dataset.stockActual);
+
+    const refrescar = () => {
+        if (contado.value === '') {
+            aviso.textContent = '';
+            return;
+        }
+
+        const diferencia = Number(contado.value) - actual;
+
+        aviso.textContent = diferencia === 0
+            ? `El conteo coincide con las ${actual} registradas: no hay nada que ajustar.`
+            : `Se va a registrar un movimiento de ${diferencia > 0 ? '+' : ''}${diferencia} unidad(es).`;
+    };
+
+    contado.addEventListener('input', refrescar);
+    refrescar();
+});
+
+// Líneas repetibles de la orden de compra: ver componentes/lineas-orden.js
+document.addEventListener('DOMContentLoaded', () => iniciarLineasDeOrden());

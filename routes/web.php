@@ -7,9 +7,13 @@ use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\PersonalController;
 use App\Http\Controllers\CuentaController;
+use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\Auth\RestablecerPasswordController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\DireccionController;
+use App\Http\Controllers\StockController;
+use App\Http\Controllers\CompraController;
+use App\Http\Controllers\ProductoProveedorController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -108,6 +112,33 @@ Route::middleware(['auth', 'gestion'])->group(function () {
 
     Route::delete('/productos/{producto}', [ProductoController::class, 'destroy'])
         ->middleware('can:producto.eliminar')->name('productos.destroy');
+    
+    // Proveedores de un producto: el comparador de precios.
+    // Recurso anidado, igual que las direcciones de un cliente. Las seis rutas
+    // exigen `producto.editar`: administrar a quién se le compra un producto es
+    // editar el producto, y no hay escenario donde tenga sentido una cosa sin la
+    // otra. Es el mismo criterio con el que las cinco rutas de direcciones exigen
+    // `cliente.editar`.
+    Route::middleware('can:producto.editar')->group(function () {
+    Route::get('/productos/{producto}/proveedores', [ProductoProveedorController::class, 'index'])
+        ->name('producto-proveedores.index');
+
+    Route::post('/productos/{producto}/proveedores', [ProductoProveedorController::class, 'store'])
+        ->name('producto-proveedores.store');
+
+    Route::get('/productos/{producto}/proveedores/{proveedor}/editar', [ProductoProveedorController::class, 'edit'])
+        ->name('producto-proveedores.edit');
+
+    Route::put('/productos/{producto}/proveedores/{proveedor}', [ProductoProveedorController::class, 'update'])
+        ->name('producto-proveedores.update');
+
+    // Acción propia: elegir a quién pedirle sin reenviar el costo ni el código.
+    Route::patch('/productos/{producto}/proveedores/{proveedor}/preferido', [ProductoProveedorController::class, 'preferido'])
+        ->name('producto-proveedores.preferido');
+
+    Route::delete('/productos/{producto}/proveedores/{proveedor}', [ProductoProveedorController::class, 'destroy'])
+        ->name('producto-proveedores.destroy');
+});
 
     // Personas — Personal (cuentas de ámbito gestión)
     Route::get('/personal', [PersonalController::class, 'index'])
@@ -192,6 +223,51 @@ Route::middleware(['auth', 'gestion'])->group(function () {
 
     Route::delete('/categorias/{categoria}', [CategoriaController::class, 'destroy'])
         ->middleware('can:categoria.eliminar')->name('categorias.destroy');
+
+    // Compras — Proveedores
+    Route::get('/proveedores', [ProveedorController::class, 'index'])
+        ->middleware('can:proveedor.ver')->name('proveedores.index');
+
+    Route::get('/proveedores/crear', [ProveedorController::class, 'create'])
+        ->middleware('can:proveedor.crear')->name('proveedores.create');
+
+    Route::post('/proveedores', [ProveedorController::class, 'store'])
+        ->middleware('can:proveedor.crear')->name('proveedores.store');
+
+    Route::get('/proveedores/{proveedor}/editar', [ProveedorController::class, 'edit'])
+        ->middleware('can:proveedor.editar')->name('proveedores.edit');
+
+    Route::put('/proveedores/{proveedor}', [ProveedorController::class, 'update'])
+        ->middleware('can:proveedor.editar')->name('proveedores.update');
+
+    Route::delete('/proveedores/{proveedor}', [ProveedorController::class, 'destroy'])
+        ->middleware('can:proveedor.eliminar')->name('proveedores.destroy');
+
+    // Compras — Stock y kardex
+    Route::get('/stock', [StockController::class, 'index'])
+        ->middleware('can:stock.ver')->name('stock.index');
+
+    Route::get('/stock/{producto}/ajuste', [StockController::class, 'crearAjuste'])
+        ->middleware('can:stock.ajustar')->name('stock.ajuste.create');
+
+    Route::post('/stock/{producto}/ajuste', [StockController::class, 'guardarAjuste'])
+        ->middleware('can:stock.ajustar')->name('stock.ajuste.store');
+
+    // Compras — Órdenes de compra
+    Route::get('/compras', [CompraController::class, 'index'])
+        ->middleware('can:compra.ver')->name('compras.index');
+
+    Route::get('/compras/crear', [CompraController::class, 'create'])
+        ->middleware('can:compra.crear')->name('compras.create');
+
+    Route::post('/compras', [CompraController::class, 'store'])
+        ->middleware('can:compra.crear')->name('compras.store');
+
+    Route::get('/compras/{orden}/editar', [CompraController::class, 'edit'])
+        ->middleware('can:compra.editar')->name('compras.edit');
+
+    Route::put('/compras/{orden}', [CompraController::class, 'update'])
+        ->middleware('can:compra.editar')->name('compras.update');
         
     // Administración — Roles y permisos
     Route::get('/roles', [RolController::class, 'index'])

@@ -15,7 +15,8 @@ uses(RefreshDatabase::class);
 const TABLAS_DOMINIO = [
     'roles', 'permisos', 'rol_permiso', 'users',
     'empleados', 'clientes', 'direcciones',
-    'categorias', 'marcas', 'proveedores', 'productos', 'movimientos_stock',
+    'categorias', 'marcas', 'proveedores', 'productos', 'producto_proveedor',
+    'movimientos_stock',
     'ordenes_compra', 'orden_compra_lineas',
     'ventas', 'venta_lineas', 'pagos',
 ];
@@ -34,7 +35,10 @@ function tipoDeColumna(string $tabla, string $columna): string
     return $fila->tipo;
 }
 
-test('existen las diecisiete tablas de la etapa 1', function () {
+test('existen las dieciocho tablas de la etapa 1', function () {
+    // Eran diecisiete hasta que un producto pasó a tener varios proveedores: la
+    // tabla dieciocho es `producto_proveedor`, y la decisión está escrita en
+    // docs/modelo-datos.md.
     foreach (TABLAS_DOMINIO as $tabla) {
         expect(Schema::hasTable($tabla))->toBeTrue("Falta la tabla {$tabla}");
     }
@@ -113,4 +117,14 @@ test('las lineas de venta congelan precio, alicuota y costo', function () {
     foreach (['precio_unitario', 'alicuota_iva', 'costo_unitario', 'cantidad_devuelta'] as $columna) {
         expect(Schema::hasColumn('venta_lineas', $columna))->toBeTrue("Falta venta_lineas.{$columna}");
     }
+});
+
+test('productos ya no tiene la columna de un solo proveedor', function () {
+    // El contract del parallel change, afirmado contra la base y no contra las
+    // migraciones. Mientras la columna exista, algo puede volver a escribirla y el
+    // sistema tendría dos respuestas para «a quién se le compra este producto».
+    expect(Schema::hasColumn('productos', 'proveedor_id'))
+        ->toBeFalse('productos.proveedor_id sigue existiendo: el paso 4 del plan no se aplicó')
+        ->and(Schema::hasTable('producto_proveedor'))
+        ->toBeTrue('falta la pivote que reemplaza a la columna');
 });

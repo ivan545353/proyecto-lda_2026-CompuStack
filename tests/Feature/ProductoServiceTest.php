@@ -1,8 +1,9 @@
 <?php
 
 use App\Models\Categoria;
-use App\Models\Producto;
 use App\Models\Marca;
+use App\Models\Producto;
+use App\Models\Proveedor;
 use App\Services\ProductoService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -25,7 +26,6 @@ beforeEach(function () {
         'descripcion'         => null,
         'categoria_id'        => $this->categoria->id,
         'marca_id'            => null,
-        'proveedor_id'        => null,
         'precio_lista'        => '95000.00',
         'precio_contado'      => null,
         'alicuota_iva'        => '10.50',
@@ -210,4 +210,30 @@ test('las opciones incluyen la marca actual aunque este inactiva, y no otras ina
 
     expect($ids)->toContain($actual->id)->toContain($activa->id)
         ->and(in_array($otra->id, $ids, true))->toBeFalse();
+});
+
+// --- Los proveedores se administran en otra pantalla ----------------------
+
+test('editar el producto no toca sus proveedores', function () {
+    $uno = Proveedor::factory()->create();
+    $dos = Proveedor::factory()->create();
+
+    $producto = Producto::factory()
+        ->conProveedor($uno, costo: 15000)
+        ->conProveedor($dos, costo: 14000)
+        ->create();
+
+    $this->service->actualizar($producto, ($this->datos)([
+        'codigo' => $producto->codigo,
+        'nombre' => 'Disco SSD 1TB (corregido)',
+    ]));
+
+    // El formulario de producto no tiene autoridad sobre los vínculos: viven en
+    // /productos/{producto}/proveedores. Este test es lo que impide que
+    // ProductoService vuelva a tocarlos por descuido.
+    $vinculos = $producto->fresh()->proveedores;
+
+    expect($vinculos)->toHaveCount(2)
+        ->and((float) $vinculos->firstWhere('id', $dos->id)->pivot->costo_ultimo)->toBe(14000.0)
+        ->and($producto->fresh()->proveedorParaReponer()->id)->toBe($uno->id);
 });

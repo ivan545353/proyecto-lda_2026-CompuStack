@@ -1,6 +1,6 @@
 # Modelo de datos — Sistema de gestión + tienda online
 
-24 tablas. Cada sección explica **qué resuelve** y **por qué no se modeló de otra forma**.
+25 tablas. Cada sección explica **qué resuelve** y **por qué no se modeló de otra forma**.
 
 Convenciones: todo importe es `decimal(12,2)` (nunca `float`, ver A-17 de la auditoría). Todas las tablas llevan `created_at` / `updated_at`. Los borrados son lógicos (`activo` o `deleted_at`) salvo donde se indique.
 
@@ -145,7 +145,6 @@ Tabla mínima, existe sólo para filtrar en la tienda.
 | ---------------------- | ------------------ | --------------------------------------------------- |
 | id                     | bigint PK          |                                                     |
 | categoria_id, marca_id | FK                 |                                                     |
-| proveedor_id           | FK null            | un producto, un proveedor (tu respuesta 24)         |
 | codigo                 | varchar(30) UNIQUE |                                                     |
 | nombre, descripcion    | varchar / text     |                                                     |
 | imagenes               | json               | array de rutas                                      |
@@ -161,6 +160,10 @@ Tabla mínima, existe sólo para filtrar en la tienda.
 | destacado              | boolean            | destaque manual (requerimiento 54)                  |
 | activo                 | boolean            | baja lógica                                         |
 
+**Por qué ya no hay `proveedor_id`.** La tenía, con el criterio «un producto, un
+proveedor». Apareció el requerimiento de comprarle a quien tenga el mejor precio,
+y un producto con un solo proveedor no puede expresar eso. La columna se eliminó
+en la Fase 5 y la reemplaza la pivote `producto_proveedor` (ver §3).
 **Por qué dos precios y no una tabla de listas.** Dijiste que el precio es uno solo y que el arreglo mayorista es informal (16), pero también que querés el esquema actual de precio de lista distinto al de contado (38). Eso son exactamente dos números por producto, no dos listas de precios. Dos columnas resuelven el 100% del caso; una tabla `listas_precio` agregaría una entidad y un join a cada consulta de catálogo para modelar lo mismo.
 
 En la tienda online se cobra siempre `precio_lista` (Checkout Pro recibe el monto antes de saber el medio de pago). En mostrador el cajero elige, y el precio aplicado queda congelado en la línea de venta.
@@ -183,6 +186,27 @@ Si más adelante querés agrupar, se agrega una columna nullable `grupo_id` y un
 `origen_type` + `origen_id` es polimórfico (apunta a una venta, un comprobante de NC o una orden de compra). Un solo par de columnas cubre los tres casos sin tres FKs nullables.
 
 **Por qué no hay tabla de recepciones de mercadería.** La recepción parcial (29) se resuelve con `cantidad_recibida` en la línea de la orden de compra, y **el historial de cada recepción ya está acá**: cada entrada genera un movimiento con su fecha y su usuario. La tabla de recepciones sería redundante.
+
+**Por qué no están las dimensiones.** El hallazgo M-22 pedía «peso y dimensiones»
+para la cotización de envíos. El peso está —`productos.peso_gramos`, con
+`categorias.peso_default_gramos` como respaldo—; las dimensiones no se crearon, y es
+una decisión, no un olvido. Sirven únicamente a la cotización de Zipnova, que es de
+la Etapa 2, y son tres columnas enteras nullables, sin clave foránea y sin `ENUM`:
+agregarlas es un `ADD COLUMN` que no migra datos ni reescribe la tabla. No caen bajo
+la regla que obliga a declarar todas las columnas desde el inicio, porque esa regla
+existe para no reescribir una tabla por un `ENUM` incompleto, no para prohibir una
+columna nullable más adelante.
+
+Hay una pregunta que sí conviene responder **antes** de escribir la cotización de la
+Etapa 2: si Zipnova cotiza por peso declarado o por peso volumétrico. Si es
+volumétrico, las tres columnas (`largo_mm`, `ancho_mm`, `alto_mm`) hacen falta y
+además hay que relevar las medidas producto por producto, que es trabajo de carga de
+datos y no de esquema. Si cotiza por peso declarado, no se agregan nunca.
+
+Por el mismo criterio, `peso_gramos` y `destacado` existen en la tabla pero no se
+cargan desde el formulario de la Etapa 1: el peso sirve al envío y el destaque a la
+vidriera de la tienda, y las dos pantallas son de la Etapa 2. La columna está para no
+tocar la tabla después; el campo aparece cuando aparezca su módulo.
 
 ---
 
@@ -209,6 +233,64 @@ La salida es **desacoplar el proceso interno del canal de entrega**. El sistema 
 
 Una columna enum reemplaza a un subsistema de autenticación completo, y el proceso interno, las métricas y el control de recepción son idénticos en los tres casos. Si mañana un proveedor chico quiere entrar, se le crea un rol nuevo con sus permisos y se le muestran sus órdenes — sin tocar el modelo.
 
+### `producto_proveedor`
+
+`producto_id FK, proveedor_id FK, costo_ultimo, codigo_proveedor, es_preferido` —
+clave primaria compuesta `(producto_id, proveedor_id)`.
+
+**Por qué se abrió un modelo que estaba cerrado.** Es la única excepción a la regla
+de no tocar el modelo de datos, y tiene un motivo que la regla misma admite:
+apareció un requerimiento que el esquema no podía expresar. `productos.proveedor_id`
+decía «un producto, un proveedor»; el negocio necesita comprarle a quien tenga el
+mejor precio, comparar entre proveedores antes de pedir, y que la reposición
+automática sepa a cuál pedirle. Ninguna de las tres cosas entra en una columna.
+
+**Por qué una pivote con columnas propias y no una tabla de precios.** Lo que hace
+falta no es un histórico de precios sino el estado actual del vínculo: cuánto cobró
+la última vez, con qué código identifica el producto, y si es el elegido. Son tres
+datos por par, no una serie. El histórico ya existe y está en otro lado: cada
+`orden_compra_lineas` guarda su `costo_unitario` congelado, así que la evolución del
+precio se reconstruye desde las órdenes sin una tabla más.
+
+**Por qué la clave primaria es compuesta.** El vínculo se identifica por sus dos
+extremos y no tiene vida propia: no hay nada que pueda apuntar a «el vínculo 47».
+Es el mismo criterio de `rol_permiso`. Un `id` propio permitiría dos filas para el
+mismo par, que es justamente el estado que no debe existir.
+
+**Por qué `costo_ultimo` y no alcanza `productos.costo_promedio`.**
+`costo_promedio` es el promedio ponderado de todas las compras del producto a todos
+los proveedores: sirve para el margen de la venta y no es el precio de ninguno.
+Comparar proveedores con ese número no compara nada. `costo_ultimo` se graba al
+recibir mercadería, desde `CompraService`, con el costo de la línea de esa orden.
+
+**Por qué `es_preferido` y no un orden de prioridad.** La pregunta que el sistema
+hace es una sola: a quién le pido. Un orden entre cinco proveedores obliga a
+mantener cinco posiciones para responder una pregunta binaria. Y que el preferido
+gane sobre el precio es a propósito: a veces el barato entrega en tres semanas, y
+eso no es más barato.
+
+**Invariante:** si el producto tiene al menos un proveedor, exactamente uno está
+marcado como preferido. El esquema no puede expresarla —un `boolean` con
+`DEFAULT false` acepta tres marcados o ninguno— así que la garantiza
+`ProductoProveedorService`, igual que `DireccionService` con la dirección
+predeterminada. Toda operación bloquea la fila del **producto**, no las de la
+pivote, para que dos pestañas no dejen dos marcados y para que el alta del primer
+vínculo también se serialice, cuando todavía no hay ninguna fila que bloquear.
+
+**Por qué no tiene `activo`.** Un vínculo no se desactiva: se quita. La baja lógica
+existe para lo que aparece en listas de las que uno elige, y un vínculo no se elige
+de una lista. Agregar la columna sumaría un estado a filtrar en todas las consultas
+de la pivote para resolver algo que ya está resuelto de otra forma: desvincular se
+**rechaza** mientras haya un pedido en curso de ese par, y el dato que sólo vivía
+acá —`codigo_proveedor`— se congela en la línea de la orden al escribirla, así que
+quitar el vínculo no cambia ningún documento ya emitido.
+
+**Cómo se migró, y por qué así.** Con disciplina expand/contract: primero se agregó
+la pivote y las dos estructuras convivieron sincronizadas, después se migraron los
+consumidores uno por uno, y al final se eliminó `productos.proveedor_id`. El paso
+que suele saltearse es el último, y saltearlo deja dos fuentes para la misma
+pregunta.
+
 ### `ordenes_compra`
 `id, proveedor_id FK, estado, total_estimado, usuario_creo_id, usuario_aprobo_id null, fecha_aprobacion null, fecha_envio null, observaciones`
 
@@ -216,12 +298,80 @@ Una columna enum reemplaza a un subsistema de autenticación completo, y el proc
 
 **Por qué `borrador` y no envío directo.** Lo aceptaste en el punto 27, pero vale dejar el motivo escrito: una compra que se dispara y se envía sola es un compromiso de plata sin supervisión. Si un ajuste de stock mal cargado deja un producto en cero, el sistema pide mercadería que no hace falta. El borrador convierte el automatismo en una sugerencia.
 
+**Por qué el número de orden es el `id` y no una columna propia.** El proveedor se
+refiere al pedido por un número, y el PDF lo imprime como `OC-00042`, derivado del
+`id` con relleno de ceros. No se agrega una columna `numero`: la orden de compra no
+es un comprobante fiscal —no la gobierna AFIP, no necesita ser correlativa sin
+huecos— y la clave primaria ya garantiza unicidad por construcción, sin contador,
+sin tabla auxiliar y sin condición de carrera. Es la lección de A-18 aplicada: el
+sistema original tenía `venta_numeracion`, una tabla de una sola fila sin clave
+primaria, para generar un número que `ventas.numero` tampoco garantizaba único.
+
+**Por qué el PDF no se archiva.** El documento se regenera a demanda desde la
+orden, y no se guarda el archivo. Es posible porque **el PDF imprime el pedido, no
+el estado de la orden**: lleva `cantidad_pedida` y `costo_unitario`, nunca
+`cantidad_recibida`. Las líneas quedan congeladas cuando la orden deja de ser
+borrador, y lo único que cambia después es la cantidad recibida, que el documento
+no muestra — así que el PDF regenerado dentro de un año es idéntico al que recibió
+el proveedor. Guardar el archivo traería los problemas de siempre con los binarios:
+una fila que puede apuntar a un archivo inexistente, backups más pesados y una
+copia que puede divergir del dato.
+
+**Por qué no hay `usuario_envio_id`.** Marcar la orden como enviada lo hace una
+persona, no el sistema, y la tabla no registra quién. Se decidió no agregar la
+columna: la orden de compra no es un documento fiscal, el responsable del
+compromiso es quien la aprueba —y eso sí queda en `usuario_aprobo_id` con su
+fecha—, y la acción de marcarla enviada se exige con el mismo permiso que
+aprobarla (`compra.aprobar`), así que quien la marca es necesariamente alguien con
+esa autoridad. `fecha_envio` responde el cuándo. Si el negocio pidiera separar las
+dos responsabilidades, se agrega la columna nullable más el permiso `compra.enviar`,
+sin tocar ninguna relación.
+
+**El disparador de reposición** es un job diario: productos con `stock - stock_reservado <= stock_minimo` que no tengan ya una orden abierta, agrupados por el proveedor que `Producto::proveedorParaReponer()` elige para cada uno —el preferido, y si no hay ninguno marcado, el de menor `costo_ultimo` entre los activos—, generan una orden en borrador con `cantidad_reposicion` por línea. Fijo, como pediste (26). Un producto que se repone y no tiene ningún proveedor activo no se puede pedir: el comando lo informa en lugar de omitirlo en silencio, y el listado del catálogo lo marca.
+
 ### `orden_compra_lineas`
 `id, orden_compra_id FK, producto_id FK, cantidad_pedida, cantidad_recibida (default 0), costo_unitario`
 
 `cantidad_recibida < cantidad_pedida` es la recepción parcial. Cuando todas las líneas se completan, la orden pasa a `recibida`. Cada recepción genera un movimiento de stock y recalcula `costo_promedio`.
 
 **El disparador de reposición** es un job diario: productos con `stock - stock_reservado <= stock_minimo` que no tengan ya una orden abierta, agrupados por `proveedor_id`, generan una orden en borrador con `cantidad_reposicion` por línea. Fijo, como pediste (26).
+
+el proveedor grande que sólo opera por su propio portal, el chico que
+podría entrar al sistema, y el informal al que se le pide por mail o WhatsApp.
+Darle login a los proveedores implicaría autenticación externa, permisos y un
+panel entero — para una minoría de casos, y sin resolver al proveedor grande, que
+nunca va a usar tu sistema.
+
+La salida es **desacoplar el proceso interno del canal de entrega**. El sistema
+siempre hace lo mismo: detecta stock crítico → genera la orden de compra en
+borrador → el administrativo la aprueba → la orden aprobada produce un **PDF
+formal** del pedido. Una columna enum reemplaza a un subsistema de autenticación
+completo, y el proceso interno, las métricas y el control de recepción son
+idénticos en los tres casos.
+
+**`canal_pedido` es un dato del proveedor, no una bandera de control.** No
+ramifica código: la orden aprobada genera siempre el mismo PDF, lo descarga una
+persona y es esa persona la que lo hace llegar. El canal es lo que la pantalla usa
+para decir cuál es el próximo paso, y de lo que depende que se muestre
+`portal_url`:
+
+- `email` → «Mandale el PDF a `ventas@…`», con el correo a la vista.
+- `portal_externo` → «Subí el PDF a su portal», con el enlace a `portal_url`.
+- `manual` → «Pasale el PDF por teléfono o WhatsApp», con el teléfono.
+
+**Por qué el sistema no manda el correo.** Se evaluó que el canal `email`
+disparara el envío automático y marcara la orden como enviada. Se descartó por una
+razón que no es de comodidad: sin un servidor SMTP —y en la Etapa 1 no hay uno—,
+el correo va a un archivo de log y la orden quedaría marcada como «enviada» con el
+proveedor sin enterarse de nada. El sistema estaría afirmando un hecho del mundo
+que no puede verificar, y la regla del proyecto es que el resultado dice lo que
+pasó de verdad. Además elimina un modo de falla sin buena salida: un SMTP que
+rechaza el mensaje deja la orden en un estado que nadie sabe si hay que reintentar.
+
+El ENUM conserva sus tres valores en la base, así que si la Etapa 2 vuelve a
+automatizar el envío no hace falta migración. Y si mañana un proveedor chico
+quiere entrar al sistema, se le crea un rol con sus permisos y se le muestran sus
+órdenes — sin tocar el modelo.
 
 ---
 
@@ -296,6 +446,32 @@ Reglas, todas validadas en el servidor (esto es lo que hoy no existe — hallazg
 - `cancelada` sólo desde `presupuesto` o `pendiente_pago`, es decir antes de que exista comprobante y antes de descontar stock. Después de facturar, el camino es la devolución.
 - La devolución es **parcial o total según cuánto se devuelva**, no según lo que elija el operador. La venta pasa a `devuelta_parcial` mientras quede algo sin devolver, y a `devuelta` cuando todas las líneas alcanzan `cantidad_devuelta = cantidad`. El estado se deriva de las líneas, no se fija a mano.
 - Una venta en `devuelta_parcial` **sigue admitiendo devoluciones**. Es el caso de quien devuelve el mouse en enero y la fuente en marzo.
+- **Venta con faltante (backorder): analizada y postergada.** Surgió una pregunta
+real del negocio: si el cliente quiere 4 auriculares y hay 3, ¿se le venden los 3
+y el cuarto se manda a pedir, en lugar de perder la venta? Y la variante de
+mostrador: reservarle un producto sin stock para entregárselo cuando llegue.
+
+No entra en la Etapa 1, y queda escrito qué haría falta, porque la mitad del costo
+está en decisiones que la Fase 6 toma igual:
+
+- `venta_lineas` necesita `cantidad_entregada` para distinguir lo entregado de lo
+  pendiente. Es un `ADD COLUMN` con default 0, barato en cualquier momento.
+- La línea de venta necesita apuntar a la línea de orden de compra que repone esa
+  unidad, o cuando la mercadería llega nadie sabe que era de un cliente. FK
+  nullable a una tabla que ya existe, también barato.
+- `ventas.estado` necesita un valor más (`entregada_parcial`), y **eso reescribe la
+  tabla**: es la única pieza que encarece esperar. Hoy no hay datos de producción,
+  así que sigue siendo barato, pero deja de serlo después de la entrega. Si la
+  venta con faltante se va a hacer alguna vez, el valor se declara en la Fase 6,
+  cuando se escriben los estados, no después.
+- La reserva de mostrador **con seña reabre una decisión ya tomada**: los pagos
+  parciales están fuera del alcance. Sin seña es un presupuesto que espera
+  mercadería, y eso ya se puede hacer con lo que hay.
+
+La promesa al cliente se puede hacer honesta sin nada nuevo: el plazo sale del
+proveedor que `Producto::proveedorParaReponer()` elige →
+`proveedores.plazo_entrega_dias`, así que la pantalla puede decir cuántos días, en
+lugar de «demora un poco más».
 
 **Por qué `presupuesto` sigue existiendo.** Es el flujo actual de mostrador y funciona. Un presupuesto no tiene valor fiscal: no genera comprobante ni descuenta stock. Se convierte en venta cuando se cobra, o se cancela.
 
@@ -430,16 +606,17 @@ Todo se calcula **en el servidor** y se devuelve ya agregado. El sistema actual 
 
 ## 10. Alcance por etapa
 
-El modelo completo es el destino; no todas las tablas se crean a la vez. La Etapa 1 crea diecisiete.
+El modelo completo es el destino; no todas las tablas se crean a la vez. La Etapa 1 crea dieciocho.
 
-| Etapa 1 (backend Laravel)                              | Etapa 2/3 (tienda, pagos, facturación, envíos) |
-| ------------------------------------------------------ | ---------------------------------------------- |
-| `users`, `roles`, `permisos`, `rol_permiso`            | `carritos`, `carrito_lineas`                   |
-| `clientes`, `empleados`, `direcciones`                 | `comprobantes`, `comprobante_lineas`           |
-| `categorias`, `marcas`, `productos`                    | `envios`                                       |
-| `movimientos_stock`                                    | `vales`                                        |
-| `proveedores`, `ordenes_compra`, `orden_compra_lineas` | `banners`                                      |
-| `ventas`, `venta_lineas`, `pagos`                      |                                                |
+| Etapa 1 (backend Laravel)                   | Etapa 2/3 (tienda, pagos, facturación, envíos) |
+| ------------------------------------------- | ---------------------------------------------- |
+| `users`, `roles`, `permisos`, `rol_permiso` | `carritos`, `carrito_lineas`                   |
+| `clientes`, `empleados`, `direcciones`      | `comprobantes`, `comprobante_lineas`           |
+| `categorias`, `marcas`, `productos`         | `envios`                                       |
+| `movimientos_stock`                         | `vales`                                        |
+| `proveedores`, `producto_proveedor`         | `banners`                                      |
+| `ordenes_compra`, `orden_compra_lineas`     |                                                |
+| `ventas`, `venta_lineas`, `pagos`           |                                                |
 
 **Regla para no pagar migraciones dolorosas después.** Las tablas de la Etapa 1 se crean con **todas** las columnas que van a necesitar alguna vez, incluidos los `ENUM` con su juego completo de valores. En Laravel agregar una tabla o una columna nullable es barato; modificar un `ENUM` reescribe la tabla entera.
 
@@ -459,7 +636,7 @@ Casos concretos:
 | Identidad y acceso | `users`, `roles`, `permisos`, `rol_permiso`, `clientes`, `empleados`, `direcciones` |
 | Catálogo           | `categorias`, `marcas`, `productos`                                                 |
 | Stock              | `movimientos_stock`                                                                 |
-| Compras            | `proveedores`, `ordenes_compra`, `orden_compra_lineas`                              |
+| Compras            | `proveedores`, `producto_proveedor`, `ordenes_compra`, `orden_compra_lineas`        |
 | Carrito            | `carritos`, `carrito_lineas`                                                        |
 | Ventas             | `ventas`, `venta_lineas`, `pagos`, `vales`                                          |
 | Facturación        | `comprobantes`, `comprobante_lineas`                                                |

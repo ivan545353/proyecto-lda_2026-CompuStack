@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Categoria;
 use App\Models\Marca;
-use App\Models\Proveedor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Throwable;
@@ -33,7 +32,11 @@ use Throwable;
  *      partir de lo que el producto tiene, nunca de lo que envía el usuario.
  *   4. Un producto referenciado —en ventas, órdenes de compra o el kardex— o
  *      con stock distinto de cero no se borra.
- *
+ *   5. Los proveedores del producto NO se administran acá. Viven en la pivote
+ *      `producto_proveedor`, los administra ProductoProveedorService, y se cargan
+ *      desde /productos/{producto}/proveedores. Este servicio no los lee ni los
+ *      escribe: un producto se le puede comprar a varios, y el formulario del
+ *      producto no tiene con qué expresar eso.
  * Métodos:
  *   crear()        alta, con imágenes opcionales
  *   actualizar()   edición, agregando y quitando imágenes
@@ -44,6 +47,7 @@ class ProductoService
     private const CARPETA = 'productos';
 
     private const REFERENCIAS = ['venta_lineas', 'orden_compra_lineas', 'movimientos_stock'];
+
 
      /**
      * @param  array<int, UploadedFile>  $imagenes
@@ -128,9 +132,9 @@ class ProductoService
      * Mismo criterio que ProductoRequest::referenciaActiva() y que
      * CategoriaService::padresPosibles(): si la actual no apareciera, el
      * selector se abriría en otra opción y guardar sin tocar nada le
-     * cambiaría la marca, la categoría o el proveedor al producto.
+     * cambiaría la marca o la categoría al producto.
      *
-     * @return array{categorias: Collection, marcas: Collection, proveedores: Collection}
+     * @return array{categorias: Collection, marcas: Collection}
      */
     public function opciones(?Producto $producto = null): array
     {
@@ -138,8 +142,7 @@ class ProductoService
             'categorias' => $this->activasOActual(Categoria::query()->with('padre.padre'), $producto?->categoria_id)
                 ->sortBy('ruta', SORT_NATURAL | SORT_FLAG_CASE)
                 ->values(),
-            'marcas'      => $this->activasOActual(Marca::query()->orderBy('nombre'), $producto?->marca_id),
-            'proveedores' => $this->activasOActual(Proveedor::query()->orderBy('razon_social'), $producto?->proveedor_id),
+            'marcas' => $this->activasOActual(Marca::query()->orderBy('nombre'), $producto?->marca_id),
         ];
     }
 
@@ -249,7 +252,6 @@ class ProductoService
             'descripcion'         => $datos['descripcion'] ?? null,
             'categoria_id'        => $datos['categoria_id'],
             'marca_id'            => $datos['marca_id'] ?? null,
-            'proveedor_id'        => $datos['proveedor_id'] ?? null,
             'precio_lista'        => $datos['precio_lista'],
             'precio_contado'      => $datos['precio_contado'] ?? $datos['precio_lista'],
             'alicuota_iva'        => $datos['alicuota_iva'],
@@ -278,4 +280,5 @@ class ProductoService
             Storage::disk('public')->delete($rutas);
         }
     }
+
 }
