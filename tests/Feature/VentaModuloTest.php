@@ -48,6 +48,7 @@ dataset('rutas sueltas de venta', [
     'listado'    => ['get', 'ventas.index', 'venta.ver'],
     'formulario' => ['get', 'ventas.create', 'venta.crear'],
     'alta'       => ['post', 'ventas.store', 'venta.crear'],
+    'exportar'   => ['get', 'ventas.exportar', 'venta.ver'],
 ]);
 
 dataset('rutas de la venta', [
@@ -60,10 +61,10 @@ dataset('rutas de la venta', [
     'formulario de cobro'    => ['get', 'pagos.create', 'venta.cobrar'],
     'registrar el cobro'     => ['post', 'pagos.store', 'venta.cobrar'],
     'marcar como entregada'  => ['post', 'ventas.entregar', 'venta.entregar'],
-    'formulario de devolucion' => ['get', 'ventas.devolucion', 'venta.anular'],
+        'formulario de devolucion' => ['get', 'ventas.devolucion', 'venta.anular'],
     'registrar la devolucion'  => ['post', 'ventas.devolver', 'venta.anular'],
+    'descargar el documento'   => ['get', 'ventas.pdf', 'venta.ver'],
 ]);
-
 test('ningun otro permiso del modulo habilita las rutas sueltas', function (string $metodo, string $ruta, string $permiso) {
     $otros = array_values(array_diff(PERMISOS_VENTA, [$permiso]));
 
@@ -734,4 +735,158 @@ test('entregar por la ruta deja la venta entregada sin mover stock', function ()
 
     expect($venta->fresh()->estado)->toBe('entregada')
         ->and($producto->fresh()->stock)->toBe($stockPrevio);
+});
+
+/*
+|--------------------------------------------------------------------------
+| El documento: presupuesto o comprobante de venta
+|--------------------------------------------------------------------------
+*/
+
+test('descargar el documento es una lectura y no cambia nada', function () {
+    $venta = ventaCobrada(productoConPrecios(contado: 1000), 3);
+
+    $respuesta = $this->actingAs(usuarioCon('venta.ver'))->get(route('ventas.pdf', $venta));
+
+    $respuesta->assertOk();
+
+    // Es el mismo test que fija el PDF del pedido en la Fase 5: se puede repetir y no
+    // marca nada. La venta sigue donde estaba.
+    expect($respuesta->headers->get('content-type'))->toContain('application/pdf')
+        ->and($respuesta->headers->get('content-disposition'))->toContain($venta->numeroFormateado())
+        ->and($venta->fresh()->estado)->toBe('pagada');
+});
+
+test('una venta cancelada no tiene documento que entregar', function () {
+    $venta = Venta::factory()->cancelada()->conLinea(productoConPrecios(contado: 1000), 2)->create();
+
+    $this->actingAs(usuarioCon('venta.ver'))
+        ->get(route('ventas.pdf', $venta))
+        ->assertRedirect(route('ventas.show', $venta))
+        ->assertSessionHas('error');
+});
+
+test('la ficha ofrece descargar el documento salvo que este cancelada', function () {
+    $producto = productoConPrecios(contado: 1000);
+
+    $viva   = Venta::factory()->conLinea($producto, 2)->create();
+    $muerta = Venta::factory()->cancelada()->conLinea($producto, 2)->create();
+
+    $usuario = usuarioCon('venta.ver');
+
+    $this->actingAs($usuario)->get(route('ventas.show', $viva))
+        ->assertSee(route('ventas.pdf', $viva));
+
+    $this->actingAs($usuario)->get(route('ventas.show', $muerta))
+        ->assertDontSee(route('ventas.pdf', $muerta));
+});
+
+test('el presupuesto declara su validez y el comprobante de venta no', function () {
+    $producto = productoConPrecios(contado: 1000);
+
+    $presupuesto = Venta::factory()->conLinea($producto, 2)->create();
+    $cobrada     = ventaCobrada($producto, 2);
+
+    $comoHtml = fn (Venta $venta) => view('ventas.pdf', [
+        'venta'       => $venta->fresh(['lineas.producto', 'cliente', 'usuario']),
+        'validoHasta' => $venta->created_at->copy()->addDays(15),
+    ])->render();
+
+    expect($comoHtml($presupuesto))->toContain('Presupuesto')
+        ->and($comoHtml($presupuesto))->toContain('Válido hasta')
+        ->and($comoHtml($cobrada))->toContain('Comprobante de venta')
+        ->and($comoHtml($cobrada))->not->toContain('Válido hasta');
+});
+
+test('el documento imprime lo congelado y no el estado ni los pagos ni lo devuelto', function () {
+    $venta = ventaCobrada(productoConPrecios(contado: 1000), 3);
+
+    $this->service->devolver($venta, [
+        'cantidades' => [$venta->lineas->first()->id => 1],
+        'metodo'     => 'efectivo',
+    ], admin());
+
+    $html = view('ventas.pdf', [
+        'venta'       => $venta->fresh(['lineas.producto', 'cliente', 'usuario']),
+        'validoHasta' => $venta->created_at->copy()->addDays(15),
+    ])->render();
+
+    // Regenerarlo dentro de un año tiene que dar el mismo papel, así que no imprime
+    // nada que cambie: imprime las 3 unidades vendidas y los 3000 del documento, no
+    // las 2 que quedaron ni los 2000 que siguen cobrados. Es la misma decisión que el
+    // PDF del pedido, que imprime `cantidad_pedida` y nunca `cantidad_recibida`.
+    expect($html)->toContain($venta->numeroFormateado())
+        ->and($html)->toContain('3.000,00')
+        ->and($html)->toContain('no es una factura')
+        ->and($html)->not->toContain('Devuelta parcial')
+        ->and($html)->not->toContain('2.000,00');
+});
+
+/*
+|--------------------------------------------------------------------------
+| La exportación del listado
+|--------------------------------------------------------------------------
+|
+| Que el filtrado funcione ya está cubierto: `index()` y `exportar()` comparten
+| `filtradas()`, así que los tests de filtros de la pantalla prueban la misma cadena.
+| Eso es justamente lo que se compra al extraer el método. Lo que falta probar es lo
+| propio del documento: que declare su alcance y que diga cuando recortó.
+|
+*/
+
+test('exportar el listado devuelve un PDF y no cambia nada', function () {
+    $venta = ventaCobrada(productoConPrecios(contado: 1000), 3);
+
+    $respuesta = $this->actingAs(usuarioCon('venta.ver'))->get(route('ventas.exportar'));
+
+    $respuesta->assertOk();
+
+    expect($respuesta->headers->get('content-type'))->toContain('application/pdf')
+        ->and($respuesta->headers->get('content-disposition'))->toContain('ventas-')
+        ->and($venta->fresh()->estado)->toBe('pagada');
+});
+
+test('el listado exportado declara los filtros aplicados', function () {
+    $html = view('ventas.listado-pdf', [
+        'ventas'   => collect(),
+        'cantidad' => 0,
+        'total'    => 0.0,
+        'tope'     => 500,
+        'filtros'  => ['Estado' => 'Pagada', 'Desde' => '01/03/2026'],
+    ])->render();
+
+    expect($html)->toContain('Estado')
+        ->and($html)->toContain('Pagada')
+        ->and($html)->toContain('01/03/2026')
+        ->and($html)->not->toContain('sin ningún filtro aplicado');
+});
+
+test('el listado sin filtros lo dice en lugar de no decir nada', function () {
+    $html = view('ventas.listado-pdf', [
+        'ventas'   => collect(),
+        'cantidad' => 0,
+        'total'    => 0.0,
+        'tope'     => 500,
+        'filtros'  => [],
+    ])->render();
+
+    expect($html)->toContain('sin ningún filtro aplicado');
+});
+
+test('cuando hay mas ventas que el tope el documento lo dice y el total es de todas', function () {
+    $venta = ventaCobrada(productoConPrecios(contado: 1000), 3);
+
+    $html = view('ventas.listado-pdf', [
+        'ventas'   => collect([$venta->fresh(['cliente', 'usuario'])]),
+        'cantidad' => 742,
+        'total'    => 1234567.89,
+        'tope'     => 2,
+        'filtros'  => [],
+    ])->render();
+
+    // El resultado dice lo que pasó de verdad: que recortó, y que el total es de las
+    // 742 coincidencias y no de las 2 impresas.
+    expect($html)->toContain('742')
+        ->and($html)->toContain('1.234.567,89')
+        ->and($html)->toContain('no a las');
 });

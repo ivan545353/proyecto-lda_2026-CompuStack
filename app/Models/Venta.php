@@ -124,6 +124,19 @@ class Venta extends Model
         'presupuesto', 'pagada', 'entregada', 'cancelada', 'devuelta_parcial', 'devuelta',
     ];
 
+    // Los estados en los que el cobro ya ocurrió: de acá sale todo lo que el panel
+    // cuenta como vendido (A-26). Incluye los de la Etapa 2 para que el día que se
+    // alcancen el panel no se quede corto en silencio.
+    public const ESTADOS_VENDIDOS = [
+        'pagada', 'en_preparacion', 'despachada', 'lista_retiro',
+        'entregada_parcial', 'entregada', 'devuelta_parcial', 'devuelta',
+    ];
+
+    // Los otros tres: la plata no entró. PanelServiceTest afirma que los dos juegos
+    // parten ESTADOS sin superponerse, así que agregar un valor al ENUM rompe el test
+    // en vez de contarse solo.
+    public const ESTADOS_SIN_COBRO = ['presupuesto', 'pendiente_pago', 'cancelada'];
+
     protected $table = 'ventas';
 
     protected $fillable = ['cliente_id', 'usuario_id', 'observaciones'];
@@ -241,16 +254,17 @@ class Venta extends Model
         return self::ESTADOS[$this->estado] ?? $this->estado;
     }
 
-    /**
-     * El único estado en el que la venta se edita.
-     *
-     * No hay un `esEditable()` aparte que devuelva lo mismo: en compras «editable» y
-     * «es borrador» son dos ideas que podrían separarse, en ventas son el mismo
-     * predicado, y dos nombres para una condición terminan en dos condiciones.
-     */
-    public function esPresupuesto(): bool
+        public function esPresupuesto(): bool
     {
         return $this->estado === 'presupuesto';
+    }
+
+    // Una venta cancelada no se imprime: es un presupuesto que no se concretó y el
+    // papel no va a ir a ningún cliente. Mismo criterio que OrdenCompra, donde la
+    // condición es haber tenido aprobación.
+    public function sePuedeImprimir(): bool
+    {
+        return $this->estado !== 'cancelada';
     }
 
         /**

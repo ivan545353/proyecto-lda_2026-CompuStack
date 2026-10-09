@@ -335,32 +335,27 @@ function productoConPrecios(
         ]);
 }
 
-/**
- * Una venta cobrada de verdad: emitida por el servicio, con su pago registrado y su
- * stock descontado.
- *
- * Existe porque **`VentaFactory::pagada()` no sirve para esto**: escribe el estado y
- * nada más, así que una venta así no tiene pagos que revertir ni stock que reponer, y
- * una devolución sobre ella no probaría nada de lo que hay que probar. Lo que se
- * prueba sobre plata y sobre stock se arma llamando al servicio.
- *
- * Vive acá y no en un archivo de test porque la usan el test del servicio y el del
- * módulo, y Pest carga todos los archivos en el mismo proceso: declararla dos veces
- * es un error fatal.
- */
 function ventaCobrada(
     \App\Models\Producto $producto,
     int $cantidad,
     float $porcentajeDescuento = 0,
+    ?\App\Models\User $vendedor = null,
+    ?\App\Models\User $cajero = null,
+    string $metodo = 'efectivo',
 ): \App\Models\Venta {
+    // Por omisión cada uno es un administrador distinto, como antes de que el panel
+    // necesitara distinguirlos: quién vendió y quién cobró son dos preguntas (M-19).
+    $vendedor ??= admin();
+    $cajero   ??= admin();
+
     $venta = app(\App\Services\VentaService::class)->crear(datosDeVenta(
         [lineaDeVenta($producto, $cantidad)],
         ['descuento_porcentaje' => $porcentajeDescuento],
-    ), admin());
+    ), $vendedor);
 
     app(\App\Services\PagoService::class)->cobrar($venta, ['pagos' => [
-        ['metodo' => 'efectivo', 'monto' => $venta->total],
-    ]], admin());
+        ['metodo' => $metodo, 'monto' => $venta->total],
+    ]], $cajero);
 
     return $venta->fresh();
 }

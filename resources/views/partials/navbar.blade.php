@@ -2,7 +2,7 @@
     <div class="container-fluid gap-3">
 
         {{-- Identidad visual / Acceso directo al panel --}}
-        <a class="navbar-brand" href="{{ route('panel') }}">
+        <a class="navbar-brand" href="{{ route('inicio') }}">
             <img src="{{ asset('assets/imagotipo.svg') }}" alt="{{ config('app.name') }}" height="40">
         </a>
 
@@ -15,10 +15,11 @@
         <div class="collapse navbar-collapse" id="navbarMain">
             {{-- Módulos del sistema habilitados según permisos del usuario --}}
             <ul class="navbar-nav me-auto mb-2 mb-lg-0 gap-3">
+                {{-- Sin @can: apunta a `inicio`, que manda a cada uno a lo que puede ver. --}}
                 <li class="nav-item">
-                    <a class="nav-link text-black {{ request()->routeIs('panel') ? 'active' : '' }}"
-                        href="{{ route('panel') }}"
-                        @if (request()->routeIs('panel')) aria-current="page" @endif>Inicio</a>
+                    <a class="nav-link text-black {{ request()->routeIs('panel', 'panel.general') ? 'active' : '' }}"
+                        href="{{ route('inicio') }}"
+                        @if (request()->routeIs('panel', 'panel.general')) aria-current="page" @endif>Inicio</a>
                 </li>
 
                 @can('venta.ver')

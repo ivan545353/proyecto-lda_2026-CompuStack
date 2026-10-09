@@ -6,6 +6,7 @@ import { iniciarLineasDeOrden } from './componentes/lineas-orden';
 import { iniciarArmadorDePedido } from './componentes/lineas-pedido';
 import { iniciarRecepcion } from './componentes/recepcion';
 import { iniciarLineasDeVenta } from './componentes/lineas-venta';
+import { iniciarGraficosDelPanel } from './componentes/graficos';
 
 window.bootstrap = bootstrap;
 
@@ -161,3 +162,6 @@ document.addEventListener('DOMContentLoaded', () => iniciarRecepcion());
 
 // Líneas de la venta: ver componentes/lineas-venta.js
 document.addEventListener('DOMContentLoaded', () => iniciarLineasDeVenta());
+
+// Gráficos del panel: ver componentes/graficos.js
+document.addEventListener('DOMContentLoaded', () => iniciarGraficosDelPanel());

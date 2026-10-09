@@ -19,7 +19,7 @@ Universidad Nacional de la Patagonia Austral — Unidad Académica Caleta Olivia
 | 4    | Usuarios, clientes y personal                | Completada |
 | 5    | Proveedores, compras y stock                 | Completada |
 | 6    | Ventas y pagos                               | Completada |
-| 7    | Panel de métricas y exportación a PDF        | Pendiente  |
+| 7    | Panel de métricas y exportación a PDF        | Completada |
 | 8    | Cierre: pruebas, seguridad, documentación    | Pendiente  |
 
 El sistema administra el catálogo y las personas, y compra: proveedores con los
@@ -44,6 +44,24 @@ declarado, y el estado destino nunca viaja en una petición: cada transición es
 con su nombre, su ruta y su permiso. **Nada se borra**: una venta, una línea y un pago no
 tienen forma de borrarse, y lo que reemplaza al borrado es el estado para el presupuesto
 y la devolución para la venta cobrada.
+
+La Fase 7 cierra el **panel** y la **exportación a PDF**. El panel está diferenciado por
+rol en dos rutas con un permiso cada una: el vendedor y el cajero ven lo suyo —lo que
+vendí y lo que cobré, que son dos preguntas distintas en dos columnas de dos tablas— y
+el administrativo ve el conjunto, con los rankings, el margen, el stock crítico y las
+órdenes de compra abiertas. **Cada número es una consulta de agregación** y ninguna trae
+filas al servidor de aplicación: hay un test que lo afirma sobre el log de consultas, y
+es el cierre de A-26. Los gráficos son Chart.js y reciben los números ya agregados; sin
+JavaScript las tablas muestran lo mismo.
+
+El panel nombra con precisión lo que muestra: **«cobrado»** descuenta las devoluciones
+porque el contra-asiento entra en la misma suma, **«facturado»** no, y **el margen es
+bruto** —no resta el descuento de la cabecera— con los descuentos otorgados al lado. Y
+hay dos PDF nuevos con comportamientos opuestos a propósito: el **comprobante de venta o
+presupuesto** imprime la fecha del hecho y sólo datos congelados, así que regenerarlo
+dentro de un año da el mismo papel; el **listado exportado** imprime la fecha de
+generación y declara los filtros aplicados, porque es un informe de un momento. Los dos
+dicen con palabras que no son comprobantes fiscales.
 
 ## Propósito
 
@@ -317,6 +335,18 @@ Cubierto hasta ahora:
   servicio pasaban y el formulario estaba roto, porque el Form Request descartaba «filas
   vacías» y ninguna fila del cobro es nunca vacía. A-24 otra vez — la pieza funcionaba y
   el cableado no.
+- Panel: los dos juegos de estados parten `Venta::ESTADOS` sin superponerse, el panel
+  propio separa lo vendido de lo cobrado, el facturado no descuenta devoluciones y lo
+  cobrado sí, el margen es bruto y los descuentos van aparte, y **ninguna consulta del
+  panel trae filas completas** —se verifica sobre el log de consultas—.
+- Panel: un permiso por ruta en las dos direcciones, y el inicio manda a cada rol a la
+  pantalla que puede ver en lugar de a un 403 sin salida.
+- Los gráficos reciben los números ya agregados: dos ventas del mismo día llegan como
+  un solo punto.
+- El comprobante de venta imprime lo congelado y no el estado, los pagos ni lo
+  devuelto, así que regenerarlo da el mismo documento. Descargarlo no cambia nada.
+- El listado exportado declara los filtros aplicados y avisa cuando recortó, diciendo
+  que el total es de todas las coincidencias y no de las filas impresas.
 
 El rollback se verifica a mano, porque `RefreshDatabase` envuelve cada prueba en
 una transacción y el DDL de MySQL provoca commits implícitos:
@@ -373,34 +403,49 @@ El listado completo de hallazgos está en `docs/auditoria.md`.
 
 ```
 app/
-├── Exceptions/             ReglaDeNegocioException
+├── Console/Commands/       compras:generar-reposicion
+├── Exceptions/             ReglaDeNegocio, StockInsuficiente, TransicionInvalida
 ├── Http/
-│   ├── Controllers/        traducen HTTP ↔ servicio, sin lógica de negocio
+│   ├── Controllers/        17 controladores: traducen HTTP ↔ servicio, sin lógica
 │   ├── Middleware/         VerificarUsuarioActivo, VerificarAmbitoGestion
-│   └── Requests/           validación de entrada
-├── Models/                 Eloquent, con $table declarado explícitamente
-├── Providers/              registro de Gates
-└── Services/               lógica de negocio (RolService)
+│   └── Requests/           26 Form Requests: validación de entrada y de filtros
+├── Models/                 Eloquent, con $table declarado y un scope por filtro
+├── Providers/              registro de Gates (deny-by-default)
+├── Services/               14 servicios: LA lógica de negocio, que reusa la Etapa 3
+└── Support/                MaquinaEstadosVenta, MaquinaEstadosCompra, Importe,
+                            ReglasFiscales, Like, Slug
 
 database/
-├── migrations/             18 migraciones de la Etapa 1, en orden de dependencia
+├── migrations/             23 archivos: las 18 tablas de la Etapa 1 y los cambios
+│                           posteriores, en orden de dependencia
 ├── seeders/                roles y permisos, administrador, datos ficticios
 └── factories/
 
 resources/
-├── js/                     Bootstrap y comportamiento de los formularios
-├── scss/                   Bootstrap + estilos heredados del sistema original
-└── views/
-    ├── layouts/            app (con navbar y footer) y auth (pantalla completa)
+├── js/
+│   ├── app.js              arranque y comportamientos cortos de formulario
+│   └── componentes/        líneas repetibles, selects buscables, gestor de
+│                           imágenes, recepción, gráficos del panel
+├── scss/                   Bootstrap + estilos propios (sin Tailwind)
+└── views/                  16 carpetas
+    ├── layouts/            app (navbar y pie) y auth (pantalla completa)
     ├── partials/           navbar, footer, alertas, resumen de errores
-    ├── auth/               login
+    ├── components/         opciones de categoría, gestor de imágenes
+    ├── auth/ · cuenta/     login, restablecimiento, contraseña propia
+    ├── panel/              panel propio y general, con el filtro de período
+    ├── categorias/ · marcas/ · productos/            catálogo
+    ├── personal/ · clientes/                         personas
+    ├── proveedores/ · compras/ · stock/              compras y kardex
+    ├── ventas/             listado, ficha, formulario, cobro, devolución y los
+    │                       dos PDF: comprobante y listado exportado
     └── roles/              index y formulario de permisos
 
-docs/                       auditoría, modelo de datos, planes, trazabilidad, DER
+docs/                       auditoría, modelo de datos, planes, trazabilidad, DER,
+                            patrón de módulo, pendientes de usabilidad
 legacy/                     sistema original congelado (ver legacy/README.md)
 tests/
-├── Feature/
-└── Unit/
+├── Feature/                rutas, permisos, filtros y flujos completos
+└── Unit/                   máquinas de estado, formato de importes, reglas fiscales
 ```
 
 ## Migración desde el sistema original
