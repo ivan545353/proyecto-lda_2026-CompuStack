@@ -54,9 +54,10 @@
                 <label for="estado" class="form-label">Estado</label>
                 <select class="form-select" id="estado" name="estado">
                     <option value="">Todos</option>
-                    {{-- Sólo los estados que la Etapa 1 produce. Los siete de la
-                         tienda online están declarados en el ENUM pero ofrecerlos
-                         acá sería ofrecer filtros que siempre devuelven vacío. --}}
+                    {{-- Sólo los estados que la Etapa 1 alcanza. Los cinco que faltan
+                         están declarados en el ENUM y ninguna pantalla los dispara:
+                         ofrecerlos acá sería ofrecer filtros cuyo único resultado
+                         posible es vacío. --}}
                     @foreach (App\Models\Venta::ESTADOS_EN_USO as $valor)
                         <option value="{{ $valor }}" @selected(request('estado') === $valor)>
                             {{ App\Models\Venta::ESTADOS[$valor] }}
