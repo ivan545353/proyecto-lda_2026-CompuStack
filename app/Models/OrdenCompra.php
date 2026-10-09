@@ -165,6 +165,11 @@ class OrdenCompra extends Model
         return $this->estado === 'borrador';
     }
 
+    public function sePuedeImprimir(): bool
+    {
+        return $this->fecha_aprobacion !== null;
+    }
+
     /** La generó la tarea de reposición, no una persona. */
     public function fueGeneradaPorElSistema(): bool
     {

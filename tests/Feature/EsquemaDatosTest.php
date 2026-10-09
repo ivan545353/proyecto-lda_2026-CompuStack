@@ -128,3 +128,9 @@ test('productos ya no tiene la columna de un solo proveedor', function () {
         ->and(Schema::hasTable('producto_proveedor'))
         ->toBeTrue('falta la pivote que reemplaza a la columna');
 });
+
+test('la linea de la orden congela el codigo del proveedor', function () {
+    // Nullable: un vínculo puede no tener código, y las líneas escritas antes de la
+    // columna tampoco. Null significa «no consta».
+    expect(Schema::hasColumn('orden_compra_lineas', 'codigo_proveedor'))->toBeTrue();
+});

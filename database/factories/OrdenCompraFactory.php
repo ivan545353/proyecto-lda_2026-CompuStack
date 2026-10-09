@@ -7,6 +7,7 @@ use App\Models\Producto;
 use App\Models\Proveedor;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Facades\DB;
 
 /** @extends Factory<\App\Models\OrdenCompra> */
 class OrdenCompraFactory extends Factory
@@ -95,11 +96,20 @@ class OrdenCompraFactory extends Factory
     public function conLinea(Producto $producto, int $cantidad, float $costo = 1000): static
     {
         return $this->afterCreating(function (OrdenCompra $orden) use ($producto, $cantidad, $costo) {
-            $orden->lineas()->create([
+            $linea = $orden->lineas()->make([
                 'producto_id'     => $producto->id,
                 'cantidad_pedida' => $cantidad,
                 'costo_unitario'  => $costo,
             ]);
+
+            // `codigo_proveedor` está fuera de $fillable: asignación directa, igual
+            // que en CompraService, copiándolo del vínculo con el proveedor.
+            $linea->codigo_proveedor = DB::table('producto_proveedor')
+                ->where('producto_id', $producto->id)
+                ->where('proveedor_id', $orden->proveedor_id)
+                ->value('codigo_proveedor');
+
+            $linea->save();
 
             // El total es derivado. Se deja coherente para que la factory no
             // produzca una fila que el servicio nunca produciría.
@@ -109,4 +119,4 @@ class OrdenCompraFactory extends Factory
             $orden->save();
         });
     }
-}
+}

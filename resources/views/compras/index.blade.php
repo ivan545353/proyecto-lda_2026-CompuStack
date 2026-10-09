@@ -5,7 +5,7 @@
 @section('title', 'Órdenes de compra')
 
 @section('content')
-    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-start mb-4 gap-3">
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center mb-4 gap-3">
         <div>
             <h1 class="h3 mb-1">Órdenes de compra</h1>
             <p class="text-body-secondary small mb-0">
@@ -15,8 +15,9 @@
         </div>
 
         @can('compra.crear')
-            <a href="{{ route('compras.create') }}" class="btn btn-acento">
-                <i class="bi bi-plus-lg" aria-hidden="true"></i> Nueva orden
+            <a href="{{ route('compras.pedido') }}"
+                class="btn btn-acento text-nowrap align-self-stretch align-self-sm-auto d-inline-flex align-items-center justify-content-center gap-1">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i> Armar pedido
             </a>
         @endcan
     </div>
@@ -85,7 +86,8 @@
                     aria-describedby="ayudaRangoCompra">
             </div>
 
-            <div class="col-12 d-flex align-items-center justify-content-between flex-wrap gap-2 pt-2 border-top">
+            <div
+                class="col-12 d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center justify-content-between flex-wrap gap-2 pt-2 border-top">
                 <div class="text-body-secondary small">
                     @if ($hayFiltros)
                         <div class="d-inline-flex align-items-center flex-wrap gap-1">
@@ -111,15 +113,16 @@
                     @endif
                 </div>
 
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 align-self-stretch align-self-sm-auto justify-content-sm-end">
                     @if ($hayFiltros)
                         <a href="{{ route('compras.index') }}"
-                            class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1">
+                            class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center gap-1 flex-fill flex-sm-grow-0">
                             <i class="bi bi-eraser" aria-hidden="true"></i> Limpiar
                         </a>
                     @endif
 
-                    <button type="submit" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center gap-1">
+                    <button type="submit"
+                        class="btn btn-sm btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1 flex-fill flex-sm-grow-0">
                         <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
                     </button>
                 </div>
@@ -128,86 +131,101 @@
     </form>
 
     <div class="card border-0 shadow-sm">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <caption class="visually-hidden">Listado de órdenes de compra</caption>
-                <thead class="table-light">
+        <table class="table table-hover align-middle mb-0" style="min-width: 42rem;">
+            <caption class="visually-hidden">Listado de órdenes de compra</caption>
+            <thead class="table-light">
+                <tr>
+                    <th scope="col" style="min-width: 7.5rem;">Orden</th>
+                    <th scope="col" style="min-width: 12rem;">Proveedor</th>
+                    <th scope="col" style="min-width: 7rem;">Estado</th>
+                    <th scope="col" class="text-center d-none d-md-table-cell" style="min-width: 5.5rem;">Productos</th>
+                    <th scope="col" class="text-end" style="min-width: 8rem;">Total estimado</th>
+                    <th scope="col" class="text-end" style="min-width: 5.5rem;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse ($ordenes as $orden)
                     <tr>
-                        <th scope="col">Orden</th>
-                        <th scope="col">Proveedor</th>
-                        <th scope="col">Estado</th>
-                        <th scope="col" class="text-center d-none d-md-table-cell">Productos</th>
-                        <th scope="col" class="text-end">Total estimado</th>
-                        <th scope="col" class="text-end">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($ordenes as $orden)
-                        <tr>
-                            <td class="text-nowrap">
+                        <td class="text-nowrap">
+                            @can('compra.ver')
+                                <a href="{{ route('compras.show', $orden) }}" class="fw-semibold link-dark">
+                                    {{ $orden->numeroFormateado() }}
+                                </a>
+                            @else
                                 <span class="fw-semibold">{{ $orden->numeroFormateado() }}</span>
+                            @endcan
+                            <div class="small text-body-secondary">
+                                {{ $orden->created_at->format('d/m/Y') }}
+                            </div>
+                        </td>
+
+                        <td>
+                            {{ $orden->proveedor->razon_social }}
+                            @if ($orden->fueGeneradaPorElSistema())
+                                {{-- usuario_creo_id en null SIGNIFICA esto: no es un dato faltante --}}
                                 <div class="small text-body-secondary">
-                                    {{ $orden->created_at->format('d/m/Y') }}
+                                    <i class="bi bi-robot" aria-hidden="true"></i> Generada automáticamente
                                 </div>
-                            </td>
+                            @endif
+                        </td>
 
-                            <td>
-                                {{ $orden->proveedor->razon_social }}
-                                @if ($orden->fueGeneradaPorElSistema())
-                                    {{-- usuario_creo_id en null SIGNIFICA esto: no es un dato faltante --}}
-                                    <div class="small text-body-secondary">
-                                        <i class="bi bi-robot" aria-hidden="true"></i> Generada automáticamente
-                                    </div>
-                                @endif
-                            </td>
+                        <td>
+                            <span class="badge {{ $orden->estadoClase() }}">{{ $orden->estadoTexto() }}</span>
+                        </td>
 
-                            <td>
-                                <span class="badge {{ $orden->estadoClase() }}">{{ $orden->estadoTexto() }}</span>
-                            </td>
+                        <td class="text-center d-none d-md-table-cell">{{ $orden->lineas_count }}</td>
 
-                            <td class="text-center d-none d-md-table-cell">{{ $orden->lineas_count }}</td>
+                        <td class="text-end text-nowrap">{{ Importe::pesos($orden->total_estimado) }}</td>
 
-                            <td class="text-end text-nowrap">{{ Importe::pesos($orden->total_estimado) }}</td>
+                        <td class="text-end text-nowrap">
 
-                            <td class="text-end text-nowrap">
-                                {{-- Sólo un borrador se edita. No ofrecer el botón es
-                                     la mitad del trabajo; la otra la hace el controlador. --}}
-                                @if ($orden->esEditable())
-                                    @can('compra.editar')
-                                        <a href="{{ route('compras.edit', $orden) }}" class="btn btn-sm btn-outline-dark"
-                                            aria-label="Editar la orden {{ $orden->numeroFormateado() }}">
-                                            <i class="bi bi-pencil" aria-hidden="true"></i>
-                                            <span class="d-none d-sm-inline">Editar</span>
-                                        </a>
-                                    @endcan
-                                @endif
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="6" class="text-center text-body-secondary py-4">
-                                @if ($hayFiltros)
-                                    Ninguna orden coincide con el filtro.
-                                    <a href="{{ route('compras.index') }}">Ver todas</a>.
-                                @else
-                                    Todavía no hay órdenes de compra. Se cargan a mano, o las genera
-                                    la tarea de reposición cuando un producto baja del mínimo.
-                                @endif
-                            </td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
+                            @can('compra.ver')
+                                <a href="{{ route('compras.show', $orden) }}" class="btn btn-sm btn-outline-dark"
+                                    aria-label="Ver la orden {{ $orden->numeroFormateado() }}">
+                                    <i class="bi bi-eye" aria-hidden="true"></i>
+                                    <span class="d-none d-sm-inline">Ver</span>
+                                </a>
+                            @endcan
+                            {{-- Sólo un borrador se edita. No ofrecer el botón es
+                                    la mitad del trabajo; la otra la hace el controlador. --}}
+                            @if ($orden->esEditable())
+                                @can('compra.editar')
+                                    <a href="{{ route('compras.edit', $orden) }}"
+                                        class="btn btn-sm btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1"
+                                        aria-label="Editar la orden {{ $orden->numeroFormateado() }}">
+                                        <i class="bi bi-pencil" aria-hidden="true"></i>
+                                        <span class="d-none d-sm-inline">Editar</span>
+                                    </a>
+                                @endcan
+                            @endif
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="6" class="text-center text-body-secondary py-4">
+                            @if ($hayFiltros)
+                                Ninguna orden coincide con el filtro.
+                                <a href="{{ route('compras.index') }}">Ver todas</a>.
+                            @else
+                                Todavía no hay órdenes de compra. Se cargan a mano, o las genera
+                                la tarea de reposición cuando un producto baja del mínimo.
+                            @endif
+                        </td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
     </div>
 
     @if ($ordenes->total() > 0)
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
-            <p class="text-body-secondary small mb-0">
+        <div class="d-flex flex-column flex-sm-row justify-content-between align-items-center flex-wrap gap-2 mt-3">
+            <p class="text-body-secondary small mb-0 text-center text-sm-start">
                 Mostrando {{ $ordenes->firstItem() }}–{{ $ordenes->lastItem() }} de {{ $ordenes->total() }}.
             </p>
 
-            {{ $ordenes->links() }}
+            <div class="d-flex justify-content-center">
+                {{ $ordenes->links() }}
+            </div>
         </div>
     @endif
 @endsection

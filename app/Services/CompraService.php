@@ -6,6 +6,8 @@ use App\Exceptions\ReglaDeNegocioException;
 use App\Models\OrdenCompra;
 use App\Models\OrdenCompraLinea;
 use App\Models\Producto;
+use App\Models\Proveedor;
+use Illuminate\Support\Collection;
 use App\Models\User;
 use App\Support\MaquinaEstadosCompra;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +41,11 @@ use Illuminate\Support\Facades\DB;
  *      efectivamente entró al depósito. Es el costo **acordado**, no el facturado:
  *      la recepción no pide un costo, así que si el proveedor facturara otro hoy no
  *      hay dónde registrarlo. Está anotado en los pendientes de usabilidad.
+ *   5. **Lo que el documento imprime se copia en la línea, no se referencia.**
+ *      `costo_unitario` y `codigo_proveedor` quedan congelados al escribirla. Es lo
+ *      que permite no archivar el PDF del pedido: regenerarlo dentro de un año da
+ *      el mismo documento, aunque el proveedor haya cambiado de precios y de
+ *      códigos. Mismo principio que `venta_lineas.precio_unitario`.
  *
  * Métodos:
  *   crearBorrador()       alta; sin usuario significa que la generó el sistema
@@ -49,6 +56,7 @@ use Illuminate\Support\Facades\DB;
  *   cancelar()            antes de que entre mercadería
  *   generarBorrador()     el alta que usa la tarea de reposición, con el costo del
  *                         vínculo de ese proveedor
+ *   armarPedido()         el armador: una pantalla, un borrador por proveedor
  *   recibir()             recepción total o parcial; ingresa stock y graba el costo
  */
 class CompraService
@@ -111,6 +119,37 @@ class CompraService
             'observaciones' => 'Generada automáticamente: stock por debajo del mínimo.',
             'lineas'        => $lineas,
         ]);
+    }
+
+    /**
+     * El armador de pedido: varias líneas con su proveedor cada una, y al guardar
+     * **un borrador por proveedor**.
+     *
+     * @return Collection<int, OrdenCompra>  los borradores creados, en el orden en
+     *                                       que se numeraron
+     */
+    public function armarPedido(array $datos, ?User $usuario = null): Collection
+    {
+        $lineas = $datos['lineas'] ?? [];
+        if ($lineas === []) {
+            throw new ReglaDeNegocioException('El pedido necesita al menos un producto.');
+        }
+        $this->exigirParesDistintos($lineas);
+
+        $grupos = collect($lineas)->groupBy(fn (array $linea) => (int) $linea['proveedor_id']);
+
+        $proveedores = Proveedor::query()
+            ->whereIn('id', $grupos->keys())
+            ->orderBy('razon_social')
+            ->get(['id', 'razon_social']);
+
+        return DB::transaction(fn () => $proveedores->map(
+            fn (Proveedor $proveedor) => $this->crearBorrador([
+                'proveedor_id' => $proveedor->id,
+                'lineas'       => $grupos->get($proveedor->id)->all(),
+            ], $usuario)
+                ->setRelation('proveedor', $proveedor),
+        ));
     }
 
     public function actualizarBorrador(OrdenCompra $orden, array $datos): OrdenCompra
@@ -331,17 +370,26 @@ class CompraService
         $orden->save();
     }
 
-    /** @param array<int, array<string, mixed>> $lineas */
-    private function reemplazarLineas(OrdenCompra $orden, array $lineas): void
+        private function reemplazarLineas(OrdenCompra $orden, array $lineas): void
     {
         $orden->lineas()->delete();
 
+        // Una consulta para toda la orden, no una por línea.
+        $codigos = $this->proveedores->codigosDe(
+            $orden->proveedor_id,
+            array_column($lineas, 'producto_id'),
+        );
+
         foreach ($lineas as $linea) {
-            $orden->lineas()->create([
+            $nueva = $orden->lineas()->make([
                 'producto_id'     => $linea['producto_id'],
                 'cantidad_pedida' => $linea['cantidad_pedida'],
                 'costo_unitario'  => $linea['costo_unitario'],
             ]);
+
+            $nueva->codigo_proveedor = $codigos->get($linea['producto_id']);
+
+            $nueva->save();
         }
 
         $this->recalcularTotal($orden);
@@ -370,6 +418,26 @@ class CompraService
             throw new ReglaDeNegocioException(
                 'La orden tiene el mismo producto cargado más de una vez. Dejá una sola línea '
                 .'por producto, con la cantidad total.'
+            );
+        }
+    }
+
+    /**
+     * En el armador la regla es sobre el PAR, no sobre el producto.
+     *
+     * @param  array<int, array<string, mixed>>  $lineas
+     */
+    private function exigirParesDistintos(array $lineas): void
+    {
+        $pares = array_map(
+            fn (array $linea) => $linea['producto_id'].'-'.$linea['proveedor_id'],
+            $lineas,
+        );
+
+        if (count($pares) !== count(array_unique($pares))) {
+            throw new ReglaDeNegocioException(
+                'Hay un producto cargado dos veces para el mismo proveedor. Dejá una sola línea '
+                .'por producto y proveedor, con la cantidad total.'
             );
         }
     }

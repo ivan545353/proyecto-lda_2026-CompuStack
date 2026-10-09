@@ -22,6 +22,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * línea de venta congela el precio: una orden de hace seis meses tiene que seguir
  * diciendo a cuánto se compró, aunque el costo del producto haya cambiado tres
  * veces desde entonces.
+ * `codigo_proveedor` se congela por el mismo motivo y en el mismo momento. Además
+ * del precio, el pedido imprime con qué código el proveedor identifica el
+ * producto; leerlo de la pivote haría que el PDF regenerado de una orden vieja
+ * cambie si el proveedor renumeró su catálogo, o quede vacío si el vínculo se
+ * quitó. Null significa «no consta», no «se perdió».
  */
 class OrdenCompraLinea extends Model
 {
@@ -36,6 +41,11 @@ class OrdenCompraLinea extends Model
      * y siempre junto con el movimiento de stock correspondiente. Fuera de
      * $fillable para que no se pueda declarar recibido algo que nunca entró al
      * depósito.
+     *
+     * `codigo_proveedor` también queda fuera de $fillable, por otro motivo: no es
+     * un dato que nadie cargue, es una copia que el servidor hace del vínculo al
+     * escribir la línea. Si fuera asignable, una petición armada a mano podría
+     * hacer que el pedido imprima un código que el proveedor nunca usó.
      */
     protected $attributes = ['cantidad_recibida' => 0];
 

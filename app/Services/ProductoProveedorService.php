@@ -40,6 +40,7 @@ use Illuminate\Support\Facades\DB;
  *   registrarCosto()  graba lo que se pagó en una recepción
  *   pedidoEnCurso()   la orden abierta de ese par, si hay; es lo que bloquea la baja
  *   pedidosEnCurso()  el mismo dato para toda la tabla, en una consulta
+ *   codigosDe()       los códigos de un proveedor, para congelarlos en la orden
  */
 class ProductoProveedorService
 {
@@ -265,5 +266,32 @@ class ProductoProveedorService
             ->where('proveedor_id', '!=', $preferidoId)
             ->where('es_preferido', true)
             ->update(['es_preferido' => false]);
+    }
+
+    /**
+     * El código con el que un proveedor identifica cada uno de estos productos.
+     *
+     * Lo usa `CompraService` para congelarlo en la línea de la orden. Vive acá y no
+     * allá porque la estructura de la pivote es de este servicio: `CompraService`
+     * pide «los códigos de este proveedor para estos productos» y no sabe en qué
+     * tabla están, igual que no sabe cómo se guarda `costo_ultimo`.
+     *
+     * Una consulta para todos los productos juntos, no una por línea. Los pares que
+     * no existen simplemente no aparecen en el resultado: un producto que este
+     * proveedor no provee no tiene código, y eso es null, no un error.
+     *
+     * @param  array<int, int|string>  $productoIds
+     * @return Collection<int, ?string>  producto_id => código
+     */
+    public function codigosDe(int $proveedorId, array $productoIds): Collection
+    {
+        if ($productoIds === []) {
+            return collect();
+        }
+
+        return DB::table('producto_proveedor')
+            ->where('proveedor_id', $proveedorId)
+            ->whereIn('producto_id', $productoIds)
+            ->pluck('codigo_proveedor', 'producto_id');
     }
 }

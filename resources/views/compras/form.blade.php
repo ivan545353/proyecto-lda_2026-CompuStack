@@ -44,11 +44,9 @@
 
     @include('partials.errores')
 
-    <form method="POST" novalidate action="{{ $esEdicion ? route('compras.update', $orden) : route('compras.store') }}">
+    <form method="POST" novalidate action="{{ route('compras.update', $orden) }}">
         @csrf
-        @if ($esEdicion)
-            @method('PUT')
-        @endif
+        @method('PUT')
 
         <div class="card card-body border-0 shadow-sm mb-4">
             <div class="row g-3">
@@ -88,7 +86,7 @@
 
         <div class="card border-0 shadow-sm mb-4">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-3">
                     <div>
                         <h2 class="h5 mb-1">Productos del pedido</h2>
                         <p class="text-body-secondary small mb-0">
@@ -97,7 +95,7 @@
                         </p>
                     </div>
 
-                    <button type="button" class="btn btn-sm btn-outline-dark" data-agregar-linea>
+                    <button type="button" class="btn btn-sm btn-outline-dark align-self-stretch align-self-sm-auto d-inline-flex align-items-center justify-content-center gap-1 text-nowrap" data-agregar-linea>
                         <i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar producto
                     </button>
                 </div>
@@ -106,49 +104,51 @@
                     <div class="alert alert-danger">{{ $message }}</div>
                 @enderror
 
-                <table class="table align-middle mb-0" data-lineas-orden data-proximo-indice="{{ $proximoIndice }}">
-                    <caption class="visually-hidden">Productos de la orden de compra</caption>
-                    <thead class="table-light">
-                        <tr>
-                            <th scope="col">Producto</th>
-                            <th scope="col" class="text-end">Cantidad</th>
-                            <th scope="col" class="text-end">Costo unitario</th>
-                            <th scope="col" class="text-end">Subtotal</th>
-                            <th scope="col"><span class="visually-hidden">Quitar</span></th>
-                        </tr>
-                    </thead>
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0" data-lineas-orden data-proximo-indice="{{ $proximoIndice }}" style="min-width: 40rem;">
+                        <caption class="visually-hidden">Productos de la orden de compra</caption>
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col" style="min-width: 14rem;">Producto</th>
+                                <th scope="col" class="text-end" style="width: 7rem; min-width: 5.5rem;">Cantidad</th>
+                                <th scope="col" class="text-end" style="width: 9.5rem; min-width: 8.5rem;">Costo unitario</th>
+                                <th scope="col" class="text-end" style="width: 7.5rem; min-width: 6rem;">Subtotal</th>
+                                <th scope="col" style="width: 3.5rem; min-width: 3rem;"><span class="visually-hidden">Quitar</span></th>
+                            </tr>
+                        </thead>
 
-                    <tbody>
-                        @foreach ($lineasCargadas as $indice => $linea)
-                            @include('compras._linea', [
-                                'indice' => $indice,
-                                'linea' => $linea,
-                                'productos' => $productos,
-                            ])
-                        @endforeach
+                        <tbody>
+                            @foreach ($lineasCargadas as $indice => $linea)
+                                @include('compras._linea', [
+                                    'indice' => $indice,
+                                    'linea' => $linea,
+                                    'productos' => $productos,
+                                ])
+                            @endforeach
 
-                        {{-- La plantilla va DENTRO del tbody: un <tr> dentro de un
-                             <template> suelto no sobrevive al parseo del navegador,
-                             porque una fila fuera de una tabla se descarta. Su
-                             contenido vive en un fragmento aparte, así que no
-                             aparece en el DOM ni en los querySelectorAll('tr'). --}}
-                        <template id="plantillaLinea">
-                            @include('compras._linea', [
-                                'indice' => '__INDICE__',
-                                'linea' => null,
-                                'productos' => $productos,
-                            ])
-                        </template>
-                    </tbody>
+                            {{-- La plantilla va DENTRO del tbody: un <tr> dentro de un
+                                 <template> suelto no sobrevive al parseo del navegador,
+                                 porque una fila fuera de una tabla se descarta. Su
+                                 contenido vive en un fragmento aparte, así que no
+                                 aparece en el DOM ni en los querySelectorAll('tr'). --}}
+                            <template id="plantillaLinea">
+                                @include('compras._linea', [
+                                    'indice' => '__INDICE__',
+                                    'linea' => null,
+                                    'productos' => $productos,
+                                ])
+                            </template>
+                        </tbody>
 
-                    <tfoot>
-                        <tr>
-                            <td colspan="3" class="text-end fw-semibold">Total estimado</td>
-                            <td class="text-end fw-semibold" data-total-orden>$ 0,00</td>
-                            <td></td>
-                        </tr>
-                    </tfoot>
-                </table>
+                        <tfoot>
+                            <tr>
+                                <td colspan="3" class="text-end fw-semibold">Total estimado</td>
+                                <td class="text-end fw-semibold" data-total-orden>$ 0,00</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
 
                 <p class="text-body-secondary small mt-3 mb-0" data-sin-lineas hidden>
                     La orden no tiene productos. Agregá al menos uno.
@@ -157,12 +157,12 @@
         </div>
 
         <div class="d-grid d-sm-flex gap-2">
-            <button type="submit" class="btn btn-acento">
+            <button type="submit" class="btn btn-acento d-inline-flex align-items-center justify-content-center gap-1">
                 <i class="bi bi-check-lg" aria-hidden="true"></i>
                 {{ $esEdicion ? 'Guardar cambios' : 'Crear orden en borrador' }}
             </button>
 
-            <a href="{{ route('compras.index') }}" class="btn btn-outline-secondary">Cancelar</a>
+            <a href="{{ route('compras.index') }}" class="btn btn-outline-secondary d-inline-flex align-items-center justify-content-center">Cancelar</a>
         </div>
     </form>
 @endsection
