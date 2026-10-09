@@ -18,9 +18,11 @@ class DatabaseSeeder extends Seeder
         // Datos ficticios para la demostración. Nunca en producción: son cuentas
         // con contraseña conocida.
         if (! app()->environment('production')) {
-            $this->call([
+                $this->call([
                 CatalogoDemoSeeder::class,
                 PersonasDemoSeeder::class,
+                // Va último: necesita el catálogo, los proveedores y las personas.
+                OperacionesDemoSeeder::class,
             ]);
         }
     }
