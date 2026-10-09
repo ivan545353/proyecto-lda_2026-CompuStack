@@ -120,7 +120,9 @@ class Venta extends Model
         'devuelta'          => 'Devuelta',
     ];
 
-     public const ESTADOS_EN_USO = ['presupuesto', 'pagada', 'entregada', 'cancelada'];
+    public const ESTADOS_EN_USO = [
+        'presupuesto', 'pagada', 'entregada', 'cancelada', 'devuelta_parcial', 'devuelta',
+    ];
 
     protected $table = 'ventas';
 

@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\Venta;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use App\Support\MaquinaEstadosVenta;
 
 uses(RefreshDatabase::class);
 
@@ -236,4 +237,31 @@ test('lo devuelto no entra por asignacion masiva en la linea', function () {
     // escribirlo alguien devolvería dos unidades tres veces y se llevaría seis. El
     // `prohibited` que además lo informa ya está en `VentaRequest`.
     expect($linea->fresh()->cantidad_devuelta)->toBe(0);
+});
+
+test('el filtro ofrece exactamente los estados que la etapa 1 alcanza', function () {
+    // Un estado es alcanzable si alguna transición declarada lo nombra como destino,
+    // más `presupuesto`, que es donde nace toda venta. Derivarlo de la tabla y no
+    // escribirlo a mano es lo que convierte este test en una red: quien declare una
+    // transición nueva y se olvide de ofrecer su destino en el filtro se entera acá.
+    //
+    // Es exactamente lo que pasó al agregar la devolución: `devuelta_parcial` y
+    // `devuelta` pasaron a ser alcanzables y el filtro siguió sin ofrecerlos, así que
+    // no había forma de listar las ventas devueltas.
+    $alcanzables = collect(Venta::ESTADOS)
+        ->keys()
+        ->flatMap(fn (string $estado) => MaquinaEstadosVenta::destinosDesde($estado))
+        ->push('presupuesto')
+        ->unique();
+
+    // Los de la tienda online quedan afuera a propósito: la tabla los declara completos
+    // para no reabrirla con media decisión tomada, y ninguna pantalla de la Etapa 1 los
+    // dispara.
+    $deLaEtapa2 = ['pendiente_pago', 'en_preparacion', 'despachada', 'lista_retiro'];
+
+    expect(Venta::ESTADOS_EN_USO)->toEqualCanonicalizing(
+        $alcanzables->reject(fn (string $estado) => in_array($estado, $deLaEtapa2, true))
+            ->values()
+            ->all()
+    );
 });
