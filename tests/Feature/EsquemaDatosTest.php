@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Models\Venta;
 
 uses(RefreshDatabase::class);
 
@@ -61,18 +62,35 @@ test('ninguna columna usa punto flotante', function () {
     );
 });
 
-test('el enum de estado de venta declara los diez valores', function () {
-    // Cambiar un ENUM reescribe la tabla entera. Los estados de la Etapa 2 ya
-    // están declarados aunque todavía no se usen.
+test('el enum de estado de venta declara los once valores', function () {
+    // Cambiar un ENUM reescribe la tabla entera. Los estados de la Etapa 2 se
+    // declararon en la Fase 1 aunque todavía no se usen, y `entregada_parcial` se
+    // sumó en la Fase 6 por el mismo motivo: es la única pieza de la venta con
+    // faltante que no es barata de agregar después, y la tabla todavía está vacía.
     $tipo = tipoDeColumna('ventas', 'estado');
 
     foreach ([
         'presupuesto', 'pendiente_pago', 'pagada', 'en_preparacion',
-        'despachada', 'lista_retiro', 'entregada', 'cancelada',
-        'devuelta_parcial', 'devuelta',
+        'despachada', 'lista_retiro', 'entregada_parcial', 'entregada',
+        'cancelada', 'devuelta_parcial', 'devuelta',
     ] as $estado) {
         expect($tipo)->toContain("'{$estado}'");
     }
+});
+
+test('el enum de estado de venta y la constante del modelo dicen lo mismo', function () {
+    // La otra mitad de la afirmación. El test de arriba verifica que los once
+    // estén; este, que no haya ninguno de más ni ninguno sin texto de pantalla.
+    //
+    // Hace falta porque `Venta::ESTADOS` es de donde salen los textos de la
+    // máquina de estados, los badges y los selectores: un valor agregado al ENUM
+    // sin su texto se mostraría como el valor crudo de la columna, y un texto con
+    // la clave mal escrita produciría un estado que ninguna pantalla sabe nombrar.
+    // Ninguna de las dos cosas rompe nada, y por eso no la encontraría ningún otro
+    // test.
+    preg_match_all("/'([^']*)'/", tipoDeColumna('ventas', 'estado'), $coincidencias);
+
+    expect($coincidencias[1])->toEqualCanonicalizing(array_keys(Venta::ESTADOS));
 });
 
 test('el enum de movimientos de stock incluye la liberacion de reserva', function () {
@@ -133,4 +151,15 @@ test('la linea de la orden congela el codigo del proveedor', function () {
     // Nullable: un vínculo puede no tener código, y las líneas escritas antes de la
     // columna tampoco. Null significa «no consta».
     expect(Schema::hasColumn('orden_compra_lineas', 'codigo_proveedor'))->toBeTrue();
+});
+
+test('el monto de un pago admite negativos', function () {
+    // El contra-asiento de la devolución (A-11) es una fila de pago con monto
+    // negativo. La afirmación se hace contra la base y no contra la migración, igual
+    // que el resto de este archivo: si alguien declarara la columna `unsigned`, el
+    // insert de la reversión fallaría en mitad de la transacción de la devolución y
+    // el stock ya repuesto se revertiría con él, así que el usuario vería un error
+    // sin entender qué pasó. Es el mismo criterio que `movimientos_stock.cantidad`,
+    // que guarda la cantidad con signo.
+    expect(tipoDeColumna('pagos', 'monto'))->not->toContain('unsigned');
 });

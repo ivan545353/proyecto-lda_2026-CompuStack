@@ -14,6 +14,8 @@ use App\Http\Controllers\DireccionController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\ProductoProveedorController;
+use App\Http\Controllers\VentaController;
+use App\Http\Controllers\PagoController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -320,6 +322,57 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->whereNumber('orden')
         ->middleware('can:compra.ver')->name('compras.pdf');
         
+    // Ventas
+    Route::get('/ventas', [VentaController::class, 'index'])
+        ->middleware('can:venta.ver')->name('ventas.index');
+        
+    Route::get('/ventas/crear', [VentaController::class, 'create'])
+        ->middleware('can:venta.crear')->name('ventas.create');
+
+    Route::post('/ventas', [VentaController::class, 'store'])
+        ->middleware('can:venta.crear')->name('ventas.store');
+
+    Route::get('/ventas/{venta}', [VentaController::class, 'show'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.ver')->name('ventas.show');
+
+        Route::get('/ventas/{venta}/editar', [VentaController::class, 'edit'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.editar')->name('ventas.edit');
+
+    Route::put('/ventas/{venta}', [VentaController::class, 'update'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.editar')->name('ventas.update');
+
+    Route::post('/ventas/{venta}/recotizar', [VentaController::class, 'recotizar'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.editar')->name('ventas.recotizar');
+
+    Route::post('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.editar')->name('ventas.cancelar');
+
+    // COBRO Y ENTREGA
+    Route::get('/ventas/{venta}/cobro', [PagoController::class, 'create'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.cobrar')->name('pagos.create');
+
+    Route::post('/ventas/{venta}/cobro', [PagoController::class, 'store'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.cobrar')->name('pagos.store');
+
+    Route::post('/ventas/{venta}/entregar', [VentaController::class, 'entregar'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.entregar')->name('ventas.entregar');
+
+    Route::get('/ventas/{venta}/devolucion', [VentaController::class, 'devolucion'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.anular')->name('ventas.devolucion');
+
+    Route::post('/ventas/{venta}/devolucion', [VentaController::class, 'devolver'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.anular')->name('ventas.devolver');
+
     // Administración — Roles y permisos
     Route::get('/roles', [RolController::class, 'index'])
         ->middleware('can:rol.ver')

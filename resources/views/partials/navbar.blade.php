@@ -21,6 +21,14 @@
                         @if (request()->routeIs('panel')) aria-current="page" @endif>Inicio</a>
                 </li>
 
+                @can('venta.ver')
+                    <li class="nav-item">
+                        <a class="nav-link text-black {{ request()->routeIs('ventas.*') ? 'active' : '' }}"
+                            href="{{ route('ventas.index') }}"
+                            @if (request()->routeIs('ventas.*')) aria-current="page" @endif>Ventas</a>
+                    </li>
+                @endcan
+
                 @can('rol.ver')
                     <li class="nav-item">
                         <a class="nav-link text-black {{ request()->routeIs('roles.*') ? 'active' : '' }}"

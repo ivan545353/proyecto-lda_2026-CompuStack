@@ -38,6 +38,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Relaciones:
  *   proveedores()       BelongsToMany  a quiénes se le compra, con el precio de cada uno
  *   ordenCompraLineas() HasMany        en qué órdenes de compra aparece
+ *   ventaLineas()       HasMany        en qué ventas aparece
  *   movimientos()       HasMany        el kardex del producto
  *
  * Todo lo relativo a stock se calcula sobre el DISPONIBLE (stock menos lo
@@ -209,10 +210,26 @@ class Producto extends Model
         return $this->hasMany(OrdenCompraLinea::class, 'producto_id');
     }
 
+    /**
+     * Todas las líneas de venta en las que aparece este producto.
+     *
+     * Igual que `ordenCompraLineas()`, no es un historial para mostrar —para eso
+     * está el kardex, que tiene fecha y usuario—: existe para poder preguntarle a la
+     * base si el producto se vendió alguna vez sin traer ninguna línea a PHP.
+     * `ProductoService` ya lo pregunta con `DB::table('venta_lineas')` para decidir
+     * si la baja es física o lógica, y eso sigue estando bien; la relación es para
+     * los `withCount` del listado y para el más vendido del panel de la Fase 7.
+     */
+    public function ventaLineas(): HasMany
+    {
+        return $this->hasMany(VentaLinea::class, 'producto_id');
+    }
+
     public function getStockDisponibleAttribute(): int
     {
         return $this->stock - $this->stock_reservado;
     }
+
 
     // ------------------------------------------------------------------
     // Filtros

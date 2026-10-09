@@ -1113,42 +1113,59 @@ class MaquinaEstadosVenta
 
 > **Cierra el hallazgo C-9.** El sistema original permitía cualquier transición. `presupuesto → cobrada` marcaba la venta como cobrada **sin descontar stock**, porque la cadena de `if` no contemplaba ese caso y simplemente actualizaba la columna. Una tabla de transiciones no deja huecos.
 
-### 6.2 Confirmar la venta
+### 6.2 Cambiar el estado
 
 ```php
 class VentaService
 {
-    public function __construct(private StockService $stock) {}
-
-    public function cambiarEstado(Venta $venta, string $nuevoEstado, User $usuario): Venta
+    public function cancelar(Venta $venta): Venta
     {
-        return DB::transaction(function () use ($venta, $nuevoEstado, $usuario) {
+        return DB::transaction(function () use ($venta) {
+            // Se bloquea antes de leer el estado que se va a validar: sin el lock,
+            // dos pestañas leen «presupuesto» las dos y escriben las dos.
             $v = Venta::lockForUpdate()->findOrFail($venta->id);
 
-            MaquinaEstadosVenta::validar($v->estado, $nuevoEstado);
-
-            // El stock se descuenta una sola vez, al entrar en 'pagada'
-            if ($nuevoEstado === 'pagada') {
-                foreach ($v->lineas as $linea) {
-                    $this->stock->descontar($linea->producto, $linea->cantidad, $v, $usuario);
-                }
-            }
-
-            // Anular repone lo descontado
-            if (in_array($nuevoEstado, ['cancelada', 'devuelta'], true)
-                && in_array($v->estado, ['pagada', 'entregada'], true)) {
-                foreach ($v->lineas as $linea) {
-                    $this->stock->reponer($linea->producto, $linea->cantidad, 'devolucion', $v, $usuario);
-                }
-            }
-
-            $v->update(['estado' => $nuevoEstado]);
+            $this->cambiarEstado($v, 'cancelada');
 
             return $v->fresh();
         });
     }
+
+    /**
+     * Privado, a propósito. El estado destino lo elige el método público que llama
+     * acá —`cancelar()` pasa 'cancelada' escrito en el código— y nunca viaja en una
+     * petición.
+     */
+    private function cambiarEstado(Venta $venta, string $nuevo): void
+    {
+        MaquinaEstadosVenta::validar($venta->estado, $nuevo);
+
+        // `estado` está fuera de $fillable: asignación directa. Un
+        // update(['estado' => …]) lo descartaría en silencio.
+        $venta->estado = $nuevo;
+        $venta->save();
+    }
 }
 ```
+
+> **Corregido respecto de la versión anterior de este plan.** Acá había un
+> `cambiarEstado(Venta $venta, string $nuevoEstado, User $usuario)` **público**, con el
+> descuento de stock y la reposición adentro, decidiendo por `if` según el estado
+> destino. No se implementó así, y el motivo es la mitad de C-9 que una tabla de
+> transiciones no cubre: un método público que recibe el estado destino **es** la firma
+> de `SaleService::updateEstado($id, $nuevoEstado)`, con el estado viniendo del body.
+> Poner una tabla delante de esa puerta cambia cuáles se rechazan, no quién decide a
+> dónde va la venta.
+>
+> Entonces: una transición, un método público con su nombre y sus efectos, una ruta y
+> un permiso. `cambiarEstado()` es privado y lo único que hace es validar y escribir.
+> En la primera mitad de la fase la única transición que existe es `cancelar()`, y eso
+> es lo que garantiza que ninguna venta pueda llegar todavía a `pagada`: no hay un
+> camino provisorio hacia el descuento de stock, hay un método que no está escrito.
+>
+> El descuento de stock al entrar en `pagada` y la reposición de la devolución son la
+> segunda mitad, y van en sus propios métodos —`cobrar()` y `devolver()`— no en un
+> `if` del cambio de estado.
 
 ### 6.3 Precios calculados en el servidor
 
@@ -1162,11 +1179,9 @@ private function armarLineas(Venta $venta, array $items): void
         // Esto el sistema original ya lo hacía bien y se conserva.
         $producto = Producto::findOrFail($item['producto_id']);
 
-        $precio = $item['modo_pago'] === 'contado'
-            ? (float) $producto->precio_contado
-            : (float) $producto->precio_lista;
+        $precio = $producto->precio_contado;
 
-        $total = round($precio * $item['cantidad'], 2);
+        $total = round((float) $precio * $item['cantidad'], 2);
         $neto  = round($total / (1 + ((float) $producto->alicuota_iva / 100)), 2);
 
         $venta->lineas()->create([

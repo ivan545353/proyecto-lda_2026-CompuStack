@@ -25,6 +25,16 @@ use Illuminate\Support\Facades\DB;
  * llamaba; se cambió porque un error en el llamador registraría una devolución
  * como una compra, el kardex mentiría y ningún test fallaría.
  *
+ * **El `motivo`, en cambio, sí lo pone quien llama, y no contradice lo de arriba.**
+ * Un `$tipo` equivocado hace que el kardex afirme un hecho falso de forma
+ * indetectable; un `$motivo` es texto libre que está o no está, y no puede volver
+ * mentiroso ningún asiento. Lo exige `ajustar()`, porque un ajuste no tiene
+ * documento de origen y el motivo es lo único que responde el «por qué» que pide
+ * A-13. En `reponer()` es opcional: la devolución **sí** tiene documento —la venta—
+ * así que el «por qué cambió el stock» ya está respondido, y lo que el motivo agrega
+ * es lo único que el sistema no puede reconstruir después: por qué el cliente lo
+ * trajo de vuelta.
+ *
  * **Bloqueo pesimista en los cuatro, no sólo al descontar.** Es M-15: el
  * `moverStock` original hacía `SELECT ... FOR UPDATE` en modo descontar e iba
  * directo al `UPDATE` en modo reponer, así que dos reposiciones simultáneas del
@@ -38,7 +48,7 @@ use Illuminate\Support\Facades\DB;
  *
  * Métodos:
  *   descontar()      salida por venta; valida contra el disponible
- *   reponer()        entrada por devolución o anulación
+ *   reponer()        entrada por devolución; el motivo es opcional
  *   recibirCompra()  entrada por recepción; recalcula el costo promedio ponderado
  *   ajustar()        inventario: se carga el conteo físico, no la diferencia
  */
@@ -81,23 +91,37 @@ class StockService
         });
     }
 
-    /** Entrada de stock por una devolución o la anulación de una venta. */
+        /**
+     * Entrada de stock por una devolución.
+     *
+     * El `motivo` es opcional y viaja al asiento del kardex. Ver el docblock de la
+     * clase: la devolución tiene documento de origen, así que el motivo no responde
+     * «por qué cambió el stock» —eso lo responde el `origen`— sino «por qué el
+     * cliente lo trajo de vuelta», que es lo único que no se puede reconstruir
+     * después.
+     *
+     * No valida `activo`, igual que los otros tres. Una unidad que el cliente trae de
+     * vuelta entró físicamente al depósito, esté el producto discontinuado o no, y
+     * rechazar el asiento sería negarle al kardex la capacidad de registrar lo que
+     * pasó — que es lo peor que le puede pasar a un libro.
+     */
     public function reponer(
         Producto $producto,
         int $cantidad,
         Model $origen,
         ?User $usuario = null,
+        ?string $motivo = null,
     ): MovimientoStock {
         $this->exigirCantidadPositiva($cantidad);
 
-        return DB::transaction(function () use ($producto, $cantidad, $origen, $usuario) {
+        return DB::transaction(function () use ($producto, $cantidad, $origen, $usuario, $motivo) {
             // El bloqueo también acá: es literalmente M-15.
             $p = Producto::lockForUpdate()->findOrFail($producto->id);
 
             $p->stock = $p->stock + $cantidad;
             $p->save();
 
-            return $this->registrar($p, 'devolucion', $cantidad, $origen, $usuario);
+            return $this->registrar($p, 'devolucion', $cantidad, $origen, $usuario, $motivo);
         });
     }
 

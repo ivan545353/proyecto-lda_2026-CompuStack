@@ -166,7 +166,11 @@ y un producto con un solo proveedor no puede expresar eso. La columna se elimin�
 en la Fase 5 y la reemplaza la pivote `producto_proveedor` (ver §3).
 **Por qué dos precios y no una tabla de listas.** Dijiste que el precio es uno solo y que el arreglo mayorista es informal (16), pero también que querés el esquema actual de precio de lista distinto al de contado (38). Eso son exactamente dos números por producto, no dos listas de precios. Dos columnas resuelven el 100% del caso; una tabla `listas_precio` agregaría una entidad y un join a cada consulta de catálogo para modelar lo mismo.
 
-En la tienda online se cobra siempre `precio_lista` (Checkout Pro recibe el monto antes de saber el medio de pago). En mostrador el cajero elige, y el precio aplicado queda congelado en la línea de venta.
+En la tienda online se cobra siempre `precio_lista`: Checkout Pro recibe el monto antes de saber con qué se va a pagar, así que el recargo de tarjeta tiene que estar **adentro** del precio. Ése es el motivo por el que existen dos números y no uno.
+
+**En el mostrador el precio es uno: `precio_contado`.** La versión anterior de este documento decía que ahí el cajero elegía entre los dos, y es falso: en una sucursal el recargo por tarjeta lo aplica el posnet al cobrar, o se arregla informalmente, y el sistema no calcula lo que no controla. Se corrigió en la Fase 6, y la consecuencia es que **la venta de mostrador no tiene modalidad de precio**: no hay nada que elegir, nada que guardar y nada que recordar. Lo único que el mostrador tiene para mover el total es el descuento, con su tope por rol (A-12).
+
+El precio aplicado queda congelado en `venta_lineas.precio_unitario` igual que antes, y es lo que hace reproducible una venta después de un aumento.
 
 **Por qué no hay variantes ni atributos técnicos.** En el bloque anterior te recomendé separar producto de variante. **Cambio esa recomendación** a la luz de tus respuestas: pediste explícitamente no explotar el modelo, y descartaste las fichas técnicas (15). Separar producto/variante duplica la complejidad de carrito, stock, órdenes de compra y kardex para ganar sólo una agrupación visual en la tienda ("mismo SSD, tres capacidades"). Con un `codigo` por capacidad ya tenés el control de stock correcto.
 
@@ -413,6 +417,16 @@ quiere entrar al sistema, se le crea un rol con sus permisos y se le muestran su
 | total         | decimal      |                                 |
 | observaciones | varchar null |                                 |
 
+**Por qué no hay columna `numero`.** El número de venta es el `id`, formateado
+`V-00042`, por el mismo criterio que las órdenes de compra: la venta de la Etapa 1 no
+es un comprobante fiscal, no la gobierna AFIP y no necesita ser correlativa sin
+huecos, y la clave primaria ya garantiza unicidad por construcción —sin contador, sin
+tabla auxiliar y sin condición de carrera—. Es la lección de A-18 aplicada: el sistema
+original tenía `ventas.numero` sin índice único y `venta_numeracion`, una tabla de una
+sola fila sin clave primaria, para generar un número que tampoco era único. La
+numeración fiscal, por punto de venta y tipo de comprobante, vive en `comprobantes` y
+la gobierna AFIP (ver §6).
+
 ### `venta_lineas`
 `id, venta_id FK, producto_id FK, descripcion, cantidad, cantidad_devuelta, precio_unitario, alicuota_iva, costo_unitario, neto, iva, total`
 
@@ -459,11 +473,14 @@ está en decisiones que la Fase 6 toma igual:
 - La línea de venta necesita apuntar a la línea de orden de compra que repone esa
   unidad, o cuando la mercadería llega nadie sabe que era de un cliente. FK
   nullable a una tabla que ya existe, también barato.
-- `ventas.estado` necesita un valor más (`entregada_parcial`), y **eso reescribe la
-  tabla**: es la única pieza que encarece esperar. Hoy no hay datos de producción,
-  así que sigue siendo barato, pero deja de serlo después de la entrega. Si la
-  venta con faltante se va a hacer alguna vez, el valor se declara en la Fase 6,
-  cuando se escriben los estados, no después.
+- `ventas.estado` necesitaba un valor más (`entregada_parcial`), y **eso reescribe la
+  tabla**: era la única pieza que encarecía esperar. **Se declaró en la Fase 6**, con
+  la tabla todavía vacía, y por eso se pudo poner en su lugar lógico del ENUM —antes
+  de `entregada`— en lugar de pegado al final, que es lo único que MariaDB puede hacer
+  sin reescribir. `MaquinaEstadosVenta` **no lo alcanza desde ningún origen**, así que
+  es un estado declarado e inalcanzable, con su test afirmándolo: el día que alguien
+  implemente el backorder, ese test le va a fallar, y eso es exactamente lo que tiene
+  que pasar.
 - La reserva de mostrador **con seña reabre una decisión ya tomada**: los pagos
   parciales están fuera del alcance. Sin seña es un presupuesto que espera
   mercadería, y eso ya se puede hacer con lo que hay.

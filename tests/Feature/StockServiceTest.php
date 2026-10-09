@@ -87,6 +87,22 @@ test('reponer suma el stock y deja un movimiento de devolucion', function () {
         ->and($movimiento->stock_resultante)->toBe(6);
 });
 
+test('reponer guarda el motivo si lo recibe, y lo deja nulo si no', function () {
+    $producto = Producto::factory()->conStock(4)->create();
+
+    $conMotivo = $this->service->reponer($producto, 1, documentoDeOrigen(), admin(), 'Vino fallado');
+    $sinMotivo = $this->service->reponer($producto, 1, documentoDeOrigen(), admin());
+
+    // El motivo es opcional porque la devolución tiene documento de origen: el
+    // «por qué cambió el stock» lo responde el `origen`, y el motivo agrega lo
+    // único que no se puede reconstruir después. En el ajuste es obligatorio
+    // justamente porque ahí no hay documento.
+    expect($conMotivo->motivo)->toBe('Vino fallado')
+        ->and($sinMotivo->motivo)->toBeNull()
+        // El tipo lo sigue poniendo el método y no el llamador.
+        ->and($conMotivo->tipo)->toBe('devolucion')
+        ->and($producto->fresh()->stock)->toBe(6);
+});
 // ---------- Recepción de compra ----------
 
 test('recibir una compra ingresa stock y recalcula el costo promedio ponderado', function () {

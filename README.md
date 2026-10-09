@@ -18,16 +18,32 @@ Universidad Nacional de la Patagonia Austral — Unidad Académica Caleta Olivia
 | 3    | Catálogo: categorías, marcas, productos      | Completada |
 | 4    | Usuarios, clientes y personal                | Completada |
 | 5    | Proveedores, compras y stock                 | Completada |
-| 6    | Ventas y pagos                               | Pendiente  |
+| 6    | Ventas y pagos                               | Completada |
 | 7    | Panel de métricas y exportación a PDF        | Pendiente  |
 | 8    | Cierre: pruebas, seguridad, documentación    | Pendiente  |
 
-Al cierre de la Fase 5 el sistema administra el catálogo y las personas y además
-compra: proveedores con los productos que provee cada uno y a qué precio, órdenes
-de compra con máquina de estados y aprobación, recepción total o parcial de
-mercadería con kardex, ajustes de inventario, PDF del pedido al proveedor y
-reposición automática de lo que cae por debajo del mínimo. Las ventas y los pagos
-empiezan en la Fase 6.
+El sistema administra el catálogo y las personas, y compra: proveedores con los
+productos que provee cada uno y a qué precio, órdenes de compra con máquina de estados
+y aprobación, recepción total o parcial de mercadería con kardex, ajustes de inventario,
+PDF del pedido al proveedor y reposición automática de lo que cae por debajo del mínimo.
+
+La Fase 6 —ventas y pagos— está completa. El mostrador emite un **presupuesto** con los
+precios leídos del catálogo y congelados en la línea junto a la alícuota y el costo, lo
+edita conservando esos precios, lo **recotiza** como acción explícita que informa qué
+cambió, aplica un descuento con tope por rol, o lo **cancela** sin borrar nada. Cuando
+se **cobra**, el saldo se valida después de bloquear la venta, se registran los medios
+de pago —uno o varios, por el total exacto— y se descuenta el stock de cada producto
+exactamente una vez, dejando su asiento en el kardex. Después se puede **entregar**, y
+después **devolver**, total o parcialmente: la devolución repone el stock, le pone al
+cobro un pago en contra por la parte que corresponde, y deja la venta en
+`devuelta_parcial` o `devuelta` según cuánto quedó sin devolver — el estado se deriva de
+las líneas, no lo elige el operador.
+
+Toda transición pasa por una **máquina de estados explícita** que rechaza lo que no está
+declarado, y el estado destino nunca viaja en una petición: cada transición es un método
+con su nombre, su ruta y su permiso. **Nada se borra**: una venta, una línea y un pago no
+tienen forma de borrarse, y lo que reemplaza al borrado es el estado para el presupuesto
+y la devolución para la venta cobrada.
 
 ## Propósito
 
@@ -222,7 +238,8 @@ Cubierto hasta ahora:
 
 - Existencia de las dieciocho tablas, y que productos.proveedor_id ya no existe.
 - Ninguna columna de la base en punto flotante.
-- `ventas.estado` declara sus diez valores y `movimientos_stock.tipo` los cinco.
+- `ventas.estado` declara sus once valores, y la constante del modelo dice lo mismo
+  que la base. `movimientos_stock.tipo` declara los cinco.
 - `pagos.mp_payment_id` tiene índice único (idempotencia de webhooks).
 - Toda tabla del dominio lleva marcas de tiempo.
 - Asignación de permisos por rol, incluida la regresión del hallazgo C-2.
@@ -253,6 +270,53 @@ Cubierto hasta ahora:
 - La reposición automática: a quién se le pide cada producto, qué productos no
   entran, que no vuelve a pedir lo que ya está en una orden abierta y que dos
   corridas seguidas no duplican nada.
+- La tabla de transiciones de la venta: cada transición declarada se permite, cada una
+  que no está declarada se rechaza —incluidos los cuatro agujeros que la auditoría
+  encontró en el original—, los estados finales no tienen salida, y `entregada_parcial`
+  está declarado en la base pero ninguna transición lo alcanza.
+- Que el estado destino no sea una puerta pública del servicio, verificado por
+  reflexión: `cambiarEstado()` es privado.
+- Que una venta no se pueda borrar, ni con `delete()` ni con un `update()` masivo sobre
+  el estado o los importes.
+- Que el precio se lea del catálogo y no del formulario, en tres niveles: el servicio
+  lo ignora, el modelo no lo puede escribir, y el Form Request lo rechaza con un
+  mensaje.
+- Que el neto y el IVA de cada línea sumen exactamente el total, con las tres alícuotas.
+- Que editar un presupuesto conserve el precio congelado de las líneas que ya estaban
+  —afirmado sobre el **id** de la fila, no sobre el precio— y que recotizar lo releve e
+  informe qué cambió conservando el porcentaje de descuento.
+- El tope de descuento por rol, en el Form Request y en el servicio.
+- Los filtros del listado de ventas en dos niveles: que el scope filtre y que el
+  parámetro de la URL llegue al scope.
+- Los permisos de las trece rutas de ventas y pagos en los dos sentidos; que un vendedor
+  pueda cancelar el presupuesto que él mismo cargó; y que quien cobra sin poder editar
+  **sí** vea el botón de cobrar —la dirección que faltaba, y cuya ausencia dejó pasar un
+  bug real en la ficha—.
+- El cobro: que el saldo se lea **después** del lock, verificado comparando la posición
+  de las dos consultas en el `query log`; que salga de los pagos registrados y no del
+  total; y que un pago que entra en el instante en que se toma el lock entre en la cuenta
+  y haga rechazar el cobro.
+- La idempotencia en sus dos niveles: que cobrar dos veces se rechace por el estado, y
+  que el mismo `mp_payment_id` dos veces no acredite ni descuente dos veces.
+- Que el pase a `pagada` descuente el stock exactamente una vez, rechace un producto dado
+  de baja, valide contra el **disponible** y revierta entero si una línea no alcanza
+  —incluido el pago que ya se había escrito—.
+- Que los productos se bloqueen en orden de `id` al descontar y al reponer, para que dos
+  operaciones que comparten productos no se bloqueen en cruz.
+- La devolución: que reponga stock, revierta el pago con un contra-asiento, derive el
+  estado de las líneas, cierre en cero cuando se completa, devuelva la parte proporcional
+  del descuento cuando es parcial, y no permita devolver más de lo vendido ni de una vez
+  ni en dos tandas.
+- Que una línea de otra venta no se pueda devolver, y que ni el monto ni el estado de una
+  devolución se puedan enviar desde el formulario.
+- Que un pago no se pueda borrar, y que las columnas que acredita el webhook de Mercado
+  Pago se rechacen en el formulario del mostrador — también cuando vienen en un medio sin
+  monto.
+- Que el formulario de cobro acepte el cuerpo real de la pantalla, con los medios sin usar
+  llegando vacíos. Es la regresión del único bug de esta fase: los treinta casos del
+  servicio pasaban y el formulario estaba roto, porque el Form Request descartaba «filas
+  vacías» y ninguna fila del cobro es nunca vacía. A-24 otra vez — la pieza funcionaba y
+  el cableado no.
 
 El rollback se verifica a mano, porque `RefreshDatabase` envuelve cada prueba en
 una transacción y el DDL de MySQL provoca commits implícitos:
@@ -377,16 +441,25 @@ Decisiones tomadas a conciencia, con su motivo:
   archivo. Resolverlo requiere subir cada imagen apenas se elige, a un
   almacenamiento temporal, con un endpoint propio y una tarea que limpie lo
   abandonado. El formulario avisa que hay que volver a elegirlas.
-- **Los selectores con búsqueda cargan todas las opciones en el HTML.** Sirve
-  para categorías, marcas y proveedores. Para productos y clientes en ventas
-  (Fase 6) hace falta buscar en el servidor; el componente está preparado para
-  recibir ese modo.
+- **Los selectores con búsqueda cargan todas las opciones en el HTML**, y el
+  formulario de venta además manda el precio y el disponible de cada producto como
+  JSON para la vista previa de los importes. Sirve con el catálogo y el padrón de la
+  demostración; con miles de productos o clientes hace falta buscar contra el
+  servidor. El componente está preparado para recibir ese modo (`data-buscable-url`),
+  y el punto está anotado como pendiente #39.
 - **El bloque de campo se repite en los tres formularios**: etiqueta, campo,
   ayuda y error. Corresponde un componente Blade `<x-campo>`. No se hizo en la
   Fase 3 para no mezclar un refactor con módulos nuevos.
 - **El filtro por categoría no recorre subcategorías en el listado de
   categorías**, a diferencia del de productos. Es deliberado: uno es
   navegación y el otro es búsqueda.
+- **Las pantallas de cobro y devolución no calculan nada en el navegador.** La de cobro
+no suma los medios en vivo ni ofrece un «todo en efectivo»; la de devolución no
+muestra cuánta plata va a volver antes de enviar. Las dos funcionan sin JavaScript a
+propósito, y en el segundo caso hay un motivo de fondo: el monto lo calcula el
+servidor con la parte proporcional del descuento, y duplicar una fórmula de dinero en
+el cliente es más riesgo que el que la vista previa del formulario de venta ya tiene
+asumido. Están anotados como pendientes #41 y #42.
 
 ## Documentación
 
