@@ -124,6 +124,19 @@ class Venta extends Model
         'presupuesto', 'pagada', 'entregada', 'cancelada', 'devuelta_parcial', 'devuelta',
     ];
 
+    // Los estados en los que el cobro ya ocurrió: de acá sale todo lo que el panel
+    // cuenta como vendido (A-26). Incluye los de la Etapa 2 para que el día que se
+    // alcancen el panel no se quede corto en silencio.
+    public const ESTADOS_VENDIDOS = [
+        'pagada', 'en_preparacion', 'despachada', 'lista_retiro',
+        'entregada_parcial', 'entregada', 'devuelta_parcial', 'devuelta',
+    ];
+
+    // Los otros tres: la plata no entró. PanelServiceTest afirma que los dos juegos
+    // parten ESTADOS sin superponerse, así que agregar un valor al ENUM rompe el test
+    // en vez de contarse solo.
+    public const ESTADOS_SIN_COBRO = ['presupuesto', 'pendiente_pago', 'cancelada'];
+
     protected $table = 'ventas';
 
     protected $fillable = ['cliente_id', 'usuario_id', 'observaciones'];
