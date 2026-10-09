@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  *   usuario()                  BelongsTo  su cuenta, si tiene
  *   direcciones()              HasMany    las habituales, para envíos
  *   direccionPredeterminada()  HasOne     la que se ofrece primero
+ *   ventas()                   HasMany    su historial de compras
  *
  * Scopes (uno por filtro del listado; el contrato está declarado acá y en
  * ClienteFiltroRequest):
@@ -77,6 +78,21 @@ class Cliente extends Model
     public function direccionPredeterminada(): HasOne
     {
         return $this->hasOne(Direccion::class, 'cliente_id')->where('es_predeterminada', true);
+    }
+
+    /**
+     * Su historial de compras.
+     *
+     * `ClienteService` ya preguntaba por esta tabla con `DB::table('ventas')`, que
+     * funciona sin modelo y seguía siendo correcto. La relación existe para lo que
+     * el `DB::table` no puede hacer: el `withCount('ventas')` del listado, que es
+     * lo que falta para no ofrecer un botón de eliminar que el servicio va a
+     * rechazar (pendiente #1), y la ficha con el historial del cliente
+     * (pendiente #8).
+     */
+    public function ventas(): HasMany
+    {
+        return $this->hasMany(Venta::class, 'cliente_id');
     }
 
     /** Cliente de mostrador: compró sin cuenta y no necesita una. */

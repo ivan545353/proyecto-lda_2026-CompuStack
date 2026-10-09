@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use App\Support\Like;
@@ -27,6 +28,8 @@ use Illuminate\Support\Facades\Cache;
  *   rol()       BelongsTo   el rol que determina sus permisos
  *   empleado()  HasOne      si su rol es de ámbito gestión
  *   cliente()   HasOne      si su rol es de ámbito tienda
+ *   ventas()    HasMany     lo que vendió
+ *   pagos()     HasMany     lo que cobró, que no es lo mismo que haber vendido
  *
  * Métodos:
  *   getNombreCompletoAttribute()  accesor para mostrar
@@ -77,6 +80,40 @@ class User extends Authenticatable
     public function cliente(): HasOne
     {
         return $this->hasOne(Cliente::class, 'user_id');
+    }
+
+    /**
+     * Las ventas que hizo esta persona, como vendedor.
+     *
+     * No es lo mismo que haber cobrado: el cajero queda en `pagos.usuario_id`, y
+     * tener las dos cosas separadas es lo que permite que el panel distinga quién
+     * vendió de quién cobró. Un empleado dado de baja conserva su historial y sigue
+     * apareciendo en los reportes del período en que trabajó, que es la razón por la
+     * que `fecha_baja` no es lo mismo que `activo`.
+     *
+     * La usa el `withCount` del listado de personal, para no ofrecer un botón de
+     * eliminar sobre alguien con historial (pendiente #2).
+     */
+    public function ventas(): HasMany
+    {
+        return $this->hasMany(Venta::class, 'usuario_id');
+    }
+
+    /**
+     * Los cobros que registró esta persona, como cajero.
+     *
+     * Es la otra mitad de `ventas()`, y las dos existen separadas porque son dos
+     * preguntas distintas: en el mostrador el vendedor arma el presupuesto y el
+     * cajero cobra, y el panel de la Fase 7 tiene que poder rankear las dos cosas sin
+     * confundirlas. `UsuarioService::HISTORIAL` ya cuenta la tabla `pagos` para
+     * decidir si una cuenta se borra o se desactiva (M-16), pero lo hace por nombre
+     * de tabla; esta relación es lo que le faltaba al `withCount` del listado de
+     * personal para no ofrecer un botón de eliminar que el servicio va a rechazar
+     * (pendiente #2). Ese `withCount` lo cierra el último paso de esta mitad.
+     */
+    public function pagos(): HasMany
+    {
+        return $this->hasMany(Pago::class, 'usuario_id');
     }
 
     public function getNombreCompletoAttribute(): string

@@ -121,7 +121,12 @@ class MovimientoStock extends Model
 
         return match (class_basename($this->origen_type)) {
             'OrdenCompra' => 'Orden de compra OC-'.str_pad((string) $this->origen_id, 5, '0', STR_PAD_LEFT),
-            'Venta'       => "Venta #{$this->origen_id}",
+            // El número lo arma el modelo que lo define, no esta pantalla: así el
+            // kardex y la ficha de la venta dicen «V-00042» igual, y cambiar el
+            // formato se hace en un solo lugar. La orden de compra todavía lo arma
+            // acá a mano; no lo muevo en esta fase para no mezclar un retoque de la
+            // Fase 5 con el módulo nuevo.
+            'Venta'       => 'Venta '.Venta::numeroDe($this->origen_id),
             // Cualquier otro documento: se nombra sin filtrar la clase.
             default       => 'Documento interno',
         };

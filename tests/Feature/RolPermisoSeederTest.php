@@ -44,6 +44,28 @@ test('el cajero cobra pero no emite ventas', function () {
     expect($claves)->not->toContain('venta.anular');
 });
 
+test('el administrativo resuelve devoluciones y el vendedor no', function () {
+    // `venta.anular` quedó libre para la devolución justamente porque cancelar un
+    // presupuesto exige `venta.editar`: cancelar no mueve stock ni plata, devolver
+    // mueve las dos cosas. El vendedor tiene que poder dar de baja lo que él mismo
+    // cargó, y no tiene que poder deshacer una venta cobrada.
+    $administrativo = Rol::where('nombre', 'Administrativo')->first()->permisos()->pluck('clave');
+    $vendedor       = Rol::where('nombre', 'Vendedor')->first()->permisos()->pluck('clave');
+
+    expect($administrativo)->toContain('venta.anular')
+        ->and($administrativo)->not->toContain('venta.crear')
+        ->and($vendedor)->not->toContain('venta.anular');
+});
+
+test('el mostrador entrega y el administrativo no', function () {
+    $claves = fn (string $rol) => Rol::where('nombre', $rol)->first()->permisos()->pluck('clave');
+
+    // Entregar es trabajo de mostrador: lo hace quien tiene al cliente adelante.
+    expect($claves('Vendedor'))->toContain('venta.entregar')
+        ->and($claves('Cajero'))->toContain('venta.entregar')
+        ->and($claves('Administrativo'))->not->toContain('venta.entregar');
+});
+
 test('solo el administrador puede cambiar roles', function () {
     // Cierra el camino del hallazgo C-3: el cambio de rol es un permiso propio,
     // no una consecuencia de poder editar un usuario.

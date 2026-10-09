@@ -33,7 +33,7 @@ class RolPermisoSeeder extends Seeder
         'cliente'   => ['ver', 'crear', 'editar', 'eliminar'],
         'proveedor' => ['ver', 'crear', 'editar', 'eliminar'],
         'compra'    => ['ver', 'crear', 'editar', 'aprobar', 'recibir'],
-        'venta'     => ['ver', 'crear', 'editar', 'cobrar', 'anular'],
+        'venta'     => ['ver', 'crear', 'editar', 'cobrar', 'entregar', 'anular', 'autorizar_descuento'],
         'stock'     => ['ver', 'ajustar'],
         'rol'       => ['ver', 'editar'],
         'panel'     => ['ver_propio', 'ver_global'],
@@ -45,12 +45,12 @@ class RolPermisoSeeder extends Seeder
             'ambito'      => 'gestion',
             'permisos'    => '*',
         ],
-        'Administrativo' => [
-            'descripcion' => 'Catálogo, personas, compras y stock. Ve las ventas, no las opera.',
+                'Administrativo' => [
+            'descripcion' => 'Catálogo, personas, compras y stock. Ve las ventas y resuelve las devoluciones.',
             'ambito'      => 'gestion',
             'permisos'    => [
                 'categoria.*', 'marca.*', 'producto.*', 'cliente.*', 'proveedor.*',
-                'compra.*', 'stock.*', 'venta.ver', 'panel.ver_global',
+                'compra.*', 'stock.*', 'venta.ver', 'venta.anular', 'panel.ver_global',
             ],
         ],
         'Vendedor' => [
@@ -58,14 +58,16 @@ class RolPermisoSeeder extends Seeder
             'ambito'      => 'gestion',
             'permisos'    => [
                 'categoria.ver', 'producto.ver', 'cliente.ver', 'cliente.crear',
-                'venta.ver', 'venta.crear', 'venta.editar', 'panel.ver_propio',
+                'venta.ver', 'venta.crear', 'venta.editar', 'venta.entregar',
+                'panel.ver_propio',
             ],
         ],
         'Cajero' => [
-            'descripcion' => 'Registra cobros sobre ventas existentes.',
+            'descripcion' => 'Registra cobros y entregas sobre ventas existentes.',
             'ambito'      => 'gestion',
             'permisos'    => [
-                'producto.ver', 'venta.ver', 'venta.cobrar', 'panel.ver_propio',
+                'producto.ver', 'venta.ver', 'venta.cobrar', 'venta.entregar',
+                'panel.ver_propio',
             ],
         ],
         'Cliente' => [

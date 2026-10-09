@@ -445,7 +445,11 @@ test('una cuenta con ventas se desactiva y el mensaje lo dice', function () {
 
 test('cargar la fecha de baja no quita el acceso', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
-    Empleado::factory()->create(['user_id' => $objetivo->id, 'fecha_baja' => null]);
+    Empleado::factory()->create([
+        'user_id'       => $objetivo->id,
+        'fecha_ingreso' => '2025-01-01',
+        'fecha_baja'    => null,
+    ]);
 
     $this->actingAs(usuarioCon('usuario.editar'))
         ->put(route('personal.update', $objetivo), datosDeEdicionDe($objetivo->fresh(), [

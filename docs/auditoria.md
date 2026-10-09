@@ -136,6 +136,42 @@ Agujeros concretos:
 
 `SaleService::updateEstado()` sólo valida que el estado destino esté en la lista de válidos; nunca valida el origen. Este es el defecto más grave del módulo que hoy "funciona perfectamente".
 
+> **Cerrado** — Fase 6. `App\Support\MaquinaEstadosVenta` declara la tabla completa de
+> transiciones, y **lo que no está en la tabla no se puede**. Los cuatro agujeros de
+> arriba están tapados por la misma pieza, y cada uno tiene su caso de test:
+>
+> - `presupuesto` sólo llega a `pagada` o a `cancelada`, así que
+>   `presupuesto → entregada` se rechaza. Era el peor de los cuatro: el
+>   `presupuesto → cobrada` del original marcaba la venta como cobrada **sin descontar
+>   stock y sin un solo pago registrado**, simplemente porque la cadena de `if` no
+>   contemplaba el caso y caía en el `UPDATE` pelado.
+> - `cancelada` y `devuelta` son listas vacías: `anulada → confirmada` no revive nada.
+> - `entregada → pagada` tampoco existe, así que no quedan pagos registrados sobre una
+>   venta que el sistema considera no cobrada.
+> - `pagada → pagada` no está declarado, y **ésa es la idempotencia**: no se consigue
+>   con una bandera ni con un chequeo extra en el servicio, se consigue con que el
+>   destino no esté en la lista del origen.
+>
+> Hay una segunda mitad del hallazgo que una tabla sola no cubre: en el original el
+> estado destino **viajaba en la petición** (`SaleService::updateEstado($id, $nuevo)`).
+> Poner una tabla delante de esa misma puerta cambia cuáles se rechazan, no quién
+> decide a dónde va la venta. Acá cada transición es un método con su nombre y sus
+> efectos —`cancelar()` pasa `'cancelada'` escrito en el código—, `cambiarEstado()` es
+> **privado**, y `estado` está fuera de `$fillable`, así que un `update()` con ese
+> campo lo descarta. Son tres barreras que apuntan al mismo defecto desde lugares
+> distintos y las tres tienen test, incluido uno que afirma por reflexión que
+> `cambiarEstado()` sigue siendo privado.
+>
+> El `?? []` del lookup es la forma de C-2 en este rincón del sistema: un estado que no
+> figura en la tabla no habilita nada por descarte. Y `entregada_parcial` está
+> declarado en el ENUM pero no en la tabla, así que es inalcanzable: es el valor que la
+> venta con faltante necesitaría, declarado ahora porque agregarlo después reescribe la
+> tabla.
+>
+> La segunda mitad de la fase no agrega reglas acá: agrega el **llamador** de dos
+> transiciones que ya están declaradas, el pase a `pagada` —que descuenta stock— y la
+> devolución.
+
 ### C-10 · Sobrepago posible (TOCTOU)
 La validación del monto está en el service, **fuera** de la transacción:
 ```php
@@ -145,11 +181,166 @@ $dao->registrarPago(...);   // recién acá abre transacción y hace FOR UPDATE
 ```
 Dos requests concurrentes leen el mismo saldo, ambos pasan la validación, ambos insertan. Con Mercado Pago reintentando webhooks esto deja de ser teórico. Falta además **clave de idempotencia** en `pagos`: no hay forma de distinguir un reintento de un pago nuevo.
 
+> La técnica ya rige en todo lugar donde una decisión depende de un estado que otra
+> petición puede cambiar: los cuatro métodos de `StockService` bloquean la fila del
+> producto **antes** de comparar contra el disponible, `CompraService` bloquea la orden
+> antes de leer su estado, y en ventas `actualizar()`, `recotizar()` y `cancelar()`
+> hacen lo mismo con la fila de la venta.
+>
+> La distinción quedó escrita en `VentaService::crear()`, en el comentario que explica
+> por qué el tope de descuento **sí** se valida afuera de la transacción: no depende de
+> nada que otra petición pueda cambiar mientras tanto. El saldo de un pago sí depende,
+> y por eso tiene que leerse después de bloquear. Validar afuera lo que depende del
+> estado es exactamente este hallazgo.
+>
+> **Cerrado** — Fase 6. `PagoService::cobrar()` bloquea la fila de la venta y **recién
+> después** lee el saldo, que es la inversión exacta del original: ahí la comparación
+> vivía en el servicio, fuera de la transacción, y el `FOR UPDATE` llegaba al insertar.
+>
+> El candado es la fila de `ventas` y **no** las de `pagos`, y es a propósito: un pago
+> que todavía no existe no se puede bloquear, así que el único lugar donde dos cobros de
+> la misma venta se pueden serializar es la fila del padre. Es el mismo razonamiento que
+> `DireccionService`, que bloquea la fila del cliente para que el alta de la primera
+> dirección también se serialice.
+>
+> De ahí se desprende una invariante que el docblock del servicio deja escrita: **el
+> `lockForUpdate()` tiene que ser la primera lectura de la venta dentro de la
+> transacción**. Si antes hubiera una lectura sin lock, la transacción se quedaría con
+> esa foto y el saldo leído después podría ser el de antes de que la otra petición
+> insertara su pago. Tres tests la sostienen, y cada uno se pone en rojo con un cambio
+> distinto:
+>
+> - «la venta se bloquea antes de leer el saldo» compara la posición de las dos
+>   consultas en el log: si el lock desaparece o se corre debajo del `SUM`, falla;
+> - «el saldo sale de los pagos ya registrados y no del total» falla si alguien compara
+>   el monto contra `ventas.total` en lugar de contra el saldo;
+> - «dos cobros concurrentes no exceden el saldo» inyecta el pago de la otra petición en
+>   el instante exacto en que el lock se toma, y afirma que el cobro por el total se
+>   rechaza. Si el saldo se leyera antes del lock, ese cobro se aceptaría y quedarían
+>   dos cobros completos sobre una venta.
+>
+> **La segunda mitad del hallazgo —la clave de idempotencia— tiene su mecanismo, y son
+> dos niveles que cubren dos cosas distintas.** El **mismo cobro** dos veces —doble
+> clic, dos pestañas, el botón «atrás» y volver a enviar— lo ataja el estado:
+> `pagada → pagada` no está declarado, así que el segundo intento no llega a escribir
+> nada. Es el cuarto agujero de C-9 haciendo el trabajo de C-10. El **mismo pago
+> externo** dos veces lo ataja `pagos.mp_payment_id`, con su índice único desde la Fase
+> 1: `cobrar()` lo busca **dentro del lock** y, si ese pago ya está acreditado, devuelve
+> la venta sin escribir nada. Sin ese camino el índice convertiría un reintento de
+> webhook en un error del servidor y Mercado Pago seguiría reintentando; con él, el
+> reintento es un no-op, que es la definición de idempotente. Un mensaje que mezcla
+> pagos acreditados y nuevos se rechaza entero en lugar de escribir la mitad.
+>
+> La comparación de importes se hace en **centavos enteros**. La tolerancia de `0.001`
+> que tenía el plan de acción es lo que uno escribe cuando ya sospecha que comparar
+> flotantes está mal; en centavos el problema no existe, porque son enteros.
+>
+> **Y lo que no se hizo es parte del cierre.** El saldo **no** se valida en
+> `PagoRequest`. La doctrina del proyecto es que cada regla que el usuario puede violar
+> viva en el servicio *además* del Form Request, y el tope de descuento está en los dos
+> a propósito. Acá no, y la diferencia es el hallazgo: el tope depende de lo que llegó y
+> del rol de quien lo manda, y nadie puede cambiar ninguna de las dos cosas mientras
+> tanto; el saldo depende de los pagos ya registrados, que otra petición puede estar
+> escribiendo. Un Form Request no puede bloquear una fila, así que cualquier
+> comprobación del saldo escrita ahí sería una lectura sin lock seguida de una decisión
+> — una copia del hallazgo dentro del código que lo corrige, y alguien que la leyera
+> podría concluir que la del servicio es la redundante. El precio es que ese error no
+> cae en el campo sino arriba de la pantalla, con `withInput()` conservando lo cargado,
+> y es el precio correcto.
+
 ### A-11 · Anular no revierte los pagos
 `confirmada/cobrada → anulada` repone stock pero deja las filas de `pagos` intactas. No hay nota de crédito, ni devolución, ni marca de reversión. Contablemente queda plata cobrada sobre una venta inexistente.
 
+> **Cerrado** — Fase 6, y por un camino distinto del que el hallazgo sugería. Vale la
+> pena leer primero por qué cambió el camino.
+>
+> `MaquinaEstadosVenta` no declara `pagada → cancelada`. Una venta cobrada no se
+> anula: **se devuelve**, y es la devolución la que tiene que revertir los pagos y
+> reponer el stock. El original permitía `confirmada/cobrada → anulada`, reponía stock
+> y dejaba las filas de `pagos` intactas; acá esa transición no existe, así que no hay
+> ningún camino que deshaga una venta cobrada sin pasar por donde se devuelve el
+> dinero. Dos estados que significaran «deshecha» con mecánicas distintas serían peor
+> que uno.
+>
+> `VentaService::devolver()` es ese camino. Repone el stock por `StockService`, revierte
+> los pagos y deriva el estado, todo en una transacción, y es el **único** camino que
+> deshace una venta cobrada: como `pagada → cancelada` no existe, no hay forma de llegar
+> a un estado que signifique «deshecha» sin pasar por donde se devuelve el dinero.
+>
+> **La reversión es un contra-asiento**: una fila de pago con monto negativo, no una
+> edición ni un borrado de la original. Es el mismo criterio que
+> `movimientos_stock.cantidad`, que guarda la cantidad con signo —un asiento por hecho—
+> y tiene tres consecuencias que valen más que la elección en sí: `SUM(monto)` sigue
+> respondiendo «cuánta plata quedó de esta venta» sin filtrar nada ni mirar ninguna
+> columna de estado; una devolución parcial produce una reversión parcial sin inventar
+> ninguna entidad; y la ficha muestra los dos hechos uno debajo del otro, que es lo que
+> hace evidente que nada se tapó. `EsquemaDatosTest` afirma contra la base que
+> `pagos.monto` no es `unsigned`, porque si alguien lo declarara así la reversión
+> fallaría en mitad de la transacción de la devolución.
+>
+> **El monto lo calcula el servidor y nunca se escribe.** `DevolucionRequest` declara
+> `monto` como `prohibited`, así que mandarlo se rechaza en lugar de ignorarse: si el
+> operador pudiera tipearlo, podría devolver más de lo que entró, que es este hallazgo
+> con otra forma. Es la parte proporcional de lo que vuelve, con su parte proporcional
+> del descuento —si no, devolver de a poco saldría más caro que devolver todo junto— y
+> con una excepción: la devolución que **completa** la venta devuelve lo que quedó
+> cobrado y no la cuenta proporcional, para que el libro cierre en cero exacto y no en
+> un centavo por el redondeo de cada parte.
+>
+> **El estado también se deriva**, de comparar `cantidad_devuelta` contra `cantidad` en
+> cada línea: `devuelta_parcial` mientras quede algo, `devuelta` cuando no quede nada.
+> No lo elige el operador, y `estado` está declarado `prohibited` en el formulario. Una
+> venta en `devuelta_parcial` sigue admitiendo devoluciones —`devuelta_parcial →
+> devuelta_parcial` está declarado a propósito—, que es el caso de quien devuelve el
+> mouse en enero y la fuente en marzo. Y `cantidad_devuelta` es un **contador** y no una
+> bandera: sin él, alguien devuelve dos unidades tres veces y se lleva seis.
+>
+> **El medio por el que vuelve la plata sí lo elige quien devuelve**, y es la única
+> decisión de la devolución que no se deriva. Una venta cobrada por transferencia se
+> puede devolver en efectivo de la caja, y escribir un negativo en transferencia
+> afirmaría un hecho que no ocurrió: cómo volvió la plata es un dato del mundo que el
+> sistema conoce sólo si se lo dicen. Es el mismo argumento con el que la Fase 5 decidió
+> no marcar una orden como «enviada» sin un SMTP que lo respalde. La pantalla propone el
+> medio del cobro más grande y deja cambiarlo. La consecuencia es que el neto de un
+> medio puede quedar negativo en un período, y eso es correcto: es lo que un libro de
+> caja tiene que poder decir.
+>
+> Queda afuera la **nota de crédito**, que es el documento fiscal de la devolución y es
+> de la Etapa 2. En la Etapa 1 la devolución mueve `cantidad_devuelta`, repone stock por
+> el kardex, escribe el contra-asiento y cambia el estado; el comprobante llega con
+> AFIP, y `comprobantes` y `comprobante_lineas` ya están justificadas en
+> `modelo-datos.md` para que la NC pueda llevar su propio detalle y cubrir sólo parte de
+> la venta.
+
 ### A-12 · Descuento sin control por rol
 `descuentoPorcentaje` lo fija el cliente y se valida sólo `0 ≤ pct ≤ 100`. Cualquier vendedor puede cargar 100% de descuento. En el dump ya hay una venta al 50% (`id 19`). No hay tope por perfil ni flujo de autorización.
+
+> **Cerrado** — Fase 6. El vendedor carga un **porcentaje**, que es como se negocia un
+> descuento, y el sistema calcula y guarda el **monto** en `ventas.descuento`, que es
+> lo que la columna es. El porcentaje se recupera derivándolo del monto cuando la
+> pantalla lo necesita.
+>
+> El tope depende del permiso: sin `venta.autorizar_descuento` rige
+> `config('venta.descuento.tope_general')` —10 %—, con él `tope_autorizado` —30 %—, y
+> **el 100 % no se alcanza por ningún camino**. De los cinco roles de sistema sólo el
+> Administrador tiene ese permiso; el Vendedor, que es quien cargaba el 50 % de la
+> venta 19 del dump, no.
+>
+> Se valida en **dos lugares a propósito**: en `VentaRequest`, para que el error caiga
+> en el campo y `old()` conserve el cliente, las observaciones y todas las líneas que
+> el usuario ya había cargado; y en `VentaService`, que es la barrera que va a heredar
+> la API de la Etapa 3. Los dos leen el mismo número por el mismo camino
+> —`VentaService::topeDeDescuento()`—, y la ayuda del campo en la pantalla sale de ese
+> mismo método, así que los tres no se pueden desincronizar.
+>
+> El tope vive en configuración y no escrito en el código porque es un parámetro del
+> negocio: el dueño puede querer moverlo sin que nadie recompile nada, que es el mismo
+> argumento por el que los permisos están en la base.
+>
+> Queda sin hacer, y anotado en los pendientes con su motivo, el **flujo de
+> autorización** que el hallazgo también nombra. Hoy el vendedor que necesita más
+> recibe un mensaje con el tope y alguien con el permiso tiene que cargar la venta. Un
+> flujo de solicitud y aprobación es un módulo, no un campo.
 
 ### A-13 · Stock sin libro de movimientos
 `productos.stock` es una columna mutable que se pisa con `UPDATE productos SET stock = stock - :cant`. No hay kardex. No se puede: auditar quién movió qué, reconstruir el stock a una fecha, distinguir una venta de un ajuste o de una recepción de mercadería, ni implementar reservas.
@@ -190,6 +381,41 @@ Esto es bloqueante para los requerimientos 5 (carrito), 9 (venta online) y 11 (c
 
 Nota positiva: **releer el precio del servidor y nunca confiar en el que manda el cliente es correcto** y hay que conservarlo. Lo que falta es distinguir "cotizar" de "recotizar".
 
+> **Cerrado** — Fase 6. Lo que el original hacía bien se conservó igual: el precio se
+> lee de la base y **nunca** del formulario. Y se endureció: `VentaRequest` declara
+> `lineas.*.precio_unitario` como `prohibited`, así que mandarlo a mano no se ignora en
+> silencio sino que se rechaza con un mensaje, y `venta_lineas` tiene en `$fillable`
+> sólo `producto_id` y `cantidad` —los seis campos congelados los escribe el servidor
+> por asignación directa—. Tres barreras, y la única que informa es la de arriba:
+> descartar en silencio un dato que alguien mandó es la doctrina de M-31 al revés.
+>
+> Lo que faltaba era distinguir **cotizar** de **recotizar**, y ahora son dos
+> operaciones distintas:
+>
+> - **`crear()` cotiza**: la línea nace con el precio, la alícuota y el costo del
+>   momento.
+> - **`actualizar()` ajusta las líneas en lugar de reemplazarlas.** La que ya estaba
+>   conserva su `precio_unitario` y sólo recalcula los importes si cambió la cantidad;
+>   la que entra se cotiza al precio de hoy; la que salió del pedido se borra. Es el
+>   contrapunto exacto de `CompraService::actualizarBorrador()`, que **sí** borra y
+>   reinserta, y la diferencia está escrita en el docblock de ese método: la misma
+>   técnica está bien o mal según si la fila tiene estado propio. La línea de compra no
+>   lo tiene, porque el formulario carga el costo; la de venta sí —su precio congelado,
+>   que no está en ningún otro lado—. `SaleDao::update()` borraba y reinsertaba
+>   releyendo el precio, y eso **es** este hallazgo.
+> - **`recotizar()` es una acción explícita**, con su botón, su confirmación y su
+>   permiso, que relee todos los precios y **devuelve qué cambió**: producto por
+>   producto, de cuánto a cuánto, y el total viejo contra el nuevo, para que la
+>   pantalla lo informe antes de que el presupuesto vuelva al cliente. Conserva el
+>   **porcentaje** de descuento y no el monto, así que un 10 % sigue siendo un 10 %
+>   sobre el subtotal nuevo.
+>
+> Recotizar no estaba mal; recotizar sin que nadie lo pidiera ni se enterara, sí.
+>
+> El test que fija el hallazgo afirma que la línea conserva el **mismo id** después de
+> editar, y no sólo el mismo precio: si el producto no cambió de precio, el precio
+> coincidiría por casualidad aunque la fila se hubiera borrado y reinsertado. El id no.
+
 ### M-15 · `moverStock` en modo reponer no bloquea la fila
 El modo `descontar` hace `SELECT ... FOR UPDATE`; el modo `reponer` va directo al `UPDATE`. Inconsistente.
 
@@ -211,10 +437,51 @@ El modo `descontar` hace `SELECT ... FOR UPDATE`; el modo `reponer` va directo a
 `SaleDao::delete()` es un `DELETE` plano y `detalle_ventas` tiene `ON DELETE CASCADE`. Borrar una venta borra su historial completo. Lo mismo en productos y usuarios. Con facturación real esto es inadmisible: una vez emitido un comprobante, nada se borra.
 
 > La política ya rige en los módulos que existen: el catálogo y los proveedores se
-> desactivan si algo los referencia, las cuentas de personal con historial también,
-> y un cliente referenciado rechaza la baja con un motivo. Falta el núcleo del
-> hallazgo —el borrado físico de documentos financieros—, que lo cierra la Fase 6,
-> cuando existan ventas y pagos.
+> desactivan si algo los referencia, las cuentas de personal con historial también, y
+> un cliente referenciado rechaza la baja con un motivo.
+>
+> El núcleo del hallazgo —el borrado físico de un documento financiero— lo cerró la
+> Fase 6, y la primera mitad puso la parte estructural: **no hay forma de borrar una
+> venta**. No existe ruta, ni método de controlador, ni método de servicio que lo haga,
+> y el modelo `Venta` tira `LogicException` en el evento `deleting`, igual que
+> `MovimientoStock`. Es `LogicException` y no una excepción de negocio porque ninguna
+> pantalla ofrece borrar: si eso se dispara, lo que hay es un error de programación.
+>
+> La guarda tiene un límite que conviene saber, porque es parte de entenderla: un
+> borrado masivo por el query builder no dispara eventos de modelo. Lo que garantiza de
+> verdad es que nada lo ofrece; la guarda ataja el `$venta->delete()`, que es la única
+> forma en que alguien lo escribiría por accidente. Las cascadas `ON DELETE CASCADE` de
+> `venta_lineas` y `pagos` siguen declaradas en el esquema y **no se alcanzan nunca**,
+> porque no se puede borrar el padre.
+>
+> Lo que reemplaza al borrado es el estado. Un presupuesto que no se concreta queda
+> `cancelada`, con sus líneas, su total y su número intactos, y el mensaje de la
+> pantalla lo dice con palabras: «la venta no se borra, queda registrada».
+>
+> **Cerrado** — Fase 6. La segunda mitad completó las dos piezas que faltaban.
+>
+> La primera es el modelo **`Pago`**, que nace con la misma guarda que `Venta` y
+> `MovimientoStock`: el evento `deleting` tira `LogicException`. Es `LogicException` y
+> no una excepción de negocio por el mismo motivo que en los otros dos: ninguna pantalla
+> ofrece borrar un pago, así que si eso se dispara lo que hay es un error de
+> programación. Las tres guardas tienen su test, y las tres comparten el mismo límite,
+> que conviene saber: un borrado masivo por el query builder no dispara eventos de
+> modelo. Lo que garantizan de verdad es que nada lo ofrece; la guarda ataja el
+> `$pago->delete()`, que es la única forma en que alguien lo escribiría por accidente.
+>
+> La segunda es el **camino de después de cobrar**, que era lo que el hallazgo dejaba
+> sin respuesta: una venta cobrada no se borra ni se anula, **se devuelve**. Y la
+> devolución no corrige nada —ni la venta, ni sus líneas, ni el pago original—: suma
+> hechos. Incrementa `cantidad_devuelta`, escribe el asiento de reingreso en el kardex y
+> le pone al cobro un pago en contra. Después de una devolución total, la ficha sigue
+> mostrando el documento completo, el cobro original y su reversión al lado, y los
+> importes de la venta sin tocar: lo devuelto se lee en `cantidad_devuelta` y en los
+> contra-asientos, nunca modificando lo que el documento declaró.
+>
+> No hay ruta, ni método de controlador, ni método de servicio que borre una venta, una
+> línea de venta o un pago. Las cascadas `ON DELETE CASCADE` de `venta_lineas` y `pagos`
+> siguen declaradas en el esquema y **no se alcanzan nunca**, porque no se puede borrar
+> el padre. No hay que quitarlas: hay que saber que están.
 
 ---
 
@@ -237,6 +504,26 @@ El modo `descontar` hace `SELECT ... FOR UPDATE`; el modo `reponer` va directo a
 - `ventas.numero` **no tiene índice UNIQUE**. Nada impide duplicados.
 - `venta_numeracion` es una tabla de una sola fila **sin clave primaria**. `SELECT numero FROM venta_numeracion FOR UPDATE` sin `WHERE` funciona por accidente.
 - Un solo contador global. Con facturación AFIP vas a necesitar numeración **por punto de venta y por tipo de comprobante**, correlativa y sin huecos.
+> **Cerrado** — Fase 6. **El número de venta es el `id`**, formateado `V-00042`. No hay
+> columna `numero` y no hay tabla de numeración: la clave primaria garantiza unicidad
+> por construcción, sin contador, sin tabla auxiliar de una sola fila y sin condición
+> de carrera. Los tres problemas que el hallazgo denuncia —`ventas.numero` sin índice
+> único, `venta_numeracion` sin clave primaria, y un `SELECT ... FOR UPDATE` sin
+> `WHERE` que funcionaba por accidente— desaparecen porque desaparece el mecanismo, no
+> porque se lo haya arreglado.
+>
+> Es el mismo criterio que ya se había aplicado a `ordenes_compra` en la Fase 5, y la
+> razón es la misma: **ninguno de los dos es un comprobante fiscal**. No los gobierna
+> AFIP y no necesitan ser correlativos sin huecos. El formato lo arma
+> `Venta::numeroDe()`, que es estático para que el kardex pueda nombrar el documento de
+> origen sin cargarlo, y así la ficha y el kardex dicen `V-00042` igual.
+>
+> La cuarta parte del hallazgo —numeración **por punto de venta y por tipo de
+> comprobante**, correlativa y sin huecos— es un requisito de la facturación y vive
+> donde corresponde: la tabla `comprobantes`, con `UNIQUE (tipo, punto_venta, numero)`,
+> en la Etapa 2. La fuente de verdad de ese número es AFIP, que se consulta con
+> `FECompUltimoAutorizado` antes de cada emisión, y el UNIQUE local es la red de
+> contención. Está justificado en `modelo-datos.md`, sección `comprobantes`.
 
 ### M-19 · Sin trazabilidad temporal
 Ninguna tabla tiene `created_at` / `updated_at` / `created_by`. `usuarios.fechaAlta` es lo único, y es `date` (sin hora). Para el dashboard del requerimiento 14 y para cualquier auditoría, esto hace falta en todas las tablas.
@@ -289,9 +576,6 @@ El catálogo actual (`nombre, codigo, descripcion, categoriaId, precio, stock`) 
 
 `categorias` es una lista plana (`id`, `nombre`), sin jerarquía ni orden ni imagen.
 
-### B-23 · Datos basura en el dump
-`productos` contiene `asdasdas` y `afsadgasdgsdfg`; `ventas` tiene clientes `dasdasdasdasd` y `kjkhejkrg`. Sin soft-delete ni validación de contenido, la base de pruebas y la de producción son la misma. La `unique key` sobre `(nombre, categoriaId)` además impide dos productos homónimos de marcas distintas en la misma categoría.
-
 > **Cerrado** — Fases 1 y 3. De los seis puntos, cuatro entraron al esquema y se
 > cargan desde la pantalla: imágenes (`productos.imagenes`, con vista previa y
 > orden por arrastre), costo de compra (`costo_promedio`, que recalcula la
@@ -316,6 +600,29 @@ El catálogo actual (`nombre, codigo, descripcion, categoriaId, precio, stock`) 
 >   compra y kardex para ganar sólo una agrupación visual en la tienda, y con un
 >   `codigo` por capacidad el control de stock ya es correcto. También en
 >   `modelo-datos.md`.
+
+### B-23 · Datos basura en el dump
+`productos` contiene `asdasdas` y `afsadgasdgsdfg`; `ventas` tiene clientes `dasdasdasdasd` y `kjkhejkrg`. Sin soft-delete ni validación de contenido, la base de pruebas y la de producción son la misma. La `unique key` sobre `(nombre, categoriaId)` además impide dos productos homónimos de marcas distintas en la misma categoría.
+
+> **Cerrado** — Fases 1 y 3. Los tres problemas que el hallazgo nombra tienen
+> respuestas distintas:
+>
+> - **Los datos basura no pueden volver a entrar por la pantalla.** La validación vive
+>   en Form Requests que rechazan la petición entera y explican qué está mal, en lugar
+>   de los setters que convertían en cadena vacía lo que no validaba (M-31). Un
+>   `asdasdas` sigue siendo un nombre aceptable —ningún sistema puede decidir que un
+>   nombre propio es absurdo— pero un producto sin código, sin precio o con un precio
+>   ilegible ya no se guarda, y un cliente sin razón social tampoco.
+> - **La base de pruebas y la de producción dejaron de ser la misma.** Los datos
+>   ficticios los generan seeders y factories, la suite corre sobre una base aparte
+>   —`lda_2026_testing`, declarada en `phpunit.xml`— y `migrate:fresh --seed`
+>   reconstruye la demostración desde cero. No hay que limpiar basura de la base real
+>   porque las pruebas no se cargan ahí.
+> - **La `unique key (nombre, categoriaId)`** que impedía dos productos homónimos de
+>   marcas distintas en la misma categoría no existe más. La unicidad del catálogo es
+>   `productos.codigo`, que es lo que identifica un producto de verdad, y la marca pasó
+>   a ser una tabla propia en lugar de un texto dentro del nombre.
+
 
 ---
 

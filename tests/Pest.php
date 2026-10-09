@@ -282,3 +282,85 @@ function lineaDePedido(
         'costo_unitario'  => $costo,
     ], $sobreescribir);
 }
+
+/**
+ * Datos válidos de una venta de mostrador, tal como los va a dejar el Form Request.
+ *
+ * No hay modalidad de precio: el mostrador cotiza con `precio_contado` y eso no se
+ * elige. `precio_lista` es del canal online de la Etapa 2.
+ */
+function datosDeVenta(array $lineas, array $sobreescribir = []): array
+{
+    return array_merge([
+        'cliente_id'           => null,     // consumidor final
+        'descuento_porcentaje' => 0,
+        'observaciones'        => null,
+        'lineas'               => $lineas,
+    ], $sobreescribir);
+}
+/**
+ * Una línea de venta.
+ *
+ * Sólo producto y cantidad, a diferencia de `lineaDeOrden()`, que lleva el costo: el
+ * precio de una venta lo pone el servidor leyéndolo de la base, nunca el que manda
+ * el cliente.
+ */
+function lineaDeVenta(\App\Models\Producto $producto, int $cantidad = 3): array
+{
+    return [
+        'producto_id' => $producto->id,
+        'cantidad'    => $cantidad,
+    ];
+}
+
+/**
+ * Un producto con los cuatro números que la línea de venta congela, puestos a mano.
+ *
+ * `costo_promedio` está fuera de `$fillable` —sólo lo mueve StockService— así que va
+ * por `conStockYCosto()`. El stock se carga alto a propósito: en esta mitad cotizar
+ * no mira el stock, y un producto sin stock mezclaría dos cosas en el mismo test.
+ */
+function productoConPrecios(
+    float $contado = 1000,
+    float $lista = 1200,
+    float $costo = 600,
+    float|string $alicuota = 21,
+): \App\Models\Producto {
+    return \App\Models\Producto::factory()
+        ->conStockYCosto(50, $costo)
+        ->create([
+            'precio_contado' => $contado,
+            'precio_lista'   => $lista,
+            'alicuota_iva'   => $alicuota,
+        ]);
+}
+
+/**
+ * Una venta cobrada de verdad: emitida por el servicio, con su pago registrado y su
+ * stock descontado.
+ *
+ * Existe porque **`VentaFactory::pagada()` no sirve para esto**: escribe el estado y
+ * nada más, así que una venta así no tiene pagos que revertir ni stock que reponer, y
+ * una devolución sobre ella no probaría nada de lo que hay que probar. Lo que se
+ * prueba sobre plata y sobre stock se arma llamando al servicio.
+ *
+ * Vive acá y no en un archivo de test porque la usan el test del servicio y el del
+ * módulo, y Pest carga todos los archivos en el mismo proceso: declararla dos veces
+ * es un error fatal.
+ */
+function ventaCobrada(
+    \App\Models\Producto $producto,
+    int $cantidad,
+    float $porcentajeDescuento = 0,
+): \App\Models\Venta {
+    $venta = app(\App\Services\VentaService::class)->crear(datosDeVenta(
+        [lineaDeVenta($producto, $cantidad)],
+        ['descuento_porcentaje' => $porcentajeDescuento],
+    ), admin());
+
+    app(\App\Services\PagoService::class)->cobrar($venta, ['pagos' => [
+        ['metodo' => 'efectivo', 'monto' => $venta->total],
+    ]], admin());
+
+    return $venta->fresh();
+}
