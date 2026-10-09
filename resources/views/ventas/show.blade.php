@@ -42,13 +42,26 @@
         {{-- La acción principal, a la vista sin tener que bajar hasta el final del
              documento. Se repite en la tarjeta de acciones de abajo, igual que en la
              ficha de la orden de compra. --}}
-        @if ($venta->esPresupuesto())
-            @can('venta.editar')
-                <a href="{{ route('ventas.edit', $venta) }}" class="btn btn-outline-dark text-nowrap">
-                    <i class="bi bi-pencil" aria-hidden="true"></i> Editar el presupuesto
-                </a>
+        <div class="d-flex flex-column flex-sm-row gap-2">
+            @if ($venta->esPresupuesto())
+                @can('venta.editar')
+                    <a href="{{ route('ventas.edit', $venta) }}" class="btn btn-outline-dark text-nowrap">
+                        <i class="bi bi-pencil" aria-hidden="true"></i> Editar el presupuesto
+                    </a>
+                @endcan
+            @endif
+
+            {{-- Descargar es una lectura y no una transición, así que va acá y no en la
+                 tarjeta de acciones, que agrupa los cambios de estado. --}}
+            @can('venta.ver')
+                @if ($venta->sePuedeImprimir())
+                    <a href="{{ route('ventas.pdf', $venta) }}" class="btn btn-outline-dark text-nowrap">
+                        <i class="bi bi-file-earmark-arrow-down" aria-hidden="true"></i>
+                        Descargar {{ $venta->esPresupuesto() ? 'el presupuesto' : 'el comprobante' }}
+                    </a>
+                @endif
             @endcan
-        @endif
+        </div>
     </div>
 
     <div class="row g-3 mb-4">

@@ -149,21 +149,21 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 
 ## 8. Frontend
 
-| Componente original              | Función                              | Componente Laravel                                           | Estado     |
-| -------------------------------- | ------------------------------------ | ------------------------------------------------------------ | ---------- |
-| `features/auth/`                 | Pantalla de login                    | `resources/views/auth/`                                      | Migrado    |
-| `features/layout/`               | Barra de navegación y estructura     | `resources/views/layouts/app.blade.php`                      | Migrado    |
-| `features/home/`                 | Panel con contadores                 | `resources/views/dashboard/` con datos agregados en servidor | Pendiente  |
-| `features/category/`             | Listado y formulario de categorías   | `resources/views/categorias/`                                | Migrado    |
-| `features/item/`                 | Listado y formulario de productos    | `resources/views/productos/`                                 | Migrado    |
-| `features/user/`                 | Listado y formulario de usuarios     | `resources/views/personal/`                                  | Migrado    |
-| `features/sale/`                 | Ventas, detalle, cobro               | `resources/views/ventas/`                                    | Migrado    |
-| `features/account/`              | Cambio de clave propia               | `resources/views/cuenta/`                                    | Migrado    |
-| `core/pdf/pdf.service.ts`        | Genera PDF con jsPDF en el navegador | `barryvdh/laravel-dompdf` + vistas Blade                     | En Proceso |
-| `core/auth/auth.guard.ts`        | Protege rutas si hay token           | Middleware `auth`                                            | Pendiente  |
-| `core/auth/token.interceptor.ts` | Inyecta el header Authorization      | Descartado: sesión en cookie                                 | Descartado |
-| `core/api/api.constants.ts`      | URL base de la API                   | Descartado                                                   | Descartado |
-| `core/*/​*.service.ts`           | Clientes HTTP por módulo             | Descartado: los controladores devuelven vistas               | Descartado |
+| Componente original              | Función                              | Componente Laravel                                          | Estado     |
+| -------------------------------- | ------------------------------------ | ----------------------------------------------------------- | ---------- |
+| `features/auth/`                 | Pantalla de login                    | `resources/views/auth/`                                     | Migrado    |
+| `features/layout/`               | Barra de navegación y estructura     | `resources/views/layouts/app.blade.php`                     | Migrado    |
+| `features/home/`                 | Panel con contadores                 | `resources/views/panel/` con datos agregados en el servidor | Migrado    |
+| `features/category/`             | Listado y formulario de categorías   | `resources/views/categorias/`                               | Migrado    |
+| `features/item/`                 | Listado y formulario de productos    | `resources/views/productos/`                                | Migrado    |
+| `features/user/`                 | Listado y formulario de usuarios     | `resources/views/personal/`                                 | Migrado    |
+| `features/sale/`                 | Ventas, detalle, cobro               | `resources/views/ventas/`                                   | Migrado    |
+| `features/account/`              | Cambio de clave propia               | `resources/views/cuenta/`                                   | Migrado    |
+| `core/pdf/pdf.service.ts`        | Genera PDF con jsPDF en el navegador | `barryvdh/laravel-dompdf` + vistas Blade                    | Migrado    |
+| `core/auth/auth.guard.ts`        | Protege rutas si hay token           | Middleware `auth`                                           | Pendiente  |
+| `core/auth/token.interceptor.ts` | Inyecta el header Authorization      | Descartado: sesión en cookie                                | Descartado |
+| `core/api/api.constants.ts`      | URL base de la API                   | Descartado                                                  | Descartado |
+| `core/*/​*.service.ts`           | Clientes HTTP por módulo             | Descartado: los controladores devuelven vistas              | Descartado |
 
 > `HomeComponent` descarga las tablas completas y cuenta en el navegador (hallazgo A-26). El panel Blade recibe los números ya agregados.
 > El PDF pasó al servidor porque en Blade no hay jsPDF, y porque la Etapa 2 va a
@@ -261,3 +261,32 @@ Módulos nuevos de la Etapa 1. No hay componente que migrar; se construyen desde
 | `modulos`                 | Los permisos pasan a ser acciones nombradas, no módulos                        |
 | `perfiles`                | Reemplazada por `roles` con permisos granulares                                |
 | `permisos` (4 flags CRUD) | Reemplazada por permisos nombrados con pivote a roles                          |
+
+## 13. Componentes nuevos de la Fase 7
+
+`HomeComponent` descargaba categorías, productos, ventas y usuarios completos y
+contaba con `.filter()` (A-26). No es una migración del componente: es su reemplazo
+por consultas de agregación.
+
+| Componente                        | Qué resuelve                                                              | Estado  |
+| --------------------------------- | ------------------------------------------------------------------------- | ------- |
+| `PanelService`                    | Una consulta de agregación por métrica; ninguna trae filas (A-26)         | Migrado |
+| `Venta::ESTADOS_VENDIDOS`         | Qué cuenta como venta efectiva, con `devuelta_parcial` adentro            | Migrado |
+| `PanelFiltroRequest`              | Declara el contrato de filtros del panel: el período (A-24)               | Migrado |
+| `PanelController::propio()`       | Lo que vendí y lo que cobré, dos columnas de dos tablas (M-19)            | Migrado |
+| `PanelController::general()`      | El conjunto, con los rankings y el margen                                 | Migrado |
+| `PanelController::inicio()`       | La pantalla de entrada según permisos, para que el panel pueda exigir uno | Migrado |
+| `panel.ver_propio` / `ver_global` | Un permiso por ruta: `/panel` ya no es un `Route::view` sin `can:` (C-2)  | Migrado |
+| `componentes/graficos.js`         | Chart.js con los números ya agregados; sin JS quedan las tablas           | Migrado |
+| `ventas/pdf.blade.php`            | El comprobante o el presupuesto, con datos congelados                     | Migrado |
+| `Venta::sePuedeImprimir()`        | Una venta cancelada no tiene documento que entregar                       | Migrado |
+| `ventas/listado-pdf.blade.php`    | El listado exportado, declarando sus filtros y su recorte                 | Migrado |
+| `VentaController::filtradas()`    | La cadena de filtros compartida por el listado y la exportación (A-24)    | Migrado |
+
+> El comprobante y el listado se comportan **al revés a propósito**, y es lo que más
+> conviene poder explicar. El comprobante imprime la fecha del hecho y **no** imprime
+> el estado, los pagos ni `cantidad_devuelta`: regenerarlo dentro de un año tiene que
+> dar el mismo papel, igual que el PDF del pedido imprime `cantidad_pedida` y nunca
+> `cantidad_recibida`. El listado es un informe de un momento, así que imprime la fecha
+> de generación, el estado de cada venta y los filtros aplicados — sin eso, el PDF de
+> un listado filtrado sería indistinguible del completo.

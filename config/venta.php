@@ -27,10 +27,23 @@ return [
     | el servicio lo valida además del Form Request.
     |
     */
-
     'descuento' => [
         'tope_general'    => 10,
         'tope_autorizado' => 30,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Validez del presupuesto impreso
+    |--------------------------------------------------------------------------
+    |
+    | Días que el presupuesto declara como válidos. Vive acá por el mismo motivo que
+    | el tope: es un parámetro del negocio, no una constante del programa.
+    |
+    */
+
+    'presupuesto' => [
+        'validez_dias' => 15,
     ],
 
 ];

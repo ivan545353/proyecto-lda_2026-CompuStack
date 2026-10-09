@@ -18,7 +18,7 @@ test('un usuario de gestion puede iniciar sesion', function () {
     $this->post(route('login.attempt'), [
         'email'    => $usuario->email,
         'password' => 'password',
-    ])->assertRedirect(route('panel'));
+    ])->assertRedirect(route('inicio'));
 
     $this->assertAuthenticatedAs($usuario);
 });

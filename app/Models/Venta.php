@@ -254,16 +254,17 @@ class Venta extends Model
         return self::ESTADOS[$this->estado] ?? $this->estado;
     }
 
-    /**
-     * El único estado en el que la venta se edita.
-     *
-     * No hay un `esEditable()` aparte que devuelva lo mismo: en compras «editable» y
-     * «es borrador» son dos ideas que podrían separarse, en ventas son el mismo
-     * predicado, y dos nombres para una condición terminan en dos condiciones.
-     */
-    public function esPresupuesto(): bool
+        public function esPresupuesto(): bool
     {
         return $this->estado === 'presupuesto';
+    }
+
+    // Una venta cancelada no se imprime: es un presupuesto que no se concretó y el
+    // papel no va a ir a ningún cliente. Mismo criterio que OrdenCompra, donde la
+    // condición es haber tenido aprobación.
+    public function sePuedeImprimir(): bool
+    {
+        return $this->estado !== 'cancelada';
     }
 
         /**

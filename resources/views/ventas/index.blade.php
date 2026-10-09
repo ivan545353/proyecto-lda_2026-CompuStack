@@ -129,6 +129,13 @@
                         </a>
                     @endif
 
+                    {{-- Arrastra los filtros de la pantalla, sin `page`: el PDF no
+                         pagina, así que el número de página no significa nada ahí. --}}
+                    <a href="{{ route('ventas.exportar', request()->except('page')) }}"
+                        class="btn btn-sm btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1 flex-fill flex-sm-grow-0">
+                        <i class="bi bi-file-earmark-arrow-down" aria-hidden="true"></i> Exportar
+                    </a>
+
                     <button type="submit"
                         class="btn btn-sm btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1 flex-fill flex-sm-grow-0">
                         <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar

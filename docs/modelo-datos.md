@@ -603,19 +603,47 @@ Imagen y link (51), con programación por fechas (52). Los administra el adminis
 
 **No agrega ninguna tabla.** Todas las métricas confirmadas salen por agregación:
 
-| Métrica                           | Origen                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------- |
-| Ventas del vendedor en el período | `ventas WHERE usuario_id = X AND estado IN (pagada…entregada)`            |
-| Ticket promedio                   | `AVG(total)` sobre lo anterior                                            |
-| Ranking de vendedores             | `GROUP BY usuario_id`                                                     |
-| Ingresos                          | `SUM(ventas.total)`                                                       |
-| Neto acreditado                   | `SUM(pagos.neto_acreditado)`                                              |
-| Margen                            | `SUM(cantidad × (precio_unitario − costo_unitario))` sobre `venta_lineas` |
-| Stock crítico                     | `productos WHERE stock − stock_reservado <= stock_minimo`                 |
-| Órdenes de compra pendientes      | `ordenes_compra WHERE estado != 'recibida'`                               |
-| Más y menos vendidos              | `GROUP BY producto_id` sobre `venta_lineas`                               |
+| Métrica                           | Origen                                                                                          | Estado            |
+| --------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------- |
+| Ventas del vendedor en el período | `ventas WHERE usuario_id = X AND estado IN (Venta::ESTADOS_VENDIDOS)`                           | Implementada      |
+| Cobros del cajero en el período   | `pagos WHERE usuario_id = X`, por `pagos.fecha`                                                 | Implementada      |
+| Ticket promedio                   | `AVG(total)` sobre lo anterior                                                                  | Implementada      |
+| Ranking de vendedores             | `GROUP BY usuario_id`                                                                           | Implementada      |
+| Facturado                         | `SUM(ventas.total)` por `ventas.created_at` — **no** descuenta devoluciones                     | Implementada      |
+| Cobrado                           | `SUM(pagos.monto)` por `pagos.fecha` — **sí** las descuenta                                     | Implementada      |
+| Cobrado por medio de pago         | `GROUP BY pagos.metodo`                                                                         | Implementada      |
+| Facturado por día                 | `GROUP BY DATE(ventas.created_at)`                                                              | Implementada      |
+| Descuentos otorgados              | `SUM(ventas.descuento)`                                                                         | Implementada      |
+| Margen bruto                      | `SUM((cantidad − cantidad_devuelta) × (precio_unitario − costo_unitario))` sobre `venta_lineas` | Implementada      |
+| Stock crítico                     | `productos WHERE stock − stock_reservado <= stock_minimo`                                       | Implementada      |
+| Órdenes de compra abiertas        | `ordenes_compra WHERE estado IN (ESTADOS_ABIERTOS)`                                             | Implementada      |
+| Más vendidos                      | `GROUP BY producto_id` sobre `venta_lineas`                                                     | Implementada      |
+| Menos vendidos                    | La pregunta inversa, que no sale de la misma consulta                                           | Pendiente #48     |
+| Neto acreditado                   | `SUM(pagos.neto_acreditado)`                                                                    | **No disponible** |
 
-Todo se calcula **en el servidor** y se devuelve ya agregado. El sistema actual descarga las tablas completas al navegador y cuenta con `.filter()` (hallazgo A-26); ese patrón no se repite.
+**«Facturado» y «cobrado» no son lo mismo y el panel no los mezcla.** El primero dice
+cuánto se vendió y no sabe nada de devoluciones; el segundo dice cuánta plata quedó, y
+sí las descuenta, porque el contra-asiento de la devolución es una fila de monto
+negativo que entra en la misma suma. Se filtran además por columnas de tablas
+distintas: una devolución de abril sobre una venta de marzo baja la caja de abril y no
+toca la de marzo. Van en recuadros separados, con su aclaración, y nunca sumados.
+
+**El margen es bruto**: los importes congelados de la línea no conocen
+`ventas.descuento`, que vive en la cabecera. La pantalla lo dice en el rótulo y muestra
+los descuentos otorgados al lado, en lugar de informar un número optimista sin aclarar
+qué le falta restar (pendiente #49). Y arrastra el costo **acordado** y no el
+facturado, que es el pendiente #37.
+
+**«Neto acreditado» no se puede calcular en la Etapa 1**, y no es «null por ahora» sino
+null por construcción: la informa Mercado Pago, no hay integración, y `mercadopago` no
+se ofrece como medio de cobro (`Pago::METODOS_EN_USO`), así que ningún pago que el
+sistema pueda registrar es capaz de tenerla. No se muestra en el panel: un recuadro en
+cero afirmaría que no se acreditó nada, que es exactamente lo que el proyecto no hace.
+
+Todo se calcula **en el servidor** y se devuelve ya agregado. El sistema original
+descargaba las tablas completas al navegador y contaba con `.filter()` (hallazgo
+A-26); ese patrón no se repite, y hay un test que lo verifica sobre el log de
+consultas.
 
 ---
 

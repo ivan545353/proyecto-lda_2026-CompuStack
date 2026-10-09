@@ -65,7 +65,7 @@ class AuthController extends Controller
         // Previene la fijación de sesión: el identificador cambia al autenticarse.
         $request->session()->regenerate();
 
-        return redirect()->intended(route('panel'));
+            return redirect()->intended(route('inicio'));
     }
 
     public function logout(Request $request): RedirectResponse

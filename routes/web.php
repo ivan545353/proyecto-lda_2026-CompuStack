@@ -16,6 +16,7 @@ use App\Http\Controllers\CompraController;
 use App\Http\Controllers\ProductoProveedorController;
 use App\Http\Controllers\VentaController;
 use App\Http\Controllers\PagoController;
+use App\Http\Controllers\PanelController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -36,8 +37,8 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-// Redirección inicial
-Route::redirect('/', '/panel');
+// Redirección inicial. Va al inicio y no al panel: ahora el panel exige permiso.
+Route::redirect('/', '/inicio');
 
 // Autenticación pública
 Route::middleware('guest')->group(function () {
@@ -68,8 +69,14 @@ Route::middleware('auth')->group(function () {
 
 // Sistema de gestión
 Route::middleware(['auth', 'gestion'])->group(function () {
-    // Panel de control (provisional; la Fase 7 lo reemplaza por métricas reales)
-    Route::view('/panel', 'panel.index')->name('panel');
+    // Panel. Dos rutas y dos permisos
+    Route::get('/inicio', [PanelController::class, 'inicio'])->name('inicio');
+
+    Route::get('/panel', [PanelController::class, 'propio'])
+        ->middleware('can:panel.ver_propio')->name('panel');
+
+    Route::get('/panel/general', [PanelController::class, 'general'])
+        ->middleware('can:panel.ver_global')->name('panel.general');
 
     // Catálogo — Marcas
     Route::get('/marcas', [MarcaController::class, 'index'])
@@ -330,7 +337,10 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->middleware('can:venta.crear')->name('ventas.create');
 
     Route::post('/ventas', [VentaController::class, 'store'])
-        ->middleware('can:venta.crear')->name('ventas.store');
+    ->middleware('can:venta.crear')->name('ventas.store');
+
+    Route::get('/ventas/exportar', [VentaController::class, 'exportar'])
+    ->middleware('can:venta.ver')->name('ventas.exportar');
 
     Route::get('/ventas/{venta}', [VentaController::class, 'show'])
         ->whereNumber('venta')
@@ -372,6 +382,12 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::post('/ventas/{venta}/devolucion', [VentaController::class, 'devolver'])
         ->whereNumber('venta')
         ->middleware('can:venta.anular')->name('ventas.devolver');
+
+    // Descargar es una lectura y pide `venta.ver`, igual que el PDF del pedido pide
+    // `compra.ver`: no cambia ningún estado y se puede repetir.
+    Route::get('/ventas/{venta}/pdf', [VentaController::class, 'pdf'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.ver')->name('ventas.pdf');
 
     // Administración — Roles y permisos
     Route::get('/roles', [RolController::class, 'index'])

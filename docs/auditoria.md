@@ -668,10 +668,62 @@ this.ventasHoy.set(res.ventas.filter(v => v.fecha.slice(0,10) === hoy && v.estad
 ```
 Descarga toda la base para mostrar cinco números, y de paso expone datos que el usuario no debería ver. El requerimiento 14 (dashboard con métricas por rol) es exactamente donde este patrón hay que reemplazarlo por endpoints de agregación en el servidor.
 
-> La mitad general del hallazgo ya rige: los conteos de los listados se calculan en
-> la base con `withCount()` y nunca se traen filas para contarlas en PHP. La otra
-> mitad —el panel con métricas por rol— la cierra la Fase 7, que es donde existen
-> esas consultas agregadas.
+> **Cerrado** — Fases 3 y 7, en dos mitades. La general ya regía desde la Fase 3: los
+> conteos de los listados se calculan en la base con `withCount()` y nunca se traen
+> filas para contarlas en PHP.
+>
+> La segunda mitad es el panel, y la cierra `PanelService`. Cada número es una consulta
+> de agregación: `COUNT`, `SUM`, `AVG` o un `GROUP BY`, y **ninguna trae filas
+> completas** al servidor de aplicación. Hay un test que lo afirma en lugar de
+> confiarlo a la lectura del código: enciende el log de consultas, llama al servicio y
+> verifica que ninguna consulta contenga `select *` y que todas sean agregaciones. Es
+> el criterio de terminado de la fase escrito como test, y si alguien agrega una
+> métrica trayendo filas, falla.
+>
+> **El panel está diferenciado por rol, y son dos rutas con un permiso cada una**
+> (C-2): `/panel` con `panel.ver_propio` muestra lo propio, `/panel/general` con
+> `panel.ver_global` el conjunto. Hasta esta fase `/panel` era un `Route::view` **sin
+> ningún permiso**, que es el agujero que quedaba del hallazgo del lado del acceso: el
+> original no sólo contaba en el navegador, también le mandaba a cualquier usuario
+> datos que no le correspondían.
+>
+> El panel propio tiene dos bloques y no uno: **lo que vendí** sale de
+> `ventas.usuario_id` y **lo que cobré** de `pagos.usuario_id`. Es M-19 volviéndose
+> visible: el Cajero no vende, así que con un solo bloque su panel habría sido todo
+> ceros, y eso habría parecido un sistema roto en lugar de la distinción deliberada
+> entre quién vendió y quién cobró.
+>
+> **Dos correcciones sobre el `PanelService` de referencia del `plan-accion.md`**, que
+> se escribió antes de que existiera la devolución:
+>
+> - Filtraba `whereIn('estado', ['pagada', 'entregada'])`, y eso deja afuera una venta
+>   en `devuelta_parcial`, que **sí vendió** las unidades que no volvieron. El juego
+>   correcto es «los estados en los que el cobro ya ocurrió», declarado en
+>   `Venta::ESTADOS_VENDIDOS` junto con su complemento `ESTADOS_SIN_COBRO`, y un test
+>   afirma que los dos parten `ESTADOS` sin superponerse: agregar un valor al ENUM
+>   rompe el test en vez de contarse solo.
+> - Su fórmula de margen no resta `ventas.descuento`, que vive en la cabecera y no en
+>   la línea, así que informaba un margen sistemáticamente optimista. El panel lo
+>   rotula **«Margen bruto»** y muestra **«Descuentos otorgados»** al lado, en lugar de
+>   mostrar un número alto sin decir qué le falta restar.
+>
+> Y **el panel nombra con precisión lo que muestra**: «cobrado en el período» es
+> `SUM(pagos.monto)` por `pagos.fecha` y descuenta las devoluciones, porque el
+> contra-asiento entra en la misma suma; «facturado en el período» es
+> `SUM(ventas.total)` por `ventas.created_at` y no las descuenta. Las dos son
+> correctas y responden preguntas distintas, así que van en recuadros separados con su
+> aclaración y **nunca sumadas en el mismo**. Hay un test que fija que una devolución
+> en otro mes baja la caja del mes en que salió la plata y no la del mes de la venta.
+>
+> Los gráficos son Chart.js y reciben los números **ya agregados**: un gráfico que
+> recibiera filas y las contara en el navegador sería este hallazgo otra vez con otra
+> ropa, y hay un test que verifica que dos ventas del mismo día lleguen como un solo
+> punto. Sin JavaScript las tablas muestran los mismos números.
+>
+> Queda afuera, con su motivo escrito, la métrica **«neto acreditado»** de
+> `modelo-datos.md` §9: la informa Mercado Pago, `pagos.neto_acreditado` es siempre
+> null y `mercadopago` no se ofrece como medio de cobro, así que ningún pago de la
+> Etapa 1 puede tenerla. Mostrarla en cero sería afirmar que no se acreditó nada.
 
 ### M-27 · Routing por convención, sin verbos HTTP
 El `.htaccess` mapea `^([a-zA-Z]+)/([a-zA-Z]+)/([a-zA-Z0-9]+)$` a `controller/action/id`, y `RouterHandlerMiddleware` hace `ucfirst($controller) . "Controller"` + `method_exists`. El método HTTP nunca se valida: `save` responde a GET igual que a POST. Tres segmentos máximo, ids sólo alfanuméricos, sin rutas anidadas. El router de Laravel resuelve esto de fábrica.

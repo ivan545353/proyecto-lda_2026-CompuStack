@@ -17,6 +17,10 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
 use App\Models\VentaLinea;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Http\Response;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 
 /**
  * Ventas y presupuestos.
@@ -45,7 +49,10 @@ use App\Models\VentaLinea;
 
 class VentaController extends Controller
 {
-        public function __construct(private VentaService $service)
+    /** Tope de filas de la exportación: dompdf no sobrevive un listado sin límite. */
+    private const TOPE_EXPORTACION = 500;
+
+    public function __construct(private VentaService $service)
     {
     }
 
@@ -54,21 +61,12 @@ class VentaController extends Controller
         $clienteId  = $request->query('cliente_id');
         $vendedorId = $request->query('vendedor_id');
 
-        $ventas = Venta::query()
+        $ventas = $this->filtradas($request)
             // Las relaciones que la vista usa, con las columnas que necesita.
             ->with(['cliente:id,razon_social', 'usuario:id,nombre,apellido'])
             // El conteo lo hace la base (A-26): el panel original se traía las
             // tablas enteras al navegador para contarlas con .filter().
             ->withCount('lineas')
-            ->buscar($request->query('q'))
-            ->conEstado($request->query('estado'))
-            ->deCliente($clienteId)
-            ->deVendedor($vendedorId)
-            ->desde($request->query('desde'))
-            ->hasta($request->query('hasta'))
-            // El id es el número de venta, así que ordenar por id es ordenar de la
-            // más nueva a la más vieja, y es un orden total: no hace falta desempate.
-            ->orderByDesc('id')
             ->paginate(15)            // A-25: el original devolvía la tabla entera
             ->withQueryString();      // sin esto, la página 2 pierde los filtros
 
@@ -317,6 +315,109 @@ class VentaController extends Controller
             "Presupuesto {$venta->numeroFormateado()} cancelado. No descontó stock ni generó "
             .'comprobante, así que no quedó nada que revertir. La venta no se borra: queda registrada.',
         );
+        }
+
+    /**
+     * El documento de la venta: presupuesto si no se cobró, comprobante si sí.
+     *
+     * Descargar es una lectura: no cambia el estado y se puede repetir, igual que el
+     * PDF del pedido al proveedor.
+     */
+    public function pdf(Venta $venta): Response|RedirectResponse
+    {
+        // La ficha no ofrece el botón cuando no corresponde; esto ataja la URL escrita
+        // a mano.
+        if (! $venta->sePuedeImprimir()) {
+            return redirect()->route('ventas.show', $venta)->with(
+                'error',
+                "La venta {$venta->numeroFormateado()} está cancelada, así que no hay documento que entregar.",
+            );
+        }
+
+        $venta->load(['cliente', 'usuario:id,nombre,apellido', 'lineas.producto:id,codigo']);
+
+        $nombre = $venta->esPresupuesto() ? 'presupuesto' : 'comprobante';
+
+        return Pdf::loadView('ventas.pdf', [
+            'venta'       => $venta,
+            'validoHasta' => $venta->created_at->copy()->addDays((int) config('venta.presupuesto.validez_dias')),
+        ])->download("{$nombre}-{$venta->numeroFormateado()}.pdf");
+    }
+
+        /**
+     * El listado filtrado, en PDF.
+     *
+     * No pagina pero sí topa: sin límite, un listado grande mata a dompdf. El documento
+     * dice que se recortó y que el total es de todas las coincidencias.
+     */
+    public function exportar(VentaFiltroRequest $request): Response
+    {
+        // Los totales salen de la base sobre TODAS las filas que coinciden (A-26), no
+        // de sumar en PHP las que se imprimen. `reorder()` saca el ORDER BY: con una
+        // agregación sin GROUP BY, ordenar por una columna que no está en el SELECT lo
+        // rechaza ONLY_FULL_GROUP_BY.
+        $resumen = $this->filtradas($request)
+            ->reorder()
+            ->selectRaw('COUNT(*) as cantidad, COALESCE(SUM(total), 0) as total')
+            ->toBase()
+            ->first();
+
+        $ventas = $this->filtradas($request)
+            ->with(['cliente:id,razon_social', 'usuario:id,nombre,apellido'])
+            ->limit(self::TOPE_EXPORTACION)
+            ->get();
+
+        return Pdf::loadView('ventas.listado-pdf', [
+            'ventas'   => $ventas,
+            'cantidad' => (int) $resumen->cantidad,
+            'total'    => round((float) $resumen->total, 2),
+            'tope'     => self::TOPE_EXPORTACION,
+            'filtros'  => $this->filtrosAplicados($request),
+        ])
+            ->setPaper('a4', 'landscape')
+            ->download('ventas-'.now()->format('Y-m-d-His').'.pdf');
+    }
+
+    /**
+     * El juego de filtros del listado, en un solo lugar.
+     *
+     * Lo usan el listado y la exportación. Si cada uno armara su cadena, el PDF podría
+     * exportar algo distinto de lo que la pantalla muestra, que es A-24 con otra ropa:
+     * dos lugares que tienen que decir lo mismo y nada que los obligue.
+     */
+    private function filtradas(VentaFiltroRequest $request): Builder
+    {
+        return Venta::query()
+            ->buscar($request->query('q'))
+            ->conEstado($request->query('estado'))
+            ->deCliente($request->query('cliente_id'))
+            ->deVendedor($request->query('vendedor_id'))
+            ->desde($request->query('desde'))
+            ->hasta($request->query('hasta'))
+            // El id es el número de venta, así que ordenar por id es ordenar de la más
+            // nueva a la más vieja, y es un orden total: no hace falta desempate.
+            ->orderByDesc('id');
+    }
+
+    /** Los filtros aplicados, en palabras, para que el documento declare su alcance. */
+    private function filtrosAplicados(VentaFiltroRequest $request): array
+    {
+        $clienteId  = $request->query('cliente_id');
+        $vendedorId = $request->query('vendedor_id');
+        $desde      = $request->query('desde');
+        $hasta      = $request->query('hasta');
+
+        $cliente  = $clienteId ? Cliente::find($clienteId) : null;
+        $vendedor = $vendedorId ? User::find($vendedorId) : null;
+
+        return array_filter([
+            'Búsqueda' => $request->query('q'),
+            'Estado'   => Venta::ESTADOS[$request->query('estado')] ?? null,
+            'Cliente'  => $cliente?->razon_social,
+            'Vendedor' => $vendedor ? "{$vendedor->apellido}, {$vendedor->nombre}" : null,
+            'Desde'    => $desde ? Carbon::parse($desde)->format('d/m/Y') : null,
+            'Hasta'    => $hasta ? Carbon::parse($hasta)->format('d/m/Y') : null,
+        ]);
     }
 
     /**
