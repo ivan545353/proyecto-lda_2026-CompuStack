@@ -156,6 +156,35 @@ Dos requests concurrentes leen el mismo saldo, ambos pasan la validación, ambos
 
 Esto es bloqueante para los requerimientos 5 (carrito), 9 (venta online) y 11 (compra automática): sin reserva de stock, dos clientes compran la última unidad.
 
+> **Cerrado** — Fase 5. `movimientos_stock` es el kardex: un asiento por
+> movimiento, con `tipo` (`venta`, `devolucion`, `compra`, `ajuste`,
+> `reserva_liberada`), la cantidad **con signo**, el `stock_resultante`, el
+> usuario, el motivo y un `origen` polimórfico que apunta a la venta o a la orden
+> de compra que lo produjo. El índice `(producto_id, created_at)` es el que
+> permite reconstruir el stock a una fecha, que era una de las cuatro cosas que
+> el hallazgo decía que no se podían hacer.
+>
+> Las otras tres las cierra `StockService`, que es **la única puerta** por la que
+> se mueve el stock: `descontar()`, `reponer()`, `recibirCompra()` y `ajustar()`.
+> `stock`, `stock_reservado` y `costo_promedio` están fuera de `$fillable`, así
+> que ningún formulario ni ningún `update()` masivo los puede tocar, y el método
+> que escribe la fila del kardex es **privado**: no hay forma de registrar un
+> movimiento sin mover el stock, que sería un asiento que afirma algo falso, ni
+> de mover el stock sin registrarlo.
+>
+> El requerimiento 11, que el hallazgo nombraba como bloqueado, está
+> implementado: `compras:generar-reposicion` compara el **disponible** contra el
+> stock mínimo y deja una orden en borrador por proveedor. Pudo escribirse
+> justamente porque el kardex existe: sin él, «stock disponible» no era un
+> número confiable.
+>
+> Queda afuera a propósito la **reserva**: la columna `stock_reservado` y el tipo
+> `reserva_liberada` ya existen y todo lo que lee stock lo hace sobre el
+> disponible —`stock - stock_reservado`—, pero quién reserva y cuándo se libera
+> es parte del flujo de la venta, y eso es la Fase 6. El hallazgo señalaba que
+> sin reservas dos clientes compran la última unidad; la mitad estructural está
+> hecha, la mitad del flujo tiene su fase.
+
 ### M-14 · Precio recalculado al editar un presupuesto
 `resolverPreciosYTotales()` relee el precio desde `productos` en cada `save` **y** en cada `update`. Un presupuesto emitido cambia de total si el precio del producto cambia antes de confirmarlo. `detalle_ventas.precio_unit` guarda el precio congelado, pero `SaleDao::update()` borra todas las líneas y las reinserta con el precio nuevo.
 
@@ -163,6 +192,20 @@ Nota positiva: **releer el precio del servidor y nunca confiar en el que manda e
 
 ### M-15 · `moverStock` en modo reponer no bloquea la fila
 El modo `descontar` hace `SELECT ... FOR UPDATE`; el modo `reponer` va directo al `UPDATE`. Inconsistente.
+
+> **Cerrado** — Fase 5. Los cuatro métodos públicos de `StockService` empiezan
+> igual: `DB::transaction` y `Producto::lockForUpdate()->findOrFail()`. No hay un
+> modo que bloquee y otro que no, porque el bloqueo no es del modo sino de la
+> fila: dos peticiones que tocan el mismo producto se serializan sea para
+> descontar, para reponer, para recibir mercadería o para ajustar inventario.
+>
+> La inconsistencia del original venía de pensar el lock como protección del
+> **negocio** —«vender de menos es grave, reponer de más no»— y no de la fila. Y
+> era falsa incluso en sus propios términos: dos reposiciones simultáneas sin
+> lock pierden una, porque las dos leen el mismo stock previo y la segunda
+> escribe sobre la primera. El `stock_resultante` del kardex lo deja a la vista,
+> y los tests del servicio lo verifican buscando `for update` en el log de
+> consultas.
 
 ### M-16 · Borrado físico de documentos financieros
 `SaleDao::delete()` es un `DELETE` plano y `detalle_ventas` tiene `ON DELETE CASCADE`. Borrar una venta borra su historial completo. Lo mismo en productos y usuarios. Con facturación real esto es inadmisible: una vez emitido un comprobante, nada se borra.

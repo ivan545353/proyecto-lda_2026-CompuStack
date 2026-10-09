@@ -117,117 +117,115 @@
     </form>
 
     <div class="card border-0 shadow-sm">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <caption class="visually-hidden">Listado de proveedores</caption>
-                <thead class="table-light">
+        <table class="table table-hover align-middle mb-0">
+            <caption class="visually-hidden">Listado de proveedores</caption>
+            <thead class="table-light">
+                <tr>
+                    <th scope="col">Proveedor</th>
+                    <th scope="col">Canal de pedido</th>
+                    <th scope="col" class="text-center d-none d-sm-table-cell">Vinculado a</th>
+                    <th scope="col" class="d-none d-md-table-cell">Tiempo de Entrega</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col" class="text-center d-none d-sm-table-cell">Productos</th>
+                    <th scope="col" class="text-end">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse ($proveedores as $proveedor)
                     <tr>
-                        <th scope="col">Proveedor</th>
-                        <th scope="col">Canal de pedido</th>
-                        <th scope="col" class="text-center d-none d-sm-table-cell">Vinculado a</th>
-                        <th scope="col" class="d-none d-md-table-cell">Tiempo de Entrega</th>
-                        <th scope="col">Estado</th>
-                        <th scope="col" class="text-center d-none d-sm-table-cell">Productos</th>
-                        <th scope="col" class="text-end">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($proveedores as $proveedor)
-                        <tr>
-                            <td>
-                                <span class="fw-semibold">{{ $proveedor->razon_social }}</span>
-                                <div class="small text-body-secondary">
-                                    CUIT {{ $proveedor->cuitFormateado() }}
-                                    @if ($proveedor->contacto)
-                                        · {{ $proveedor->contacto }}
-                                    @endif
-                                </div>
-                                {{-- En móvil se oculta la columna, así que el dato baja acá --}}
-                                <div class="small text-body-secondary d-sm-none">
-                                    {{ $proveedor->productos_count }} producto(s)
-                                    @if ($proveedor->ordenes_compra_count > 0)
-                                        · {{ $proveedor->ordenes_compra_count }} orden(es)
-                                    @endif
-                                </div>
-                            </td>
-
-                            <td>
-                                {{-- El badge lleva texto: ningún estado se comunica sólo con color --}}
-                                <span class="badge text-bg-light border">{{ $proveedor->canalPedidoTexto() }}</span>
-
-                                @if ($proveedor->canal_pedido === 'portal_externo' && $proveedor->portal_url)
-                                    <a href="{{ $proveedor->portal_url }}" target="_blank" rel="noopener noreferrer"
-                                        class="small d-inline-flex align-items-center gap-1 ms-1"
-                                        aria-label="Abrir el portal de {{ $proveedor->razon_social }} en una pestaña nueva">
-                                        <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Portal
-                                    </a>
-                                @elseif ($proveedor->canal_pedido === 'email' && $proveedor->email)
-                                    <div class="small text-body-secondary">{{ $proveedor->email }}</div>
+                        <td>
+                            <span class="fw-semibold">{{ $proveedor->razon_social }}</span>
+                            <div class="small text-body-secondary">
+                                CUIT {{ $proveedor->cuitFormateado() }}
+                                @if ($proveedor->contacto)
+                                    · {{ $proveedor->contacto }}
                                 @endif
-                            </td>
-
-                            <td class="text-center d-none d-sm-table-cell small">
+                            </div>
+                            {{-- En móvil se oculta la columna, así que el dato baja acá --}}
+                            <div class="small text-body-secondary d-sm-none">
                                 {{ $proveedor->productos_count }} producto(s)
                                 @if ($proveedor->ordenes_compra_count > 0)
-                                    <div class="text-body-secondary">{{ $proveedor->ordenes_compra_count }} orden(es)
-                                    </div>
+                                    · {{ $proveedor->ordenes_compra_count }} orden(es)
                                 @endif
-                            </td>
+                            </div>
+                        </td>
 
-                            <td class="d-none d-md-table-cell">
-                                @if ($proveedor->plazo_entrega_dias > 0)
-                                    ~{{ $proveedor->plazo_entrega_dias }} día(s)
-                                @else
-                                    <span class="text-body-secondary">No informado</span>
-                                @endif
-                            </td>
+                        <td>
+                            {{-- El badge lleva texto: ningún estado se comunica sólo con color --}}
+                            <span class="badge text-bg-light border">{{ $proveedor->canalPedidoTexto() }}</span>
 
-                            <td>
-                                <span class="badge {{ $proveedor->activo ? 'text-bg-dark' : 'text-bg-secondary' }}">
-                                    {{ $proveedor->activo ? 'Activo' : 'Inactivo' }}
-                                </span>
-                            </td>
+                            @if ($proveedor->canal_pedido === 'portal_externo' && $proveedor->portal_url)
+                                <a href="{{ $proveedor->portal_url }}" target="_blank" rel="noopener noreferrer"
+                                    class="small d-inline-flex align-items-center gap-1 ms-1"
+                                    aria-label="Abrir el portal de {{ $proveedor->razon_social }} en una pestaña nueva">
+                                    <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Portal
+                                </a>
+                            @elseif ($proveedor->canal_pedido === 'email' && $proveedor->email)
+                                <div class="small text-body-secondary">{{ $proveedor->email }}</div>
+                            @endif
+                        </td>
 
-                            <td class="text-center d-none d-sm-table-cell">{{ $proveedor->productos_count }}</td>
+                        <td class="text-center d-none d-sm-table-cell small">
+                            {{ $proveedor->productos_count }} producto(s)
+                            @if ($proveedor->ordenes_compra_count > 0)
+                                <div class="text-body-secondary">{{ $proveedor->ordenes_compra_count }} orden(es)
+                                </div>
+                            @endif
+                        </td>
 
-                            <td class="text-end text-nowrap">
-                                @can('proveedor.editar')
-                                    <a href="{{ route('proveedores.edit', $proveedor) }}" class="btn btn-sm btn-outline-dark"
-                                        aria-label="Editar {{ $proveedor->razon_social }}">
-                                        <i class="bi bi-pencil" aria-hidden="true"></i>
-                                        <span class="d-none d-sm-inline">Editar</span>
-                                    </a>
-                                @endcan
+                        <td class="d-none d-md-table-cell">
+                            @if ($proveedor->plazo_entrega_dias > 0)
+                                ~{{ $proveedor->plazo_entrega_dias }} día(s)
+                            @else
+                                <span class="text-body-secondary">No informado</span>
+                            @endif
+                        </td>
 
-                                @can('proveedor.eliminar')
-                                    <form method="POST" action="{{ route('proveedores.destroy', $proveedor) }}"
-                                        class="d-inline" onsubmit="return confirm(@js($proveedor->productos_count + $proveedor->ordenes_compra_count > 0 ? "«{$proveedor->razon_social}» tiene {$proveedor->productos_count} producto(s) y {$proveedor->ordenes_compra_count} orden(es) de compra. No se va a eliminar: se desactiva y su historial queda intacto. ¿Continuar?" : "¿Eliminar el proveedor «{$proveedor->razon_social}»?"));">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button class="btn btn-sm btn-outline-danger"
-                                            aria-label="Eliminar el proveedor {{ $proveedor->razon_social }}">
-                                            <i class="bi bi-trash" aria-hidden="true"></i>
-                                        </button>
-                                    </form>
-                                @endcan
-                            </td>
-                        </tr>
-                    @empty
-                        {{-- El vacío por filtro y el vacío por falta de datos dicen cosas distintas --}}
-                        <tr>
-                            <td colspan="6" class="text-center text-body-secondary py-4">
-                                @if ($hayFiltros)
-                                    Ningún proveedor coincide con el filtro.
-                                    <a href="{{ route('proveedores.index') }}">Ver todos</a>.
-                                @else
-                                    Todavía no hay proveedores cargados.
-                                @endif
-                            </td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
+                        <td>
+                            <span class="badge {{ $proveedor->activo ? 'text-bg-dark' : 'text-bg-secondary' }}">
+                                {{ $proveedor->activo ? 'Activo' : 'Inactivo' }}
+                            </span>
+                        </td>
+
+                        <td class="text-center d-none d-sm-table-cell">{{ $proveedor->productos_count }}</td>
+
+                        <td class="text-end text-nowrap">
+                            @can('proveedor.editar')
+                                <a href="{{ route('proveedores.edit', $proveedor) }}" class="btn btn-sm btn-outline-dark"
+                                    aria-label="Editar {{ $proveedor->razon_social }}">
+                                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                                    <span class="d-none d-sm-inline">Editar</span>
+                                </a>
+                            @endcan
+
+                            @can('proveedor.eliminar')
+                                <form method="POST" action="{{ route('proveedores.destroy', $proveedor) }}"
+                                    class="d-inline" onsubmit="return confirm(@js($proveedor->productos_count + $proveedor->ordenes_compra_count > 0 ? "«{$proveedor->razon_social}» tiene {$proveedor->productos_count} producto(s) y {$proveedor->ordenes_compra_count} orden(es) de compra. No se va a eliminar: se desactiva y su historial queda intacto. ¿Continuar?" : "¿Eliminar el proveedor «{$proveedor->razon_social}»?"));">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button class="btn btn-sm btn-outline-danger"
+                                        aria-label="Eliminar el proveedor {{ $proveedor->razon_social }}">
+                                        <i class="bi bi-trash" aria-hidden="true"></i>
+                                    </button>
+                                </form>
+                            @endcan
+                        </td>
+                    </tr>
+                @empty
+                    {{-- El vacío por filtro y el vacío por falta de datos dicen cosas distintas --}}
+                    <tr>
+                        <td colspan="6" class="text-center text-body-secondary py-4">
+                            @if ($hayFiltros)
+                                Ningún proveedor coincide con el filtro.
+                                <a href="{{ route('proveedores.index') }}">Ver todos</a>.
+                            @else
+                                Todavía no hay proveedores cargados.
+                            @endif
+                        </td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
     </div>
 
     @if ($proveedores->total() > 0)

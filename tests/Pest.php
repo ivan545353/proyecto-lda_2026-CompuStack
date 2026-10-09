@@ -263,3 +263,22 @@ function datosDeVinculo(\App\Models\Proveedor $proveedor, array $sobreescribir =
         'es_preferido'     => false,
     ], $sobreescribir);
 }
+
+/**
+ * Una línea del armador de pedido. A diferencia de `lineaDeOrden()`, cada línea
+ * trae su proveedor: el armador los agrupa y crea una orden por cada uno.
+ */
+function lineaDePedido(
+    \App\Models\Producto $producto,
+    \App\Models\Proveedor $proveedor,
+    int $cantidad = 5,
+    float|string $costo = 1000,
+    array $sobreescribir = [],
+): array {
+    return array_merge([
+        'producto_id'     => $producto->id,
+        'proveedor_id'    => $proveedor->id,
+        'cantidad_pedida' => $cantidad,
+        'costo_unitario'  => $costo,
+    ], $sobreescribir);
+}

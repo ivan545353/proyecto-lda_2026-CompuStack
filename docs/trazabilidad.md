@@ -122,19 +122,23 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 | `features/user/`                 | Listado y formulario de usuarios     | `resources/views/personal/`                                  | Migrado    |
 | `features/sale/`                 | Ventas, detalle, cobro               | `resources/views/ventas/`                                    | Pendiente  |
 | `features/account/`              | Cambio de clave propia               | `resources/views/cuenta/`                                    | Migrado    |
-| `core/pdf/pdf.service.ts`        | Genera PDF con jsPDF en el navegador | `barryvdh/laravel-dompdf` + vistas Blade                     | Pendiente  |
+| `core/pdf/pdf.service.ts`        | Genera PDF con jsPDF en el navegador | `barryvdh/laravel-dompdf` + vistas Blade                     | En Proceso |
 | `core/auth/auth.guard.ts`        | Protege rutas si hay token           | Middleware `auth`                                            | Pendiente  |
 | `core/auth/token.interceptor.ts` | Inyecta el header Authorization      | Descartado: sesión en cookie                                 | Descartado |
 | `core/api/api.constants.ts`      | URL base de la API                   | Descartado                                                   | Descartado |
 | `core/*/​*.service.ts`           | Clientes HTTP por módulo             | Descartado: los controladores devuelven vistas               | Descartado |
 
 > `HomeComponent` descarga las tablas completas y cuenta en el navegador (hallazgo A-26). El panel Blade recibe los números ya agregados.
+> El PDF pasó al servidor porque en Blade no hay jsPDF, y porque la Etapa 2 va a
+> necesitar CAE y código QR en la factura, que no se pueden generar en el cliente.
+> El pedido al proveedor (`compras/pdf.blade.php`) está hecho en la Fase 5; el
+> comprobante de venta y la exportación de listados son de la Fase 7.
 
 ## 9. Pruebas
 
 | Componente original                             | Función                                            | Componente Laravel                            | Estado     |
 | ----------------------------------------------- | -------------------------------------------------- | --------------------------------------------- | ---------- |
-| `tests/dao/*`, `tests/dto/*`, `tests/service/*` | Scripts con `echo`, referencian clases renombradas | `tests/Feature` + `tests/Unit` (PHPUnit/Pest) | Pendiente  |
+| `tests/dao/*`, `tests/dto/*`, `tests/service/*` | Scripts con `echo`, referencian clases renombradas | `tests/Feature` + `tests/Unit` (PHPUnit/Pest) | Reescrito  |
 | `tests/database/databaseTest.php`               | Prueba de conexión manual                          | Cubierto por el entorno de pruebas            | Descartado |
 | `tests/password.php`                            | Generador de hash suelto                           | `php artisan tinker`                          | Descartado |
 
@@ -144,17 +148,17 @@ Documento de seguimiento de la Etapa 1. Se actualiza en el mismo commit que migr
 
 Módulos nuevos de la Etapa 1. No hay componente que migrar; se construyen desde cero.
 
-| Módulo                     | Componentes Laravel                                                                                                                                                               | Estado    |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| Clientes                   | Migración, modelo `Cliente`, `Direccion`, controlador, Form Requests, vistas                                                                                                      | Migrado   |
-| Empleados                  | Migración, modelo `Empleado`, integrado al módulo de usuarios                                                                                                                     | Migrado   |
-| Proveedores                | Migración, modelo `Proveedor`, controlador, vistas                                                                                                                                | Migrado   |
-| Proveedores de un producto | Migración `producto_proveedor`, `Producto::proveedores()`, `ProductoProveedorService`, `ProductoProveedorRequest`, `ProductoProveedorController`, pantalla comparadora de precios | Migrado   |
-| Órdenes de compra          | Migraciones, modelos `OrdenCompra` y `OrdenCompraLinea`, servicio de reposición                                                                                                   | Pendiente |
-| Roles y permisos           | Migraciones `roles`, `permisos`, `rol_permiso`, controlador, vistas, Gates                                                                                                        | Migrado   |
-| Marcas                     | Migración, modelo `Marca`, controlador, vistas                                                                                                                                    | Migrado   |
-| Movimientos de stock       | Migración, modelo `MovimientoStock`, servicio de kardex                                                                                                                           | Migrado   |
-| Categorías jerárquicas     | Ampliación de `Categoria` con `parent_id`                                                                                                                                         | Migrado   |
+| Módulo                     | Componentes Laravel                                                                                                                                                               | Estado  |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Clientes                   | Migración, modelo `Cliente`, `Direccion`, controlador, Form Requests, vistas                                                                                                      | Migrado |
+| Empleados                  | Migración, modelo `Empleado`, integrado al módulo de usuarios                                                                                                                     | Migrado |
+| Proveedores                | Migración, modelo `Proveedor`, controlador, vistas                                                                                                                                | Migrado |
+| Proveedores de un producto | Migración `producto_proveedor`, `Producto::proveedores()`, `ProductoProveedorService`, `ProductoProveedorRequest`, `ProductoProveedorController`, pantalla comparadora de precios | Migrado |
+| Órdenes de compra          | Migraciones, modelos `OrdenCompra` y `OrdenCompraLinea`, servicio de reposición                                                                                                   | Migrado |
+| Roles y permisos           | Migraciones `roles`, `permisos`, `rol_permiso`, controlador, vistas, Gates                                                                                                        | Migrado |
+| Marcas                     | Migración, modelo `Marca`, controlador, vistas                                                                                                                                    | Migrado |
+| Movimientos de stock       | Migración, modelo `MovimientoStock`, servicio de kardex                                                                                                                           | Migrado |
+| Categorías jerárquicas     | Ampliación de `Categoria` con `parent_id`                                                                                                                                         | Migrado |
 
 > `producto_proveedor` no reemplaza a ningún componente original: el sistema
 > original no tenía proveedores. Reemplaza a una decisión **propia** —
@@ -162,6 +166,13 @@ Módulos nuevos de la Etapa 1. No hay componente que migrar; se construyen desde
 > cerrar el modelo de datos y se revirtió en la Fase 5 cuando apareció el
 > requerimiento de comprar al mejor precio. La columna se eliminó con disciplina
 > expand/contract y `EsquemaDatosTest` afirma que ya no existe.
+> La **reposición automática** no reemplaza ningún componente original: el
+> sistema original no tenía compras ni stock mínimo, y la reposición se hacía
+> mirando el listado de productos a ojo. Es el requerimiento 11, y el hallazgo
+> A-13 la nombraba como bloqueada por la falta de kardex. Es además el único
+> componente del sistema que corre **sin usuario**: por eso la orden que genera
+> queda en borrador, con `usuario_creo_id` en null, y espera una aprobación
+> humana antes de comprometer plata.
 
 ## 11. Descartado del modelo original
 

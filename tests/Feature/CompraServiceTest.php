@@ -6,10 +6,12 @@ use App\Models\MovimientoStock;
 use App\Models\OrdenCompra;
 use App\Models\Producto;
 use App\Models\Proveedor;
+use App\Services\ProductoProveedorService;
 use App\Services\CompraService;
 use Database\Seeders\RolPermisoSeeder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Database\QueryException;
 
 uses(RefreshDatabase::class);
 
@@ -420,4 +422,194 @@ test('la recepcion no crea el vinculo si el proveedor ya no provee el producto',
     // mercadería entra igual: el kardex no depende de la pivote.
     expect($producto->fresh()->proveedores()->count())->toBe(0)
         ->and($producto->fresh()->stock)->toBe(2);
+});
+
+// ---------- El código del proveedor, congelado en la línea ----------
+
+test('el alta congela el codigo del proveedor en cada linea', function () {
+    $proveedor = Proveedor::factory()->create();
+
+    $conCodigo = Producto::factory()->conProveedor($proveedor, codigo: 'AUS-77')->create();
+    $sinCodigo = Producto::factory()->conProveedor($proveedor, codigo: null)->create();
+
+    $orden = $this->service->crearBorrador(datosDeOrdenCompra($proveedor, [
+        lineaDeOrden($conCodigo, 3, 1000),
+        lineaDeOrden($sinCodigo, 2, 2000),
+    ]), admin());
+
+    $porProducto = $orden->lineas->keyBy('producto_id');
+
+    expect($porProducto[$conCodigo->id]->codigo_proveedor)->toBe('AUS-77')
+        ->and($porProducto[$sinCodigo->id]->codigo_proveedor)->toBeNull();
+});
+
+test('cambiar el codigo del vinculo no toca una orden ya escrita', function () {
+    $proveedor = Proveedor::factory()->create();
+    $producto  = Producto::factory()->conProveedor($proveedor, codigo: 'VIEJO-1')->create();
+
+    $orden = $this->service->crearBorrador(datosDeOrdenCompra($proveedor, [
+        lineaDeOrden($producto, 1, 500),
+    ]), admin());
+
+    // El proveedor renumera su catálogo.
+    app(ProductoProveedorService::class)->actualizar($producto, $proveedor->id, [
+        'costo_ultimo'     => 500,
+        'codigo_proveedor' => 'NUEVO-9',
+        'es_preferido'     => true,
+    ]);
+
+    // La orden sigue diciendo lo que se pidió. Es lo que permite no archivar el PDF.
+    expect($orden->fresh('lineas')->lineas->first()->codigo_proveedor)->toBe('VIEJO-1');
+});
+
+test('volver a guardar el borrador refresca el codigo, y una orden aprobada ya no se edita', function () {
+    $proveedor = Proveedor::factory()->create();
+    $producto  = Producto::factory()->conProveedor($proveedor, codigo: 'VIEJO-1')->create();
+
+    $orden = $this->service->crearBorrador(datosDeOrdenCompra($proveedor, [
+        lineaDeOrden($producto, 1, 500),
+    ]), admin());
+
+    app(ProductoProveedorService::class)->actualizar($producto, $proveedor->id, [
+        'costo_ultimo'     => 500,
+        'codigo_proveedor' => 'NUEVO-9',
+        'es_preferido'     => true,
+    ]);
+
+    // Un borrador no es un compromiso: volver a guardarlo toma el vínculo vigente,
+    // igual que toma el costo que trae el formulario.
+    $orden = $this->service->actualizarBorrador($orden, datosDeOrdenCompra($proveedor, [
+        lineaDeOrden($producto, 2, 500),
+    ]));
+
+    expect($orden->lineas->first()->codigo_proveedor)->toBe('NUEVO-9');
+
+    // Y al aprobar, las líneas dejan de tocarse: ahí el código queda fijo.
+    $this->service->aprobar($orden, admin());
+
+    expect(fn () => $this->service->actualizarBorrador($orden, datosDeOrdenCompra($proveedor, [
+        lineaDeOrden($producto, 3, 500),
+    ])))->toThrow(ReglaDeNegocioException::class);
+});
+
+// ---------- El armador: un borrador por proveedor ----------
+
+test('un pedido a dos proveedores crea dos borradores', function () {
+    $austral = Proveedor::factory()->create(['razon_social' => 'Austral']);
+    $boreal  = Proveedor::factory()->create(['razon_social' => 'Boreal']);
+
+    $unoDeAustral = Producto::factory()->conProveedor($austral)->create();
+    $otroDeAustral = Producto::factory()->conProveedor($austral)->create();
+    $deBoreal     = Producto::factory()->conProveedor($boreal)->create();
+
+    $ordenes = $this->service->armarPedido(['lineas' => [
+        lineaDePedido($unoDeAustral, $austral, 3, 1000),
+        lineaDePedido($deBoreal, $boreal, 1, 5000),
+        lineaDePedido($otroDeAustral, $austral, 2, 2000),
+    ]], admin());
+
+    expect($ordenes)->toHaveCount(2)
+        ->and(OrdenCompra::count())->toBe(2);
+
+    $deAustral = $ordenes->firstWhere('proveedor_id', $austral->id);
+
+    // Las dos líneas de Austral quedaron en la misma orden, con su total.
+    expect($deAustral->lineas)->toHaveCount(2)
+        ->and($deAustral->estado)->toBe('borrador')
+        // 3 × 1.000 + 2 × 2.000
+        ->and($deAustral->total_estimado)->toBe('7000.00')
+        ->and($ordenes->firstWhere('proveedor_id', $boreal->id)->lineas)->toHaveCount(1);
+});
+
+test('el mismo producto a dos proveedores se parte en dos ordenes', function () {
+    $austral = Proveedor::factory()->create(['razon_social' => 'Austral']);
+    $boreal  = Proveedor::factory()->create(['razon_social' => 'Boreal']);
+
+    $producto = Producto::factory()
+        ->conProveedor($austral, costo: 1000)
+        ->conProveedor($boreal, costo: 900)
+        ->create();
+
+    // Es el caso que camino D habilita: cubrir una compra entre dos proveedores.
+    // El UNIQUE de la base es (orden, producto), así que son dos órdenes y pasa.
+    $ordenes = $this->service->armarPedido(['lineas' => [
+        lineaDePedido($producto, $austral, 10, 1000),
+        lineaDePedido($producto, $boreal, 5, 900),
+    ]], admin());
+
+    expect($ordenes)->toHaveCount(2)
+        ->and($ordenes->firstWhere('proveedor_id', $austral->id)->lineas->first()->cantidad_pedida)->toBe(10)
+        ->and($ordenes->firstWhere('proveedor_id', $boreal->id)->lineas->first()->cantidad_pedida)->toBe(5);
+});
+
+test('el mismo par producto y proveedor dos veces se rechaza', function () {
+    $proveedor = Proveedor::factory()->create();
+    $producto  = Producto::factory()->conProveedor($proveedor)->create();
+
+    expect(fn () => $this->service->armarPedido(['lineas' => [
+        lineaDePedido($producto, $proveedor, 3),
+        lineaDePedido($producto, $proveedor, 2),
+    ]], admin()))->toThrow(ReglaDeNegocioException::class);
+
+    expect(OrdenCompra::count())->toBe(0);
+});
+
+test('si una de las ordenes falla no queda creada ninguna', function () {
+    $austral = Proveedor::factory()->create(['razon_social' => 'Austral']);
+    $boreal  = Proveedor::factory()->create(['razon_social' => 'Boreal']);
+
+    $bueno = Producto::factory()->conProveedor($austral)->create();
+
+    // Un pedido a medias es peor que ninguno: nadie sabría qué parte quedó pedida.
+    expect(fn () => $this->service->armarPedido(['lineas' => [
+        lineaDePedido($bueno, $austral),
+        ['producto_id' => 999999, 'proveedor_id' => $boreal->id, 'cantidad_pedida' => 1, 'costo_unitario' => 100],
+    ]], admin()))->toThrow(QueryException::class);
+
+    expect(OrdenCompra::count())->toBe(0)
+        ->and(App\Models\OrdenCompraLinea::count())->toBe(0);
+});
+
+test('los borradores se numeran por razon social, no por el orden de carga', function () {
+    $zeta = Proveedor::factory()->create(['razon_social' => 'Zeta Insumos']);
+    $alfa = Proveedor::factory()->create(['razon_social' => 'Alfa Distribuciones']);
+
+    $deZeta = Producto::factory()->conProveedor($zeta)->create();
+    $deAlfa = Producto::factory()->conProveedor($alfa)->create();
+
+    // Cargados en orden inverso al alfabético.
+    $ordenes = $this->service->armarPedido(['lineas' => [
+        lineaDePedido($deZeta, $zeta),
+        lineaDePedido($deAlfa, $alfa),
+    ]], admin());
+
+    // Así el número de orden y el orden de los grupos en pantalla coinciden, y el
+    // mensaje de éxito se puede leer de arriba hacia abajo.
+    expect($ordenes->pluck('proveedor_id')->all())->toBe([$alfa->id, $zeta->id])
+        ->and($ordenes->first()->id)->toBeLessThan($ordenes->last()->id);
+});
+
+test('cada linea lleva congelado el codigo del proveedor que la provee', function () {
+    $austral = Proveedor::factory()->create(['razon_social' => 'Austral']);
+    $boreal  = Proveedor::factory()->create(['razon_social' => 'Boreal']);
+
+    $producto = Producto::factory()
+        ->conProveedor($austral, costo: 1000, codigo: 'AUS-1')
+        ->conProveedor($boreal, costo: 900, codigo: 'BOR-9')
+        ->create();
+
+    $ordenes = $this->service->armarPedido(['lineas' => [
+        lineaDePedido($producto, $austral, 3, 1000),
+        lineaDePedido($producto, $boreal, 2, 900),
+    ]], admin());
+
+    // El mismo producto, dos códigos distintos: cada pedido imprime el que su
+    // proveedor entiende.
+    expect($ordenes->firstWhere('proveedor_id', $austral->id)->lineas->first()->codigo_proveedor)->toBe('AUS-1')
+        ->and($ordenes->firstWhere('proveedor_id', $boreal->id)->lineas->first()->codigo_proveedor)->toBe('BOR-9');
+});
+
+test('un pedido sin lineas se rechaza', function () {
+    expect(fn () => $this->service->armarPedido(['lineas' => []], admin()))
+        ->toThrow(ReglaDeNegocioException::class);
 });

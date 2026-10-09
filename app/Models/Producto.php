@@ -31,7 +31,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *   ?categoria_id=  → deCategoria($id)        la categoría y todas sus subcategorías
  * 
  * Fuera del listado:
- *   stockCritico()  lo reusan la reposición automática (Fase 5) y el panel (Fase 7)
+ *   stockCritico()      lo reusan la reposición automática y el panel (Fase 7)
+ *   reponibles()        los que se reponen solos: activos y con mínimo declarado
+ *   sinPedidoEnCurso()  los que no están ya dentro de una orden de compra abierta
+ *
+ * Relaciones:
+ *   proveedores()       BelongsToMany  a quiénes se le compra, con el precio de cada uno
+ *   ordenCompraLineas() HasMany        en qué órdenes de compra aparece
+ *   movimientos()       HasMany        el kardex del producto
  *
  * Todo lo relativo a stock se calcula sobre el DISPONIBLE (stock menos lo
  * reservado), que es la misma definición que usa la reposición automática. Si
@@ -190,6 +197,18 @@ class Producto extends Model
         return $this->hasMany(MovimientoStock::class, 'producto_id');
     }
 
+    /**
+     * Todas las líneas de orden de compra en las que aparece este producto.
+     *
+     * No es un historial para mostrar —para eso está el kardex, que tiene fecha y
+     * usuario—: existe para poder preguntarle a la base si el producto ya está
+     * pedido sin traer ninguna línea a PHP. La usa scopeSinPedidoEnCurso().
+     */
+    public function ordenCompraLineas(): HasMany
+    {
+        return $this->hasMany(OrdenCompraLinea::class, 'producto_id');
+    }
+
     public function getStockDisponibleAttribute(): int
     {
         return $this->stock - $this->stock_reservado;
@@ -274,5 +293,49 @@ class Producto extends Model
     public function scopeStockCritico(Builder $query): Builder
     {
         return $query->whereRaw(self::DISPONIBLE.' <= productos.stock_minimo');
+    }
+
+    /**
+     * Los productos que la reposición automática mira.
+     *
+     * `stock_minimo > 0` ES la declaración de «este producto se repone solo»:
+     * ProductoRequest exige `cantidad_reposicion` mayor que cero exactamente
+     * cuando el mínimo lo es, así que todo producto que entra acá tiene una
+     * cantidad a pedir y el comando nunca genera una línea de cero unidades.
+     *
+     * Por eso no alcanza con stockCritico(): con mínimo cero y stock cero,
+     * `disponible <= minimo` da verdadero, y el comando pediría algo que nadie
+     * quiere reponer. El scope del listado no se toca —ahí «crítico» significa «en
+     * o por debajo de su mínimo», y está bien—; lo que la reposición necesita es
+     * una condición más.
+     *
+     * Es el mismo criterio que noSePuedeReponer() usa para el aviso del listado,
+     * escrito en SQL en vez de en PHP: los dos lugares dicen lo mismo del mismo
+     * producto.
+     */
+    public function scopeReponibles(Builder $query): Builder
+    {
+        return $query->where('activo', true)->where('stock_minimo', '>', 0);
+    }
+
+    /**
+     * Los que no están ya dentro de una orden de compra abierta.
+     *
+     * «Abierta» lo define OrdenCompra::ESTADOS_ABIERTOS —borrador, aprobada,
+     * enviada, recibida parcial—, el mismo lugar que usa el resto del sistema. Si
+     * mañana se agrega un estado vivo, esta consulta lo contempla sola.
+     *
+     * De CUALQUIER proveedor, a propósito: si la mercadería ya viene en camino, da
+     * igual quién la manda. Esto es lo que hace que el comando sea idempotente —se
+     * puede correr dos veces seguidas sin pedir dos veces lo mismo— y lo que lo
+     * deja reintentar solo: si una corrida generó dos de tres órdenes, la
+     * siguiente genera la que faltaba y nada más.
+     */
+    public function scopeSinPedidoEnCurso(Builder $query): Builder
+    {
+        return $query->whereDoesntHave(
+            'ordenCompraLineas.ordenCompra',
+            fn (Builder $orden) => $orden->abiertas(),
+        );
     }
 }

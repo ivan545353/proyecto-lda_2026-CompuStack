@@ -3,6 +3,8 @@ import * as bootstrap from 'bootstrap';
 import { iniciarSelectsBuscables } from './componentes/selects-buscables';
 import { iniciarGestoresDeImagenes } from './componentes/gestor-imagenes';
 import { iniciarLineasDeOrden } from './componentes/lineas-orden';
+import { iniciarArmadorDePedido } from './componentes/lineas-pedido';
+import { iniciarRecepcion } from './componentes/recepcion';
 
 window.bootstrap = bootstrap;
 
@@ -149,3 +151,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Líneas repetibles de la orden de compra: ver componentes/lineas-orden.js
 document.addEventListener('DOMContentLoaded', () => iniciarLineasDeOrden());
+
+// Armador de pedido: ver componentes/lineas-pedido.js
+document.addEventListener('DOMContentLoaded', () => iniciarArmadorDePedido());
+
+// Recepción de mercadería: ver componentes/recepcion.js
+document.addEventListener('DOMContentLoaded', () => iniciarRecepcion());

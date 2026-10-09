@@ -35,17 +35,18 @@ Implementar las fases del plan de acción adjunto, en orden. Indicame en qué fa
 
 **Archivos a adjuntar además del estado actual del código**
 
-| Archivo                         | Para qué                                                      |
-| ------------------------------- | ------------------------------------------------------------- |
-| `plan-accion.md`                | Este documento: los pasos a implementar                       |
-| `plan-migracion.md`             | Fases, orden, criterios de terminado                          |
-| `modelo-datos.md`               | Esquema completo con la justificación de cada decisión        |
-| `der.puml`                      | Diagrama entidad-relación                                     |
-| `auditoria.md`                  | Hallazgos del sistema original que no hay que repetir         |
-| `trazabilidad.md`               | Mapeo componente original → componente Laravel, con su estado |
-| `Proyecto - Etapa 01.pdf`       | Consigna del profesor                                         |
-| `lp_2025.sql`                   | Base de datos original, sólo como referencia                  |
-| Los `.rar` del sistema original | Sólo si hay que consultar cómo funcionaba algo puntual        |
+| Archivo                         | Para qué                                                                    |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| `plan-accion.md`                | Este documento: los pasos a implementar                                     |
+| `plan-migracion.md`             | Fases, orden, criterios de terminado                                        |
+| `modelo-datos.md`               | Esquema completo con la justificación de cada decisión                      |
+| `der.puml`                      | Diagrama entidad-relación                                                   |
+| `auditoria.md`                  | Hallazgos del sistema original que no hay que repetir                       |
+| `trazabilidad.md`               | Mapeo componente original → componente Laravel, con su estado               |
+| `pendientes-usabilidad.md`      | Detalles de usabilidad que quedan como pendientes para implementar al final |
+| `Proyecto - Etapa 01.pdf`       | Consigna del profesor                                                       |
+| `lp_2025.sql`                   | Base de datos original, sólo como referencia                                |
+| Los `.rar` del sistema original | Sólo si hay que consultar cómo funcionaba algo puntual                      |
 
 Del código actual, adjuntar el árbol del proyecto Laravel y los archivos de la fase en curso.
 
@@ -1067,6 +1068,7 @@ public function marcarEnviada(OrdenCompra $orden, User $usuario): OrdenCompra
 ```
 
 ---
+
 
 ## Fase 6 — Ventas y pagos
 

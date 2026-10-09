@@ -22,10 +22,12 @@ Universidad Nacional de la Patagonia Austral — Unidad Académica Caleta Olivia
 | 7    | Panel de métricas y exportación a PDF        | Pendiente  |
 | 8    | Cierre: pruebas, seguridad, documentación    | Pendiente  |
 
-Al cierre de la Fase 4 el sistema administra el catálogo y las personas: acceso
-con roles y permisos nombrados, catálogo de categorías, marcas y productos, y la
-gestión del personal y de los clientes con sus datos fiscales y direcciones. Las
-operaciones —compras, stock y ventas— empiezan en la Fase 5.
+Al cierre de la Fase 5 el sistema administra el catálogo y las personas y además
+compra: proveedores con los productos que provee cada uno y a qué precio, órdenes
+de compra con máquina de estados y aprobación, recepción total o parcial de
+mercadería con kardex, ajustes de inventario, PDF del pedido al proveedor y
+reposición automática de lo que cae por debajo del mínimo. Las ventas y los pagos
+empiezan en la Fase 6.
 
 ## Propósito
 
@@ -145,6 +147,12 @@ valor real.
 | `ADMIN_EMAIL`                               | Cuenta del administrador que crea el seeder                            |
 | `ADMIN_PASSWORD`                            | Si queda vacía, el seeder genera una al azar y la imprime una sola vez |
 
+Datos de la empresa que imprime el pedido al proveedor. Están en `.env` y no en una
+tabla porque cambian al instalar el sistema, no durante su uso:
+
+    EMPRESA_NOMBRE, EMPRESA_CUIT, EMPRESA_DIRECCION,
+    EMPRESA_LOCALIDAD, EMPRESA_TELEFONO, EMPRESA_EMAIL
+
 ### Cuentas de demostración
 
 `DatabaseSeeder` sólo siembra los datos ficticios **fuera de producción**. Las
@@ -178,6 +186,26 @@ php artisan migrate:fresh --seed
 ```
 La aplicación queda en `http://localhost:8000` y redirige al login. No hay
 registro público: las cuentas las crea un administrador.
+
+### Tarea programada
+
+La reposición automática corre todos los días a las 07:00 y deja una orden de
+compra en borrador por proveedor con todo lo que esté por debajo del stock
+mínimo. En el servidor hace falta **una sola** entrada de cron, la del
+planificador de Laravel:
+
+    * * * * * cd /ruta/del/proyecto && php artisan schedule:run >> /dev/null 2>&1
+
+Para verla o ejecutarla a mano:
+
+```bash
+php artisan schedule:list                  # qué está programado y cuándo corre
+php artisan compras:generar-reposicion     # la misma tarea, ahora
+```
+
+El comando genera **borradores**, no pedidos: nadie gasta plata sin que una
+persona con `compra.aprobar` autorice el monto.
+
 ## Pruebas
 
 ```bash
@@ -222,6 +250,9 @@ Cubierto hasta ahora:
   costo promedio ponderado; el motivo obligatorio del ajuste; el conflicto de
   concurrencia cuando el stock cambió mientras se contaba; y el kardex que no se
   puede editar ni borrar.
+- La reposición automática: a quién se le pide cada producto, qué productos no
+  entran, que no vuelve a pedir lo que ya está en una orden abierta y que dos
+  corridas seguidas no duplican nada.
 
 El rollback se verifica a mano, porque `RefreshDatabase` envuelve cada prueba en
 una transacción y el DDL de MySQL provoca commits implícitos:

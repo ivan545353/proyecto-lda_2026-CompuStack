@@ -253,21 +253,72 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::post('/stock/{producto}/ajuste', [StockController::class, 'guardarAjuste'])
         ->middleware('can:stock.ajustar')->name('stock.ajuste.store');
 
-    // Compras — Órdenes de compra
+    // Compras
+    //
+    // El orden importa: /compras/pedido va ANTES de /compras/{orden}, o Laravel
+    // intentaría resolver «pedido» como un id de orden y daría 404. El
+    // `whereNumber` lo hace explícito en lugar de dejarlo colgando del orden de
+    // declaración, que es el tipo de dependencia que se rompe al reordenar.
     Route::get('/compras', [CompraController::class, 'index'])
         ->middleware('can:compra.ver')->name('compras.index');
 
-    Route::get('/compras/crear', [CompraController::class, 'create'])
-        ->middleware('can:compra.crear')->name('compras.create');
+    Route::get('/compras/pedido', [CompraController::class, 'armar'])
+        ->middleware('can:compra.crear')->name('compras.pedido');
 
-    Route::post('/compras', [CompraController::class, 'store'])
-        ->middleware('can:compra.crear')->name('compras.store');
+    Route::post('/compras/pedido', [CompraController::class, 'guardarPedido'])
+        ->middleware('can:compra.crear')->name('compras.pedido.store');
+
+    Route::get('/compras/{orden}', [CompraController::class, 'show'])
+        ->whereNumber('orden')
+        ->middleware('can:compra.ver')->name('compras.show');
 
     Route::get('/compras/{orden}/editar', [CompraController::class, 'edit'])
+        ->whereNumber('orden')
         ->middleware('can:compra.editar')->name('compras.edit');
 
     Route::put('/compras/{orden}', [CompraController::class, 'update'])
+        ->whereNumber('orden')
         ->middleware('can:compra.editar')->name('compras.update');
+
+    // Acciones de estado. Cada una declara su permiso y todas pasan por
+    // MaquinaEstadosCompra: lo que no está en la tabla de transiciones no se puede
+    // (C-9). El verbo es POST y no GET porque cambian el estado del sistema: en el
+    // original `save` respondía a GET igual que a POST (M-27).
+    Route::post('/compras/{orden}/aprobar', [CompraController::class, 'aprobar'])
+        ->whereNumber('orden')
+        ->middleware('can:compra.aprobar')->name('compras.aprobar');
+
+    // Marcar enviada exige el mismo permiso que aprobar, y está decidido así en
+    // modelo-datos.md: la orden no registra quién la marcó, así que exigir esa
+    // autoridad garantiza que sea alguien que podía comprometer el gasto.
+    Route::post('/compras/{orden}/enviada', [CompraController::class, 'marcarEnviada'])
+        ->whereNumber('orden')
+        ->middleware('can:compra.aprobar')->name('compras.enviada');
+
+    // Cerrar incompleta es parte del ciclo de recepción: el proveedor no va a
+    // entregar el resto y la orden se cierra con lo que llegó.
+    Route::post('/compras/{orden}/cerrar', [CompraController::class, 'cerrarIncompleta'])
+        ->whereNumber('orden')
+        ->middleware('can:compra.recibir')->name('compras.cerrar');
+
+    Route::post('/compras/{orden}/cancelar', [CompraController::class, 'cancelar'])
+        ->whereNumber('orden')
+        ->middleware('can:compra.aprobar')->name('compras.cancelar');
+
+    // Recepción de mercadería. Dos rutas con el mismo permiso: la pantalla y el
+    // registro. Lo que entra mueve stock y recalcula el costo promedio, así que
+    // `compra.recibir` es una autoridad distinta de aprobar el gasto.
+    Route::get('/compras/{orden}/recepcion', [CompraController::class, 'recepcion'])
+        ->whereNumber('orden')
+        ->middleware('can:compra.recibir')->name('compras.recepcion');
+
+    Route::post('/compras/{orden}/recepcion', [CompraController::class, 'recibir'])
+        ->whereNumber('orden')
+        ->middleware('can:compra.recibir')->name('compras.recibir');
+
+    Route::get('/compras/{orden}/pdf', [CompraController::class, 'pdf'])
+        ->whereNumber('orden')
+        ->middleware('can:compra.ver')->name('compras.pdf');
         
     // Administración — Roles y permisos
     Route::get('/roles', [RolController::class, 'index'])
