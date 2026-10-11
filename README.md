@@ -160,10 +160,12 @@ CREATE DATABASE lda_2026       CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE lda_2026_testing CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-Y levantar el esquema con datos de demostración:
+Y levantar el esquema con datos de demostración y enlazar el almacenamiento público:
 
 ```bash
 php artisan migrate --seed
+
+php artisan storage:link
 ```
 
 ## Configuración
