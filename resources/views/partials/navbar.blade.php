@@ -1,0 +1,219 @@
+<nav class="navbar navbar-expand-lg bg-white border-bottom">
+    <div class="container-fluid gap-3">
+
+        {{-- Identidad visual / Acceso directo al panel --}}
+        <a class="navbar-brand" href="{{ route('inicio') }}">
+            <img src="{{ asset('assets/imagotipo.svg') }}" alt="{{ config('app.name') }}" height="40">
+        </a>
+
+        {{-- Botón de alternancia para dispositivos móviles --}}
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain"
+            aria-controls="navbarMain" aria-expanded="false" aria-label="Abrir menú">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarMain">
+            {{-- Módulos del sistema habilitados según permisos del usuario --}}
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0 gap-3">
+                {{-- Sin @can: apunta a `inicio`, que manda a cada uno a lo que puede ver. --}}
+                <li class="nav-item">
+                    <a class="nav-link text-black {{ request()->routeIs('panel', 'panel.general') ? 'active' : '' }}"
+                        href="{{ route('inicio') }}"
+                        @if (request()->routeIs('panel', 'panel.general')) aria-current="page" @endif>Inicio</a>
+                </li>
+
+                @can('venta.ver')
+                    <li class="nav-item">
+                        <a class="nav-link text-black {{ request()->routeIs('ventas.*') ? 'active' : '' }}"
+                            href="{{ route('ventas.index') }}"
+                            @if (request()->routeIs('ventas.*')) aria-current="page" @endif>Ventas</a>
+                    </li>
+                @endcan
+
+                @can('rol.ver')
+                    <li class="nav-item">
+                        <a class="nav-link text-black {{ request()->routeIs('roles.*') ? 'active' : '' }}"
+                            href="{{ route('roles.index') }}"
+                            @if (request()->routeIs('roles.*')) aria-current="page" @endif>Roles</a>
+                    </li>
+                @endcan
+
+                @can('precio.ver')
+                    <li class="nav-item">
+                        <a class="nav-link text-black {{ request()->routeIs('precios.*') ? 'active' : '' }}"
+                            href="{{ route('precios.index') }}"
+                            @if (request()->routeIs('precios.*')) aria-current="page" @endif>Precios</a>
+                    </li>
+                @endcan
+
+                @canany(['usuario.ver', 'cliente.ver'])
+                    @php($enUsuarios = request()->routeIs('personal.*', 'clientes.*', 'direcciones.*'))
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle text-black {{ $enUsuarios ? 'active' : '' }}" href="#"
+                            role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Usuarios
+                        </a>
+                        <ul class="dropdown-menu">
+                            @can('usuario.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('personal.*') ? 'active' : '' }}"
+                                        href="{{ route('personal.index') }}"
+                                        @if (request()->routeIs('personal.*')) aria-current="page" @endif>Personal</a>
+                                </li>
+                            @endcan
+                            @can('cliente.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('clientes.*', 'direcciones.*') ? 'active' : '' }}"
+                                        href="{{ route('clientes.index') }}"
+                                        @if (request()->routeIs('clientes.*', 'direcciones.*')) aria-current="page" @endif>Clientes</a>
+                                </li>
+                            @endcan
+                        </ul>
+                    </li>
+                @endcanany
+
+                @canany(['producto.ver', 'categoria.ver', 'marca.ver'])
+                    @php($enCatalogo = request()->routeIs('productos.*', 'categorias.*', 'marcas.*'))
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle text-black {{ $enCatalogo ? 'active' : '' }}" href="#"
+                            role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Catálogo
+                        </a>
+                        <ul class="dropdown-menu">
+                            @can('producto.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('productos.*') ? 'active' : '' }}"
+                                        href="{{ route('productos.index') }}"
+                                        @if (request()->routeIs('productos.*')) aria-current="page" @endif>Productos</a>
+                                </li>
+                            @endcan
+                            @can('categoria.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('categorias.*') ? 'active' : '' }}"
+                                        href="{{ route('categorias.index') }}"
+                                        @if (request()->routeIs('categorias.*')) aria-current="page" @endif>Categorías</a>
+                                </li>
+                            @endcan
+                            @can('marca.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('marcas.*') ? 'active' : '' }}"
+                                        href="{{ route('marcas.index') }}"
+                                        @if (request()->routeIs('marcas.*')) aria-current="page" @endif>Marcas</a>
+                                </li>
+                            @endcan
+                        </ul>
+                    </li>
+                @endcanany
+
+                @canany(['proveedor.ver', 'compra.ver', 'stock.ver'])
+                    @php($enCompras = request()->routeIs('proveedores.*', 'compras.*', 'stock.*'))
+                    @php($enArmador = request()->routeIs('compras.sugeridos', 'compras.pedido*'))
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle text-black {{ $enCompras ? 'active' : '' }}" href="#"
+                            role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Compras
+                            {{-- Lo que está esperando que alguien lo apruebe, visible sin abrir
+                                 el menú. El número no comunica solo: lleva su texto al lado. --}}
+                            @if ($borradoresEsperando > 0)
+                                <span class="badge rounded-pill text-bg-dark ms-1">
+                                    {{ $borradoresEsperando }}
+                                    <span class="visually-hidden">
+                                        {{ $borradoresEsperando === 1 ? 'pedido en borrador esperando aprobación' : 'pedidos en borrador esperando aprobación' }}
+                                    </span>
+                                </span>
+                            @endif
+                        </a>
+                        <ul class="dropdown-menu">
+                            @can('proveedor.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('proveedores.*') ? 'active' : '' }}"
+                                        href="{{ route('proveedores.index') }}"
+                                        @if (request()->routeIs('proveedores.*')) aria-current="page" @endif>Proveedores</a>
+                                </li>
+                            @endcan
+
+                            @can('compra.crear')
+                                <li>
+                                    <a class="dropdown-item {{ $enArmador ? 'active' : '' }}"
+                                        href="{{ route('compras.sugeridos') }}"
+                                        @if ($enArmador) aria-current="page" @endif>Armar pedido</a>
+                                </li>
+                            @endcan
+
+                            @can('compra.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('compras.*') && !$enArmador ? 'active' : '' }}"
+                                        href="{{ route('compras.index') }}"
+                                        @if (request()->routeIs('compras.*') && !$enArmador) aria-current="page" @endif>
+                                        Órdenes de compra
+                                        @if ($borradoresEsperando > 0)
+                                            <span class="badge rounded-pill text-bg-dark ms-1"
+                                                data-borradores="{{ $borradoresEsperando }}">
+                                                {{ $borradoresEsperando }}
+                                        @endif
+                                    </a>
+                                </li>
+                            @endcan
+
+                            @can('stock.ver')
+                                <li>
+                                    <a class="dropdown-item {{ request()->routeIs('stock.*') ? 'active' : '' }}"
+                                        href="{{ route('stock.index') }}"
+                                        @if (request()->routeIs('stock.*')) aria-current="page" @endif>Movimientos de stock</a>
+                                </li>
+                            @endcan
+                        </ul>
+                    </li>
+                @endcanany
+
+                {{-- Cada módulo nuevo se suma acá dentro de su correspondiente @can --}}
+            </ul>
+
+            {{-- Menú de usuario y control de sesión --}}
+            <ul class="navbar-nav">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle text-black" href="#" role="button"
+                        data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-person-circle"></i> {{ auth()->user()->nombre }}
+                    </a>
+
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        {{-- Rol asignado --}}
+                        <li>
+                            <span class="dropdown-item-text small text-body-secondary">
+                                {{ auth()->user()->rol->nombre }}
+                            </span>
+                        </li>
+
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+
+                        {{-- Cuenta propia. No lleva @can: no requiere permiso. --}}
+                        <li>
+                            <a class="dropdown-item {{ request()->routeIs('cuenta.password.*') ? 'active' : '' }}"
+                                href="{{ route('cuenta.password.edit') }}">
+                                <i class="bi bi-key" aria-hidden="true"></i> Cambiar mi contraseña
+                            </a>
+                        </li>
+
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+
+                        {{-- Cierre de sesión (vía POST con protección CSRF) --}}
+                        <li>
+                            <form method="POST" action="{{ route('logout') }}">
+                                @csrf
+                                <button type="submit" class="dropdown-item">
+                                    <i class="bi bi-box-arrow-left"></i> Cerrar sesión
+                                </button>
+                            </form>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+
+    </div>
+</nav>

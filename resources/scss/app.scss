@@ -1,0 +1,144 @@
+// Tipografía global: Nunito
+@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300..900;1,300..900&display=swap');
+@import "gestor-imagenes";
+
+// Variables Sass de Bootstrap (deben definirse antes de importar Bootstrap)
+$font-family-sans-serif: 'Nunito', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", sans-serif;
+$pagination-color: #1a1a1a;
+$pagination-hover-color: #000;
+$pagination-active-bg: #1a1a1a;
+$pagination-active-border-color: #1a1a1a;
+$pagination-focus-box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.25);
+
+@import "bootstrap/scss/bootstrap";
+@import "bootstrap-icons/font/bootstrap-icons.css";
+@import "tom-select/dist/css/tom-select.bootstrap5.css";
+@import "selects-buscables";
+
+:root {
+    --cs-fondo-auth: #f4f6fa;
+    --cs-acento: #1a1a1a;
+    --cs-acento-hover: #000;
+}
+
+body {
+    font-family: $font-family-sans-serif;
+}
+
+// Paginador con la estética negra del sistema en lugar del celeste por defecto
+.pagination {
+    --bs-pagination-color: var(--cs-acento);
+    --bs-pagination-hover-color: var(--cs-acento-hover);
+    --bs-pagination-focus-color: var(--cs-acento-hover);
+    --bs-pagination-focus-box-shadow: 0 0 0 .2rem rgba(0, 0, 0, .25);
+    --bs-pagination-active-color: #fff;
+    --bs-pagination-active-bg: var(--cs-acento);
+    --bs-pagination-active-border-color: var(--cs-acento);
+}
+
+// El link de la sección activa: peso y subrayado, nunca sólo color
+.navbar-nav .nav-link.active {
+    font-weight: 600;
+    border-bottom: 2px solid var(--cs-acento);
+}
+
+// Foco siempre visible, también para quien navega con teclado
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus {
+    border-color: var(--cs-acento-hover);
+    box-shadow: 0 0 0 .2rem rgba(0, 0, 0, .25);
+}
+
+:focus-visible {
+    outline: 3px solid var(--cs-acento);
+    outline-offset: 2px;
+}
+
+.btn-acento {
+    background-color: var(--cs-acento);
+    color: #fff;
+    border: 0;
+    transition: background-color .2s ease;
+
+    &:hover,
+    &:focus {
+        background-color: var(--cs-acento-hover);
+        color: #fff;
+    }
+}
+
+a.badge.text-bg-dark,
+.badge-filtro-limpiar {
+    background-color: var(--cs-acento) !important;
+    color: #fff !important;
+    text-decoration: none;
+    transition: background-color .2s ease;
+
+    &:hover,
+    &:focus {
+        background-color: var(--cs-acento-hover) !important;
+        color: #fff !important;
+    }
+}
+
+.pantalla-auth {
+    min-height: 100vh;
+    background-color: var(--cs-fondo-auth);
+}
+
+.form-authentication {
+    min-width: 290px;
+    width: 500px;
+    max-width: 100%;
+
+    .card {
+        padding-top: 3em;
+        padding-bottom: 3em;
+    }
+}
+
+// La clave del permiso: legible, no decorativa
+.clave-permiso {
+    font-size: .75rem;
+    color: var(--bs-secondary-color);
+    background-color: var(--bs-secondary-bg);
+    padding: .1rem .35rem;
+    border-radius: .2rem;
+}
+
+// El ítem activo de un desplegable
+.dropdown-item.active,
+.dropdown-item:active {
+    background-color: var(--cs-acento);
+    color: #fff;
+}
+
+// Bloques que aparecen al desmarcar el interruptor de activo
+.al-desactivar {
+    display: none;
+}
+
+form:has(.interruptor-activo:not(:checked)) .al-desactivar {
+    display: block;
+}
+
+// La casilla con la que se elige una fila: más grande que la de un formulario, porque
+// es el gesto principal de las pantallas que eligen de a página, y pintada con el
+// acento del sistema en lugar del celeste de Bootstrap, igual que el paginador.
+.casilla-fila {
+    width: 1.35rem;
+    height: 1.35rem;
+    cursor: pointer;
+
+    &:checked {
+        background-color: var(--cs-acento);
+        border-color: var(--cs-acento);
+    }
+}
+
+// La fila marcada se tiñe como Bootstrap tiñe .table-active. Sin :has() la casilla
+// sigue funcionando: lo único que se pierde es el fondo.
+.table>tbody>tr:has(.casilla-fila:checked)>* {
+    box-shadow: inset 0 0 0 9999px rgba(0, 0, 0, .05);
+}
