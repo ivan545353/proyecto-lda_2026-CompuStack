@@ -1,0 +1,43 @@
+{
+  "hash": "f36fdc40",
+  "configHash": "e9c8214e",
+  "lockfileHash": "58564ab7",
+  "browserHash": "a68a9c1b",
+  "optimized": {
+    "bootstrap": {
+      "src": "../../node_modules/bootstrap/dist/js/bootstrap.esm.js",
+      "file": "bootstrap.js",
+      "fileHash": "115ab62b",
+      "needsInterop": false
+    },
+    "tom-select": {
+      "src": "../../node_modules/tom-select/dist/esm/tom-select.complete.js",
+      "file": "tom-select.js",
+      "fileHash": "5d22fb37",
+      "needsInterop": false
+    },
+    "axios": {
+      "src": "../../node_modules/axios/index.js",
+      "file": "axios.js",
+      "fileHash": "f5b9663c",
+      "needsInterop": false
+    },
+    "sortablejs": {
+      "src": "../../node_modules/sortablejs/modular/sortable.esm.js",
+      "file": "sortablejs.js",
+      "fileHash": "e1fed77c",
+      "needsInterop": false
+    },
+    "chart.js/auto": {
+      "src": "../../node_modules/chart.js/auto/auto.js",
+      "file": "chart__js_auto.js",
+      "fileHash": "f20be8b8",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-UVKRO5ER": {
+      "file": "chunk-UVKRO5ER.js"
+    }
+  }
+}
