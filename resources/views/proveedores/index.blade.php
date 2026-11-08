@@ -8,6 +8,7 @@
             <h1 class="h3 mb-1">Proveedores</h1>
             <p class="text-body-secondary small mb-0">
                 El canal de pedido dice cómo llega el pedido a cada proveedor.
+            </p>
         </div>
 
         @can('proveedor.crear')
@@ -17,7 +18,9 @@
         @endcan
     </div>
 
-    @php($hayFiltros = request()->hasAny(['q', 'estado', 'canal']))
+    @php
+        $hayFiltros = request()->hasAny(['q', 'estado', 'canal']);
+    @endphp
 
     {{-- Filtros por GET: la pantalla queda enlazable y el botón "atrás" funciona --}}
     <form method="GET" action="{{ route('proveedores.index') }}" class="card card-body border-0 shadow-sm mb-4">
@@ -108,6 +111,8 @@
                         </a>
                     @endif
 
+                    <x-imprimir ruta="proveedores.imprimir" :listado="new \App\Impresion\ListadoProveedores()" />
+
                     <button type="submit" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center gap-1">
                         <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
                     </button>
@@ -123,15 +128,22 @@
                 <tr>
                     <th scope="col">Proveedor</th>
                     <th scope="col">Canal de pedido</th>
-                    <th scope="col" class="text-center d-none d-sm-table-cell">Vinculado a</th>
+                    {{-- Dos columnas, dos preguntas. Antes «Vinculado a» mostraba los dos
+                         números y «Productos» repetía el primero --}}
+                    <th scope="col" class="text-center d-none d-sm-table-cell">Productos</th>
+                    <th scope="col" class="text-center d-none d-sm-table-cell">Órdenes</th>
                     <th scope="col" class="d-none d-md-table-cell">Tiempo de Entrega</th>
                     <th scope="col">Estado</th>
-                    <th scope="col" class="text-center d-none d-sm-table-cell">Productos</th>
                     <th scope="col" class="text-end">Acciones</th>
                 </tr>
             </thead>
             <tbody>
                 @forelse ($proveedores as $proveedor)
+                    @php
+                        $urlProductos = route('productos.index', ['proveedor_id' => $proveedor->id]);
+                        $urlOrdenes = route('compras.index', ['proveedor_id' => $proveedor->id]);
+                    @endphp
+
                     <tr>
                         <td>
                             <span class="fw-semibold">{{ $proveedor->razon_social }}</span>
@@ -141,11 +153,26 @@
                                     · {{ $proveedor->contacto }}
                                 @endif
                             </div>
-                            {{-- En móvil se oculta la columna, así que el dato baja acá --}}
-                            <div class="small text-body-secondary d-sm-none">
-                                {{ $proveedor->productos_count }} producto(s)
+                            {{-- En móvil las dos columnas se ocultan, así que los números
+                                 bajan acá con los mismos enlaces --}}
+                            <div class="small d-sm-none">
+                                @if ($proveedor->productos_count > 0)
+                                    @can('producto.ver')
+                                        <a href="{{ $urlProductos }}">{{ $proveedor->productos_count }} producto(s)</a>
+                                    @else
+                                        {{ $proveedor->productos_count }} producto(s)
+                                    @endcan
+                                @else
+                                    <span class="text-body-secondary">Sin productos</span>
+                                @endif
+
                                 @if ($proveedor->ordenes_compra_count > 0)
-                                    · {{ $proveedor->ordenes_compra_count }} orden(es)
+                                    ·
+                                    @can('compra.ver')
+                                        <a href="{{ $urlOrdenes }}">{{ $proveedor->ordenes_compra_count }} orden(es)</a>
+                                    @else
+                                        {{ $proveedor->ordenes_compra_count }} orden(es)
+                                    @endcan
                                 @endif
                             </div>
                         </td>
@@ -165,11 +192,38 @@
                             @endif
                         </td>
 
-                        <td class="text-center d-none d-sm-table-cell small">
-                            {{ $proveedor->productos_count }} producto(s)
+                        {{-- Cuántos productos se le compran, enlazado al catálogo filtrado.
+                             Un cero no se enlaza: el listado no tendría nada que mostrar.
+                             Sin `producto.ver` el número se ve pero no es enlace, porque ese
+                             listado le devolvería un 403 --}}
+                        <td class="text-center d-none d-sm-table-cell">
+                            @if ($proveedor->productos_count > 0)
+                                @can('producto.ver')
+                                    <a href="{{ $urlProductos }}"
+                                        aria-label="Ver los {{ $proveedor->productos_count }} productos que se le compran a {{ $proveedor->razon_social }}">
+                                        {{ $proveedor->productos_count }}
+                                    </a>
+                                @else
+                                    {{ $proveedor->productos_count }}
+                                @endcan
+                            @else
+                                <span class="text-body-secondary" title="No se le compra ningún producto">—</span>
+                            @endif
+                        </td>
+
+                        {{-- Cuántas órdenes tiene, enlazado al listado de compras filtrado --}}
+                        <td class="text-center d-none d-sm-table-cell">
                             @if ($proveedor->ordenes_compra_count > 0)
-                                <div class="text-body-secondary">{{ $proveedor->ordenes_compra_count }} orden(es)
-                                </div>
+                                @can('compra.ver')
+                                    <a href="{{ $urlOrdenes }}"
+                                        aria-label="Ver las {{ $proveedor->ordenes_compra_count }} órdenes de compra de {{ $proveedor->razon_social }}">
+                                        {{ $proveedor->ordenes_compra_count }}
+                                    </a>
+                                @else
+                                    {{ $proveedor->ordenes_compra_count }}
+                                @endcan
+                            @else
+                                <span class="text-body-secondary" title="Todavía no se le hizo ningún pedido">—</span>
                             @endif
                         </td>
 
@@ -186,8 +240,6 @@
                                 {{ $proveedor->activo ? 'Activo' : 'Inactivo' }}
                             </span>
                         </td>
-
-                        <td class="text-center d-none d-sm-table-cell">{{ $proveedor->productos_count }}</td>
 
                         <td class="text-end text-nowrap">
                             @can('proveedor.editar')
@@ -212,9 +264,10 @@
                         </td>
                     </tr>
                 @empty
-                    {{-- El vacío por filtro y el vacío por falta de datos dicen cosas distintas --}}
+                    {{-- El vacío por filtro y el vacío por falta de datos dicen cosas distintas.
+                         El colspan decía 6 con siete columnas arriba --}}
                     <tr>
-                        <td colspan="6" class="text-center text-body-secondary py-4">
+                        <td colspan="7" class="text-center text-body-secondary py-4">
                             @if ($hayFiltros)
                                 Ningún proveedor coincide con el filtro.
                                 <a href="{{ route('proveedores.index') }}">Ver todos</a>.

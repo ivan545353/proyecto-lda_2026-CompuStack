@@ -13,14 +13,6 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 /**
  * Orden de compra. Módulo nuevo: el sistema original no tenía compras.
  *
- *
- * **El número de orden es el `id`**, formateado `OC-00042`. No hay columna
- * `numero` a propósito: la orden de compra no es un comprobante fiscal, no
- * necesita ser correlativa sin huecos, y la clave primaria ya garantiza unicidad
- * sin contador, sin tabla auxiliar y sin condición de carrera. Es la lección de
- * A-18 aplicada: el original tenía `venta_numeracion`, una tabla de una fila sin
- * clave primaria, para generar un número que tampoco era único.
- *
  * Relaciones:
  *   proveedor()      BelongsTo   a quién se le compra
  *   lineas()         HasMany     qué se le pidió
@@ -31,7 +23,8 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  * Scopes (uno por filtro del listado; el contrato está declarado acá y en
  * OrdenCompraFiltroRequest):
  *   ?q=             → buscar($texto)        número de orden o razón social
- *   ?estado=        → conEstado($estado)    lista cerrada de ESTADOS
+ *   ?estado=        → conEstado($estado)    lista cerrada de ESTADOS, o «abiertas»
+ *   ?origen=        → deOrigen($origen)     reposicion | manual
  *   ?proveedor_id=  → deProveedor($id)
  *   ?desde=         → desde($fecha)         por fecha de creación, inclusive
  *   ?hasta=         → hasta($fecha)
@@ -56,12 +49,21 @@ class OrdenCompra extends Model
     /**
      * Estados en los que la orden sigue viva.
      *
-     * La reposición automática la usa para no pedir dos veces el mismo producto,
-     * y el panel de la Fase 7 va a contar las compras pendientes con la misma
-     * definición. Tenerla en un solo lugar es lo que hace que las dos pantallas
-     * digan lo mismo del mismo dato.
      */
     public const ESTADOS_ABIERTOS = ['borrador', 'aprobada', 'enviada', 'recibida_parcial'];
+
+    /** El valor de ?estado= que agrupa los cuatro abiertos: es el destino del panel. */
+    public const ABIERTAS = 'abiertas';
+
+    
+    /** Lo que ofrece el selector de estado del listado: el grupo de las abiertas, y cada estado. */
+    public const ESTADOS_DEL_FILTRO = [self::ABIERTAS => 'Abiertas (sin recibir ni cancelar)'] + self::ESTADOS;
+
+    /** Quién la originó, para ?origen=. Sin usuario que la creara, la generó la reposición. */
+    public const ORIGENES = [
+        'reposicion' => 'Generada por la reposición',
+        'manual'     => 'Cargada por una persona',
+    ];
 
     protected $table = 'ordenes_compra';
 
@@ -137,10 +139,6 @@ class OrdenCompra extends Model
 
     /**
      * Clase del badge de estado.
-     *
-     * Vive en el modelo y no en la vista porque el listado y la ficha tienen que
-     * pintar lo mismo, y dos `match` en dos archivos se desincronizan. El texto
-     * viaja siempre junto al badge: el color acompaña, no comunica solo.
      */
     public function estadoClase(): string
     {
@@ -188,14 +186,6 @@ class OrdenCompra extends Model
 
     /**
      * Busca por número de orden o por razón social del proveedor.
-     *
-     * El número se escribe de varias formas —«OC-00042», «00042», «42»—, así que
-     * se buscan los dígitos del texto contra el `id`. Si no hay dígitos, esa rama
-     * no se agrega y la búsqueda es sólo por nombre.
-     *
-     * El OR va agrupado en un closure. Sin el grupo, encadenar ?estado= después
-     * produce `proveedor LIKE … OR (id = … AND estado = …)`, y la rama del nombre
-     * devolvería órdenes que no cumplen el filtro de estado.
      */
     public function scopeBuscar(Builder $query, ?string $texto): Builder
     {
@@ -215,10 +205,24 @@ class OrdenCompra extends Model
 
     public function scopeConEstado(Builder $query, ?string $estado): Builder
     {
+        if ($estado === self::ABIERTAS) {
+            return $query->abiertas();
+        }
+
         return $query->when(
             array_key_exists((string) $estado, self::ESTADOS),
             fn (Builder $query) => $query->where('estado', $estado),
         );
+    }
+
+    // Un valor fuera de ORIGENES no filtra, igual que un estado inexistente.
+    public function scopeDeOrigen(Builder $query, ?string $origen): Builder
+    {
+        return match ($origen) {
+            'reposicion' => $query->whereNull('usuario_creo_id'),
+            'manual'     => $query->whereNotNull('usuario_creo_id'),
+            default      => $query,
+        };
     }
 
     public function scopeDeProveedor(Builder $query, int|string|null $id): Builder
@@ -246,7 +250,7 @@ class OrdenCompra extends Model
         );
     }
 
-    /** Las que todavía esperan algo. No es un filtro de la URL. */
+    /** Las que todavía esperan algo. En la URL llega como ?estado=abiertas. */
     public function scopeAbiertas(Builder $query): Builder
     {
         return $query->whereIn('estado', self::ESTADOS_ABIERTOS);

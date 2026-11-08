@@ -613,3 +613,60 @@ test('un pedido sin lineas se rechaza', function () {
     expect(fn () => $this->service->armarPedido(['lineas' => []], admin()))
         ->toThrow(ReglaDeNegocioException::class);
 });
+
+// ---------- Los sugeridos que pasan al armador ----------
+
+test('la canasta de sugeridos trae el proveedor habitual, su costo y la cantidad de reposicion', function () {
+    $preferido = Proveedor::factory()->create(['razon_social' => 'Austral']);
+    $otro      = Proveedor::factory()->create(['razon_social' => 'Boreal']);
+
+    $producto = Producto::factory()->conStock(0)
+        ->conProveedor($otro, costo: 9000)
+        ->conProveedor($preferido, costo: 12000, preferido: true)
+        ->create(['stock_minimo' => 5, 'cantidad_reposicion' => 7]);
+
+    $linea = $this->service->lineasSugeridas([$producto->id])[0];
+
+    // El preferido y su costo, no el más barato ni el promedio del producto.
+    expect($linea['producto_id'])->toBe($producto->id)
+        ->and($linea['proveedor_id'])->toBe($preferido->id)
+        ->and($linea['cantidad_pedida'])->toBe(7)
+        ->and((float) $linea['costo_unitario'])->toBe(12000.0);
+});
+
+test('los sugeridos que ya no hacen falta no entran en la canasta', function () {
+    $proveedor = Proveedor::factory()->create();
+
+    $sigue    = Producto::factory()->conStock(0)->conProveedor($proveedor, costo: 1000)->create(['stock_minimo' => 5]);
+    $enCamino = Producto::factory()->conStock(0)->conProveedor($proveedor, costo: 1000)->create(['stock_minimo' => 5]);
+    $cargado  = Producto::factory()->conStock(50)->conProveedor($proveedor, costo: 1000)->create(['stock_minimo' => 5]);
+    $huerfano = Producto::factory()->conStock(0)->create(['stock_minimo' => 5]);
+
+    OrdenCompra::factory()->conLinea($enCamino, 10)->create(['proveedor_id' => $proveedor->id]);
+
+    $elegidos = [$sigue->id, $enCamino->id, $cargado->id, $huerfano->id];
+
+    expect(collect($this->service->lineasSugeridas($elegidos))->pluck('producto_id')->all())
+        ->toBe([$sigue->id]);
+});
+
+test('la canasta sale ordenada por codigo y no por el orden en que se eligieron', function () {
+    $proveedor = Proveedor::factory()->create();
+
+    $zeta = Producto::factory()->conStock(0)->conProveedor($proveedor, costo: 1000)
+        ->create(['stock_minimo' => 5, 'codigo' => 'Z-001']);
+    $alfa = Producto::factory()->conStock(0)->conProveedor($proveedor, costo: 1000)
+        ->create(['stock_minimo' => 5, 'codigo' => 'A-001']);
+
+    expect(collect($this->service->lineasSugeridas([$zeta->id, $alfa->id]))->pluck('producto_id')->all())
+        ->toBe([$alfa->id, $zeta->id]);
+});
+
+test('una canasta sin productos elegidos no devuelve nada', function () {
+    Producto::factory()->conStock(0)->conProveedor(Proveedor::factory()->create(), costo: 1000)
+        ->create(['stock_minimo' => 5]);
+
+    // Sin la guarda del caso vacío, conIds() no recortaría y esto devolvería todo
+    // lo que hay que reponer: es la trampa que el tramo F dejó anotada.
+    expect($this->service->lineasSugeridas([]))->toBe([]);
+});

@@ -132,3 +132,29 @@ test('la base impide dos lineas del mismo producto en una orden', function () {
         'costo_unitario'  => 500,
     ]))->toThrow(Illuminate\Database\UniqueConstraintViolationException::class);
 });
+
+
+test('conEstado abiertas usa la misma definicion que abiertas', function () {
+    OrdenCompra::factory()->create();                      // borrador
+    OrdenCompra::factory()->aprobada()->create();
+    OrdenCompra::factory()->enviada()->create();
+    OrdenCompra::factory()->recibidaParcial()->create();
+    OrdenCompra::factory()->recibida()->create();
+    OrdenCompra::factory()->cancelada()->create();
+
+    // Es el destino del enlace del panel: el número de la tarjeta y lo que lista el
+    // enlace salen de la misma constante.
+    expect(OrdenCompra::conEstado(OrdenCompra::ABIERTAS)->pluck('id')->sort()->values()->all())
+        ->toBe(OrdenCompra::abiertas()->pluck('id')->sort()->values()->all())
+        ->and(OrdenCompra::conEstado(OrdenCompra::ABIERTAS)->count())->toBe(4);
+});
+
+test('deOrigen separa lo que genero la reposicion de lo que cargo una persona', function () {
+    $delSistema = OrdenCompra::factory()->create(['usuario_creo_id' => null]);
+    $aMano      = OrdenCompra::factory()->create();
+
+    expect(OrdenCompra::deOrigen('reposicion')->pluck('id')->all())->toBe([$delSistema->id])
+        ->and(OrdenCompra::deOrigen('manual')->pluck('id')->all())->toBe([$aMano->id])
+        ->and(OrdenCompra::deOrigen(null)->count())->toBe(2)
+        ->and(OrdenCompra::deOrigen('telepatia')->count())->toBe(2);
+});

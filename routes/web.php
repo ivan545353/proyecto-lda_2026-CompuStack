@@ -17,6 +17,10 @@ use App\Http\Controllers\ProductoProveedorController;
 use App\Http\Controllers\VentaController;
 use App\Http\Controllers\PagoController;
 use App\Http\Controllers\PanelController;
+use App\Http\Controllers\InformeVentasController;
+use App\Http\Controllers\PrecioController;
+use App\Http\Controllers\BusquedaController;
+use App\Http\Controllers\AjusteMasivoController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -83,6 +87,10 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->middleware('can:marca.ver')
         ->name('marcas.index');
 
+    Route::get('/marcas/imprimir', [MarcaController::class, 'imprimir'])
+        ->middleware('can:marca.ver')
+        ->name('marcas.imprimir');
+
     Route::get('/marcas/crear', [MarcaController::class, 'create'])
         ->middleware('can:marca.crear')
         ->name('marcas.create');
@@ -106,6 +114,10 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     // Catálogo — productos
     Route::get('/productos', [ProductoController::class, 'index'])
         ->middleware('can:producto.ver')->name('productos.index');
+    
+    // Imprimir lo que el listado muestra pide el mismo permiso que verlo: el costo lo cuida su columna.
+    Route::get('/productos/imprimir', [ProductoController::class, 'imprimir'])
+        ->middleware('can:producto.ver')->name('productos.imprimir');
 
     Route::get('/productos/crear', [ProductoController::class, 'create'])
         ->middleware('can:producto.crear')->name('productos.create');
@@ -121,13 +133,10 @@ Route::middleware(['auth', 'gestion'])->group(function () {
 
     Route::delete('/productos/{producto}', [ProductoController::class, 'destroy'])
         ->middleware('can:producto.eliminar')->name('productos.destroy');
+    Route::post('/productos/{producto}/recalcular', [ProductoController::class, 'recalcular'])
+        ->middleware('can:precio.recalcular')->name('productos.recalcular');
     
     // Proveedores de un producto: el comparador de precios.
-    // Recurso anidado, igual que las direcciones de un cliente. Las seis rutas
-    // exigen `producto.editar`: administrar a quién se le compra un producto es
-    // editar el producto, y no hay escenario donde tenga sentido una cosa sin la
-    // otra. Es el mismo criterio con el que las cinco rutas de direcciones exigen
-    // `cliente.editar`.
     Route::middleware('can:producto.editar')->group(function () {
     Route::get('/productos/{producto}/proveedores', [ProductoProveedorController::class, 'index'])
         ->name('producto-proveedores.index');
@@ -181,6 +190,9 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/clientes', [ClienteController::class, 'index'])
         ->middleware('can:cliente.ver')->name('clientes.index');
 
+    Route::get('/clientes/imprimir', [ClienteController::class, 'imprimir'])
+        ->middleware('can:cliente.ver')->name('clientes.imprimir');
+
     Route::get('/clientes/crear', [ClienteController::class, 'create'])
         ->middleware('can:cliente.crear')->name('clientes.create');
 
@@ -218,6 +230,9 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/categorias', [CategoriaController::class, 'index'])
         ->middleware('can:categoria.ver')->name('categorias.index');
 
+    Route::get('/categorias/imprimir', [CategoriaController::class, 'imprimir'])
+        ->middleware('can:categoria.ver')->name('categorias.imprimir');
+
     Route::get('/categorias/crear', [CategoriaController::class, 'create'])
         ->middleware('can:categoria.crear')->name('categorias.create');
 
@@ -237,6 +252,8 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/proveedores', [ProveedorController::class, 'index'])
         ->middleware('can:proveedor.ver')->name('proveedores.index');
 
+    Route::get('/proveedores/imprimir', [ProveedorController::class, 'imprimir'])
+        ->middleware('can:proveedor.ver')->name('proveedores.imprimir');
     Route::get('/proveedores/crear', [ProveedorController::class, 'create'])
         ->middleware('can:proveedor.crear')->name('proveedores.create');
 
@@ -256,26 +273,44 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/stock', [StockController::class, 'index'])
         ->middleware('can:stock.ver')->name('stock.index');
 
+    Route::get('/stock/imprimir', [StockController::class, 'imprimir'])
+        ->middleware('can:stock.ver')->name('stock.imprimir');
+
     Route::get('/stock/{producto}/ajuste', [StockController::class, 'crearAjuste'])
         ->middleware('can:stock.ajustar')->name('stock.ajuste.create');
 
     Route::post('/stock/{producto}/ajuste', [StockController::class, 'guardarAjuste'])
         ->middleware('can:stock.ajustar')->name('stock.ajuste.store');
 
+    // Buscador remoto.
+    Route::get('/buscar/productos', [BusquedaController::class, 'productos'])
+        ->middleware('can:producto.ver')->name('busqueda.productos');
+
+    Route::get('/buscar/productos/{producto}/proveedores', [BusquedaController::class, 'proveedoresDeProducto'])
+        ->whereNumber('producto')
+        ->middleware('can:proveedor.ver')->name('busqueda.producto.proveedores');
+
+    Route::get('/buscar/clientes', [BusquedaController::class, 'clientes'])
+        ->middleware('can:cliente.ver')->name('busqueda.clientes');
+
+    Route::get('/buscar/proveedores', [BusquedaController::class, 'proveedores'])
+        ->middleware('can:proveedor.ver')->name('busqueda.proveedores');
+
     // Compras
-    //
-    // El orden importa: /compras/pedido va ANTES de /compras/{orden}, o Laravel
-    // intentaría resolver «pedido» como un id de orden y daría 404. El
-    // `whereNumber` lo hace explícito en lugar de dejarlo colgando del orden de
-    // declaración, que es el tipo de dependencia que se rompe al reordenar.
     Route::get('/compras', [CompraController::class, 'index'])
         ->middleware('can:compra.ver')->name('compras.index');
 
+    Route::get('/compras/imprimir', [CompraController::class, 'imprimir'])
+        ->middleware('can:compra.ver')->name('compras.imprimir');
+    
     Route::get('/compras/pedido', [CompraController::class, 'armar'])
         ->middleware('can:compra.crear')->name('compras.pedido');
 
     Route::post('/compras/pedido', [CompraController::class, 'guardarPedido'])
         ->middleware('can:compra.crear')->name('compras.pedido.store');
+
+    Route::get('/compras/sugeridos', [CompraController::class, 'sugeridos'])
+        ->middleware('can:compra.crear')->name('compras.sugeridos');
 
     Route::get('/compras/{orden}', [CompraController::class, 'show'])
         ->whereNumber('orden')
@@ -289,17 +324,12 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->whereNumber('orden')
         ->middleware('can:compra.editar')->name('compras.update');
 
-    // Acciones de estado. Cada una declara su permiso y todas pasan por
-    // MaquinaEstadosCompra: lo que no está en la tabla de transiciones no se puede
-    // (C-9). El verbo es POST y no GET porque cambian el estado del sistema: en el
-    // original `save` respondía a GET igual que a POST (M-27).
+    // Acciones de estado. 
     Route::post('/compras/{orden}/aprobar', [CompraController::class, 'aprobar'])
         ->whereNumber('orden')
         ->middleware('can:compra.aprobar')->name('compras.aprobar');
 
-    // Marcar enviada exige el mismo permiso que aprobar, y está decidido así en
-    // modelo-datos.md: la orden no registra quién la marcó, así que exigir esa
-    // autoridad garantiza que sea alguien que podía comprometer el gasto.
+    // Marcar enviada exige el mismo permiso que aprobar
     Route::post('/compras/{orden}/enviada', [CompraController::class, 'marcarEnviada'])
         ->whereNumber('orden')
         ->middleware('can:compra.aprobar')->name('compras.enviada');
@@ -314,9 +344,7 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->whereNumber('orden')
         ->middleware('can:compra.aprobar')->name('compras.cancelar');
 
-    // Recepción de mercadería. Dos rutas con el mismo permiso: la pantalla y el
-    // registro. Lo que entra mueve stock y recalcula el costo promedio, así que
-    // `compra.recibir` es una autoridad distinta de aprobar el gasto.
+    // Recepción de mercadería. Dos rutas con el mismo permiso
     Route::get('/compras/{orden}/recepcion', [CompraController::class, 'recepcion'])
         ->whereNumber('orden')
         ->middleware('can:compra.recibir')->name('compras.recepcion');
@@ -342,6 +370,14 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/ventas/exportar', [VentaController::class, 'exportar'])
     ->middleware('can:venta.ver')->name('ventas.exportar');
 
+    // Los informes que salieron del panel: muestran el conjunto, así que piden el mismo
+    // permiso que el panel general y no venta.ver, que tiene también el Vendedor.
+    Route::get('/ventas/vendedores', [InformeVentasController::class, 'vendedores'])
+        ->middleware('can:panel.ver_global')->name('ventas.vendedores');
+
+    Route::get('/ventas/productos', [InformeVentasController::class, 'productos'])
+        ->middleware('can:panel.ver_global')->name('ventas.productos');
+        
     Route::get('/ventas/{venta}', [VentaController::class, 'show'])
         ->whereNumber('venta')
         ->middleware('can:venta.ver')->name('ventas.show');
@@ -371,9 +407,19 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->whereNumber('venta')
         ->middleware('can:venta.cobrar')->name('pagos.store');
 
+    Route::get('/ventas/{venta}/entrega', [VentaController::class, 'entrega'])
+        ->whereNumber('venta')
+        ->middleware('can:venta.entregar')->name('ventas.entrega');
+
     Route::post('/ventas/{venta}/entregar', [VentaController::class, 'entregar'])
         ->whereNumber('venta')
         ->middleware('can:venta.entregar')->name('ventas.entregar');
+
+    // El comprobante se busca dentro de su venta: el de otra venta da 404.
+    Route::get('/ventas/{venta}/entregas/{entrega}/pdf', [VentaController::class, 'entregaPdf'])
+        ->whereNumber(['venta', 'entrega'])
+        ->scopeBindings()
+        ->middleware('can:venta.ver')->name('ventas.entregas.pdf');
 
     Route::get('/ventas/{venta}/devolucion', [VentaController::class, 'devolucion'])
         ->whereNumber('venta')
@@ -383,8 +429,6 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->whereNumber('venta')
         ->middleware('can:venta.anular')->name('ventas.devolver');
 
-    // Descargar es una lectura y pide `venta.ver`, igual que el PDF del pedido pide
-    // `compra.ver`: no cambia ningún estado y se puede repetir.
     Route::get('/ventas/{venta}/pdf', [VentaController::class, 'pdf'])
         ->whereNumber('venta')
         ->middleware('can:venta.ver')->name('ventas.pdf');
@@ -393,6 +437,61 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/roles', [RolController::class, 'index'])
         ->middleware('can:rol.ver')
         ->name('roles.index');
+    
+    // Administración — Precios
+    Route::get('/precios', [PrecioController::class, 'index'])
+        ->middleware('can:precio.ver')->name('precios.index');
+    
+    Route::get('/precios/simulador', [PrecioController::class, 'simulador'])
+        ->middleware('can:precio.ver')->name('precios.simulador');
+
+    // Precios — ajuste masivo. 
+    Route::get('/precios/ajuste', [AjusteMasivoController::class, 'index'])
+        ->middleware('can:precio.ajustar_masivo')->name('precios.ajuste');
+
+    Route::post('/precios/ajuste', [AjusteMasivoController::class, 'aplicar'])
+        ->middleware('can:precio.ajustar_masivo')->name('precios.ajuste.aplicar');
+
+    Route::get('/precios/lotes', [AjusteMasivoController::class, 'lotes'])
+        ->middleware('can:precio.ver')->name('precios.lotes');
+
+    Route::post('/precios/lotes/{lote}/deshacer', [AjusteMasivoController::class, 'deshacer'])
+        ->middleware('can:precio.deshacer_ajuste')->name('precios.lotes.deshacer');
+
+    Route::middleware('can:precio.editar')->group(function () {
+            Route::put('/precios/politica', [PrecioController::class, 'actualizarPolitica'])
+                ->name('precios.politica.update');
+
+            Route::get('/precios/impuestos/crear', [PrecioController::class, 'crearImpuesto'])
+                ->name('precios.impuestos.create');
+
+            Route::post('/precios/impuestos', [PrecioController::class, 'guardarImpuesto'])
+                ->name('precios.impuestos.store');
+
+            Route::get('/precios/impuestos/{impuesto}/editar', [PrecioController::class, 'editarImpuesto'])
+                ->name('precios.impuestos.edit');
+
+            Route::put('/precios/impuestos/{impuesto}', [PrecioController::class, 'actualizarImpuesto'])
+                ->name('precios.impuestos.update');
+
+            Route::delete('/precios/impuestos/{impuesto}', [PrecioController::class, 'eliminarImpuesto'])
+                ->name('precios.impuestos.destroy');
+
+            Route::get('/precios/factores/crear', [PrecioController::class, 'crearFactor'])
+                ->name('precios.factores.create');
+
+            Route::post('/precios/factores', [PrecioController::class, 'guardarFactor'])
+                ->name('precios.factores.store');
+
+            Route::get('/precios/factores/{factor}/editar', [PrecioController::class, 'editarFactor'])
+                ->name('precios.factores.edit');
+
+            Route::put('/precios/factores/{factor}', [PrecioController::class, 'actualizarFactor'])
+                ->name('precios.factores.update');
+
+            Route::delete('/precios/factores/{factor}', [PrecioController::class, 'eliminarFactor'])
+                ->name('precios.factores.destroy');
+        });
 
     Route::middleware('can:rol.editar')->group(function () {
         Route::get('/roles/crear', [RolController::class, 'create'])->name('roles.create');

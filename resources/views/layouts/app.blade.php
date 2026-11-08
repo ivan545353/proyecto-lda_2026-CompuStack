@@ -11,7 +11,11 @@
       partials.navbar    menú, construido con @can sobre permisos
       partials.alertas   mensajes de éxito y de error de la sesión
       partials.footer    datos de la cursada
+    
+    El stack `modales` va al final del <body>: ahí se rinden las ventanas que un
+    componente arma adentro de un formulario y que no pueden quedar anidadas en él.
 --}}
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -22,7 +26,8 @@
     <!-- Tipografía Nunito -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300..900;1,300..900&display=swap"
+        rel="stylesheet">
 
     @vite(['resources/scss/app.scss', 'resources/js/app.js'])
 </head>
@@ -38,6 +43,8 @@
     </main>
 
     @include('partials.footer')
+
+    @stack('modales')
 
 </body>
 

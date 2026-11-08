@@ -34,6 +34,14 @@ test('las transiciones declaradas se permiten', function (string $desde, string 
     ['pagada', 'entregada'],
     ['pagada', 'en_preparacion'],
 
+    
+    // La entrega en dos veces: parcial o total se deriva de los renglones.
+    ['pagada', 'entregada_parcial'],
+    ['entregada_parcial', 'entregada_parcial'],
+    ['entregada_parcial', 'entregada'],
+    ['entregada_parcial', 'devuelta_parcial'],
+    ['entregada_parcial', 'devuelta'],
+
     // Y si se deshace, el camino es la devolución, que revierte los pagos.
     ['pagada', 'devuelta'],
     ['pagada', 'devuelta_parcial'],
@@ -92,6 +100,13 @@ test('las transiciones que no estan declaradas se rechazan', function (string $d
 
     // No se desdevuelve.
     ['devuelta_parcial', 'entregada'],
+
+    
+    // Lo que salió no vuelve a estar sin entregar, y lo entregado en parte no se cancela.
+    ['entregada', 'entregada_parcial'],
+    ['entregada_parcial', 'pagada'],
+    ['entregada_parcial', 'cancelada'],
+    ['presupuesto', 'entregada_parcial'],
 ]);
 
 test('los estados finales no tienen salida hacia ningun estado', function () {
@@ -107,19 +122,26 @@ test('los estados finales no tienen salida hacia ningun estado', function () {
         ->and(MaquinaEstadosVenta::destinosDesde('devuelta'))->toBe([]);
 });
 
-test('entregada_parcial esta declarado en la base pero ninguna transicion lo alcanza', function () {
-    // El valor existe en el ENUM porque agregarlo después reescribiría la tabla, y
-    // la venta con faltante está fuera del alcance de la Etapa 1. Que sea
-    // inalcanzable es la decisión, no un efecto colateral: si alguien implementa el
-    // backorder, este test le va a fallar y eso es exactamente lo que tiene que
-    // pasar.
-    expect(Venta::ESTADOS)->toHaveKey('entregada_parcial');
+test('a entregada_parcial solo se llega entregando desde pagada o desde si misma', function () {
+    // Se recorren los once estados del modelo, no una lista a mano: si mañana otro
+    // origen alcanza la entrega parcial, este test lo nombra.
+    $origenes = collect(array_keys(Venta::ESTADOS))
+        ->filter(fn (string $origen) => MaquinaEstadosVenta::puede($origen, 'entregada_parcial'))
+        ->values()
+        ->all();
 
-    foreach (array_keys(Venta::ESTADOS) as $origen) {
-        expect(MaquinaEstadosVenta::puede($origen, 'entregada_parcial'))->toBeFalse();
-    }
+    expect($origenes)->toEqualCanonicalizing(['pagada', 'entregada_parcial'])
+        ->and(MaquinaEstadosVenta::destinosDesde('entregada_parcial'))
+        ->toEqualCanonicalizing(['entregada_parcial', 'entregada', 'devuelta_parcial', 'devuelta']);
+});
 
-    expect(MaquinaEstadosVenta::destinosDesde('entregada_parcial'))->toBe([]);
+test('puedeEntregar le pregunta a la tabla por los dos destinos de la entrega', function () {
+    expect(MaquinaEstadosVenta::puedeEntregar('pagada'))->toBeTrue()
+        ->and(MaquinaEstadosVenta::puedeEntregar('entregada_parcial'))->toBeTrue()
+        ->and(MaquinaEstadosVenta::puedeEntregar('presupuesto'))->toBeFalse()
+        ->and(MaquinaEstadosVenta::puedeEntregar('entregada'))->toBeFalse()
+        ->and(MaquinaEstadosVenta::puedeEntregar('devuelta_parcial'))->toBeFalse()
+        ->and(MaquinaEstadosVenta::puedeEntregar('cancelada'))->toBeFalse();
 });
 
 test('la tabla no nombra ningun estado que el modelo no conozca', function () {

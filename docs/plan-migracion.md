@@ -4,7 +4,15 @@ Migración del backend PHP a Laravel 12, con la interfaz renderizada desde Blade
 
 **Alcance:** módulos de clientes, proveedores, ventas, pagos, roles y permisos, más los módulos existentes (categorías, productos, usuarios) y los que hacen falta para que funcionen (marcas, empleados, movimientos de stock, órdenes de compra).
 
-**Fuera de alcance:** tienda pública, carrito, Mercado Pago, facturación AFIP, Zipnova, vales, banners y Flutter. Se abordan en las Etapas 2 y 3.
+**Fuera de alcance:** tienda pública, carrito, Mercado Pago, facturación ARCA, Zipnova, vales, banners y Flutter. Cuando se escribió, se abordaban en las Etapas 2 y 3.
+
+**Estado al cierre.** La Etapa 1 está **cerrada**: las Fases 0 a 7 y la Fase 7.5, que no
+estaba en este plan y se agregó por la devolución de un revisor (`docs/plan-fase-7-5.md`).
+La Fase 8 no se hizo: la etapa se presentó sin ella. El alcance de las etapas siguientes
+cambió: la **Etapa 2** es la tienda móvil con Flutter —catálogo, cuenta, carrito, pedido y
+pagos con Mercado Pago en modo de prueba o un simulador—, la Etapa 3 (la API) probablemente
+se fusione con ella, y la facturación con ARCA, los envíos calculados, los vales y los
+banners pasaron a una **Etapa 4** de mejoras. El detalle está en `modelo-datos.md` §10.
 
 ---
 
@@ -14,9 +22,9 @@ Migración del backend PHP a Laravel 12, con la interfaz renderizada desde Blade
 | ----------------------------------------------------------------------- | --------------------------- | --------------------------------------------- |
 | Relevar y ejecutar el sistema original                                  | —                           | Completado (auditoría)                        |
 | Definir y aprobar alcance, modelo de datos y plan de migración          | —                           | Completado (modelo de datos y este documento) |
-| Crear la base Laravel e implementar autenticación, roles y persistencia | Fases 0 a 2                 | Pendiente                                     |
-| Migrar los casos de uso acordados e integrar la interfaz web            | Fases 3 a 7                 | Pendiente                                     |
-| Completar pruebas, seguridad, documentación y demostración              | Fase 8 (y trabajo continuo) | Pendiente                                     |
+| Crear la base Laravel e implementar autenticación, roles y persistencia | Fases 0 a 2                 | Completado                                    |
+| Migrar los casos de uso acordados e integrar la interfaz web            | Fases 3 a 7, y 7.5          | Completado                                    |
+| Completar pruebas, seguridad, documentación y demostración              | Fase 8 (y trabajo continuo) | Por trabajo continuo; la Fase 8 no se hizo    |
 
 Las pruebas, la documentación y la seguridad **no se dejan para la Fase 8**. Cada fase entrega sus propios tests y actualiza el README y la tabla de trazabilidad. La Fase 8 cierra lo transversal: auditoría final, README completo y ensayo de la demostración.
 
@@ -45,7 +53,9 @@ Fase 6  Ventas y pagos
    │        (necesita productos, clientes, usuarios y stock)
 Fase 7  Panel de métricas y PDF
    │        (necesita que existan datos de ventas)
-Fase 8  Cierre: pruebas, seguridad, documentación, demostración
+Fase 7.5  Escala, parametrización y usabilidad (agregada: devolución del revisor)
+   │
+Fase 8  Cierre: pruebas, seguridad, documentación, demostración (no se hizo)
 ```
 
 Las Fases 3, 4 y 5 son independientes entre sí y pueden reordenarse. La Fase 3 va primero porque es la más simple y establece el patrón que las demás repiten.
@@ -216,7 +226,22 @@ modo reponer no bloqueaba la fila).
 
 ---
 
+### Fase 7.5 — Escala, parametrización y usabilidad
+
+**Agregada después de escribir este plan.** Nació de la devolución de un revisor sobre la
+demostración de la Etapa 1: catorce observaciones, agrupadas en tres ejes (escala,
+usabilidad de carga y parametrización). Se trabajó en trece tramos, de la A a la M: el J se
+recortó y el M se absorbió en el cierre. Agregó el motor de precios, el ajuste masivo, el
+buscador remoto, los sugeridos de reposición, las entregas y el remito del proveedor, la
+impresión configurable y el recorte del panel. Su plan, sus decisiones y el estado de cada
+observación están en `docs/plan-fase-7-5.md`.
+
+---
+
 ### Fase 8 — Cierre
+
+**No se hizo.** La Etapa 1 se presentó sin ella. Cómo quedó cada tarea está en
+`docs/plan-fase-7-5.md` §8.
 
 **Objetivo.** Dejar todo presentable.
 
@@ -283,11 +308,11 @@ Los requisitos de la consigna y dónde se cumplen:
 
 | Requisito                                                  | Dónde                                   |
 | ---------------------------------------------------------- | --------------------------------------- |
-| Resumen ejecutivo                                          | Fase 8                                  |
+| Resumen ejecutivo                                          | Fase 8 (no se hizo: fuera de `docs/`)   |
 | Modelo de datos actualizado                                | Ya entregado; migraciones en la Fase 1  |
 | Repositorio en GitHub                                      | Fase 0                                  |
 | Backend Laravel funcional con los módulos nuevos           | Fases 2 a 7                             |
 | Front integrado                                            | Blade en cada fase; reemplaza a Angular |
-| Documentación y README                                     | Continuo, cierra en la Fase 8           |
-| Presentación y defensa                                     | Fase 8                                  |
+| Documentación y README                                     | Continuo, fase por fase                 |
+| Presentación y defensa                                     | Hecha, antes de la Fase 7.5             |
 | **Promoción:** vistas renderizadas desde Laravel con Blade | Todas las fases desde la 2              |

@@ -25,83 +25,7 @@
 
         <h2 class="h5 mb-3">Datos para facturar</h2>
 
-        <div class="row g-3">
-            <div class="col-12 col-md-6">
-                <label for="razon_social" class="form-label">
-                    Nombre o razón social <span class="text-danger" aria-hidden="true">*</span>
-                </label>
-                <input type="text" class="form-control @error('razon_social') is-invalid @enderror" id="razon_social"
-                    name="razon_social" maxlength="150" autofocus value="{{ old('razon_social', $cliente->razon_social) }}"
-                    aria-describedby="@error('razon_social') errorRazon @enderror">
-                @error('razon_social')
-                    <div id="errorRazon" class="invalid-feedback">{{ $message }}</div>
-                @enderror
-            </div>
-
-            <div class="col-12 col-md-6">
-                <label for="condicion_iva" class="form-label">
-                    Condición frente al IVA <span class="text-danger" aria-hidden="true">*</span>
-                </label>
-                <select class="form-select @error('condicion_iva') is-invalid @enderror" id="condicion_iva"
-                    name="condicion_iva" aria-describedby="ayudaIva @error('condicion_iva') errorIva @enderror">
-                    @foreach (App\Models\Cliente::CONDICIONES_IVA as $valor => $texto)
-                        <option value="{{ $valor }}" @selected(old('condicion_iva', $cliente->condicion_iva) === $valor)>{{ $texto }}</option>
-                    @endforeach
-                </select>
-                <div id="ayudaIva" class="form-text">
-                    Responsable inscripto lleva Factura A; el resto, Factura B.
-                </div>
-                @error('condicion_iva')
-                    <div id="errorIva" class="invalid-feedback">{{ $message }}</div>
-                @enderror
-            </div>
-
-            <div class="col-12 col-md-3">
-                <label for="tipo_doc" class="form-label">
-                    Tipo de documento <span class="text-danger" aria-hidden="true">*</span>
-                </label>
-                <select class="form-select @error('tipo_doc') is-invalid @enderror" id="tipo_doc" name="tipo_doc">
-                    @foreach (App\Models\Cliente::TIPOS_DOC as $valor => $texto)
-                        <option value="{{ $valor }}" @selected(old('tipo_doc', $cliente->tipo_doc) === $valor)>
-                            {{ $texto }}</option>
-                    @endforeach
-                </select>
-                @error('tipo_doc')
-                    <div class="invalid-feedback">{{ $message }}</div>
-                @enderror
-            </div>
-
-            <div class="col-12 col-md-3">
-                <label for="nro_doc" class="form-label">Número de documento</label>
-                <input type="text" inputmode="numeric" class="form-control @error('nro_doc') is-invalid @enderror"
-                    id="nro_doc" name="nro_doc" value="{{ old('nro_doc', $cliente->nro_doc) }}"
-                    aria-describedby="ayudaDoc @error('nro_doc') errorDoc @enderror">
-                <div id="ayudaDoc" class="form-text">
-                    Lo podés escribir con guiones. Obligatorio si factura A o es monotributista.
-                </div>
-                @error('nro_doc')
-                    <div id="errorDoc" class="invalid-feedback">{{ $message }}</div>
-                @enderror
-            </div>
-
-            <div class="col-12 col-md-3">
-                <label for="email" class="form-label">Correo</label>
-                <input type="email" class="form-control @error('email') is-invalid @enderror" id="email"
-                    name="email" maxlength="150" value="{{ old('email', $cliente->email) }}">
-                @error('email')
-                    <div class="invalid-feedback">{{ $message }}</div>
-                @enderror
-            </div>
-
-            <div class="col-12 col-md-3">
-                <label for="telefono" class="form-label">Teléfono</label>
-                <input type="text" class="form-control @error('telefono') is-invalid @enderror" id="telefono"
-                    name="telefono" maxlength="30" value="{{ old('telefono', $cliente->telefono) }}">
-                @error('telefono')
-                    <div class="invalid-feedback">{{ $message }}</div>
-                @enderror
-            </div>
-        </div>
+        @include('clientes._campos', ['cliente' => $cliente])
 
         {{-- La cuenta de acceso no se administra desde acá ni desde Personal: la
              pantalla de personal lista sólo ámbito gestión. Administrar cuentas de
@@ -115,13 +39,12 @@
             </div>
         @endif
 
-        <div class="d-flex gap-2 mt-4">
-            <button type="submit" class="btn btn-acento">
+        <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
+            <a href="{{ route('clientes.index') }}" class="btn btn-outline-secondary">Cancelar</a>
+            <button type="submit" class="btn btn-acento px-4">
                 <i class="bi bi-check-lg" aria-hidden="true"></i>
                 {{ $esEdicion ? 'Guardar cambios' : 'Crear cliente' }}
             </button>
-
-            <a href="{{ route('clientes.index') }}" class="btn btn-outline-secondary">Cancelar</a>
         </div>
     </form>
 
@@ -129,12 +52,15 @@
          cliente que todavía no existe. --}}
     @if ($esEdicion)
         <div class="card card-body border-0 shadow-sm mt-4">
-            <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
-                <div>
-                    <h2 class="h5 mb-1">Direcciones</h2>
-                    <p class="text-body-secondary small mb-0">
-                        Se usan para los envíos. Una es la predeterminada: es la que se va a ofrecer primero.
-                    </p>
+            <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h2 class="h5 mb-0">Direcciones</h2>
+                    <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                        data-bs-toggle="tooltip" data-bs-placement="top"
+                        data-bs-title="Se utilizan para los envíos. La predeterminada se ofrecerá en primer lugar."
+                        aria-label="Información sobre direcciones de envío">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
                 </div>
 
                 <a href="{{ route('direcciones.create', $cliente) }}" class="btn btn-outline-dark">

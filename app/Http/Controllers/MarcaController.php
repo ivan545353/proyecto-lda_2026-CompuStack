@@ -2,53 +2,49 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ImprimeListados;
 use App\Http\Requests\MarcaFiltroRequest;
 use App\Http\Requests\MarcaRequest;
+use App\Impresion\ListadoMarcas;
 use App\Models\Marca;
 use App\Services\MarcaService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Response;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * CRUD de marcas. Módulo nuevo, sin equivalente en el sistema original.
  *
- * Es el patrón de referencia de la Fase 3: el controlador traduce entre HTTP y
- * el servicio y no hace nada más. No valida (MarcaRequest), no decide reglas
- * (MarcaService) y no arma consultas de negocio: sólo encadena los scopes que
- * el modelo expone.
- *
- * En la Etapa 3, el controlador de la API va a llamar a los mismos métodos de
- * MarcaService y devolver JSON en lugar de vistas.
- *
  * Métodos:
  *   index()              listado filtrado y paginado
+ *   imprimir()           el mismo listado filtrado, en PDF o en CSV
  *   create() / store()   alta
  *   edit()  / update()   edición
  *   destroy()            baja física o lógica, según tenga productos
  */
 class MarcaController extends Controller
 {
+    use ImprimeListados;
     public function __construct(private MarcaService $service)
     {
     }
 
     public function index(MarcaFiltroRequest $request): View
     {
-        $marcas = Marca::query()
-            // Cuenta en la base. El panel original traía las tablas enteras al
-            // navegador para contarlas con .filter() (hallazgo A-26); acá ni
-            // siquiera los conteos de una celda viajan como filas.
+        $marcas = $this->filtradas($request)
             ->withCount('productos')
-            ->buscar($request->query('q'))
-            ->conEstado($request->query('estado'))
-            ->orderBy('nombre')
-            // Paginación obligatoria (A-25). El original devolvía la tabla
-            // completa en todos los listados.
             ->paginate(15)
-            // Sin esto, pasar a la página 2 pierde los filtros.
             ->withQueryString();
 
         return view('marcas.index', compact('marcas'));
+    }
+
+    
+    public function imprimir(MarcaFiltroRequest $request, ListadoMarcas $listado): Response|StreamedResponse|RedirectResponse
+    {
+        return $this->imprimirListado($request, $listado, $this->filtradas($request), 'marcas.index');
     }
 
     public function create(): View
@@ -103,5 +99,15 @@ class MarcaController extends Controller
         return redirect()->route('marcas.index')->with('exito', $seBorro
             ? "Marca «{$nombre}» eliminada."
             : "La marca «{$nombre}» tiene productos asociados: se desactivó en lugar de eliminarse.");
+    }
+
+    
+    /** Los filtros del listado, en un solo lugar: lo que la pantalla muestra es lo que se imprime. */
+    private function filtradas(MarcaFiltroRequest $request): Builder
+    {
+        return Marca::query()
+            ->buscar($request->query('q'))
+            ->conEstado($request->query('estado'))
+            ->orderBy('nombre');
     }
 }

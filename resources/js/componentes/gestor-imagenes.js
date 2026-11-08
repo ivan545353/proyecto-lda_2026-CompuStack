@@ -3,23 +3,6 @@ import Sortable from 'sortablejs';
 /**
  * Gestor de imágenes con vista previa.
  *
- * Se aplica a todo .js-gestor-imagenes (componente Blade <x-gestor-imagenes>).
- * Las imágenes son tarjetas que se ordenan arrastrando o con botones; se
- * agregan de a una o de a varias, y se quitan al instante con opción de
- * deshacer. Nada se aplica hasta guardar el formulario.
- *
- * Al enviar, escribe lo que el servidor espera (ver ProductoRequest):
- *   imagenes[]      los archivos nuevos, en el orden en que aparecen
- *   imagenes_orden  JSON con la lista final: "actual:<ruta>" o "nueva:<n>"
- *
- * Con max = 1 (un logo, por ejemplo) no hay orden ni principal: escribe el
- * archivo en el campo simple (data-campo) y una marca de quita
- * (data-campo-quitar), que es el contrato que ya tenía el formulario de
- * marcas. La pantalla se unifica sin cambiar el servidor.
- * Mejora progresiva: si el navegador no permite armar la lista de archivos
- * de un campo (DataTransfer), el componente no se activa y queda el campo de
- * archivo común, con el que se puede agregar al final.
- *
  * Accesibilidad:
  *   - Arrastrar tiene alternativa con botones (WCAG 2.2, criterio 2.5.7).
  *   - Cada cambio se anuncia en una región aria-live.

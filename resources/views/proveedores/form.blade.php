@@ -95,11 +95,15 @@
             {{-- Cómo se le pide --}}
             <div class="col-12">
                 <hr class="my-2">
-                <h2 class="h6 text-body-secondary">Cómo se le hacen los pedidos</h2>
-                <p class="text-body-secondary small">
-                    El sistema siempre genera el mismo PDF con el pedido. Esto define qué hacer con él
-                    una vez descargado.
-                </p>
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <h2 class="h6 text-body-secondary mb-0">Modalidad de pedidos</h2>
+                    <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                        data-bs-toggle="tooltip" data-bs-placement="top"
+                        data-bs-title="El sistema genera la orden en PDF. Este ajuste indica la vía de envío al proveedor."
+                        aria-label="Información sobre modalidad de pedidos">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
+                </div>
             </div>
 
             {{-- Lista cerrada y corta: queda nativa, sin data-buscable --}}
@@ -116,8 +120,7 @@
                     @endforeach
                 </select>
                 <div id="ayudaCanal" class="form-text">
-                    Por correo: se le adjunta el PDF. Por portal: se sube al sitio del proveedor.
-                    Manual: se le pasa por teléfono o mensajería.
+                    Por correo (adjunta PDF), por portal web del proveedor o manual (teléfono/mensajería).
                 </div>
                 @error('canal_pedido')
                     <div id="errorCanal" class="invalid-feedback">{{ $message }}</div>
@@ -158,7 +161,7 @@
                     @enderror
                 </div>
                 <div id="ayudaPlazo" class="form-text">
-                    Es informativo. Poné 0 si todavía no lo sabés.
+                    Estimado en días corridos (0 si se desconoce).
                 </div>
             </div>
 
@@ -201,13 +204,12 @@
             </div>
         </div>
 
-        <div class="d-grid d-sm-flex gap-2 mt-4">
-            <button type="submit" class="btn btn-acento">
+        <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
+            <a href="{{ route('proveedores.index') }}" class="btn btn-outline-secondary">Cancelar</a>
+            <button type="submit" class="btn btn-acento px-4">
                 <i class="bi bi-check-lg" aria-hidden="true"></i>
                 {{ $esEdicion ? 'Guardar cambios' : 'Crear proveedor' }}
             </button>
-
-            <a href="{{ route('proveedores.index') }}" class="btn btn-outline-secondary">Cancelar</a>
         </div>
     </form>
 @endsection

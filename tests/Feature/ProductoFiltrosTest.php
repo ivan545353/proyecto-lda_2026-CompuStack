@@ -3,6 +3,8 @@
 use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\Producto;
+use App\Models\Proveedor;
+use App\Models\OrdenCompra;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -125,6 +127,47 @@ test('stock bajo incluye lo que esta en el minimo, por debajo o agotado', functi
         ->and(Producto::stockCritico()->count())->toBe(4);
 });
 
+test('para reponer es lo critico que se repone y todavia no viene en camino', function () {
+    $proveedor = Proveedor::factory()->create();
+
+    $aPedir   = Producto::factory()->conStock(0)->conProveedor($proveedor)->create(['stock_minimo' => 5]);
+    $enCamino = Producto::factory()->conStock(0)->conProveedor($proveedor)->create(['stock_minimo' => 5]);
+
+    Producto::factory()->conStock(50)->conProveedor($proveedor)->create(['stock_minimo' => 5]);  // holgado
+    Producto::factory()->conStock(0)->conProveedor($proveedor)->create(['stock_minimo' => 0]);   // no se repone solo
+    Producto::factory()->inactivo()->conStock(0)->conProveedor($proveedor)->create(['stock_minimo' => 5]);
+
+    // Lo que ya viene en camino no se vuelve a pedir: es el error más caro de todos.
+    OrdenCompra::factory()->conLinea($enCamino, 10)->create(['proveedor_id' => $proveedor->id]);
+
+    expect(Producto::paraReponer()->pluck('id')->all())->toBe([$aPedir->id]);
+});
+
+test('sin proveedor para reponer son los que hay que pedir y no tienen a quien pedirle', function () {
+    $deBaja = Proveedor::factory()->inactivo()->create();
+
+    Producto::factory()->conStock(0)->create(['stock_minimo' => 5, 'codigo' => 'SIN-001']);
+    Producto::factory()->conStock(0)->conProveedor($deBaja)->create(['stock_minimo' => 5, 'codigo' => 'BAJA-001']);
+    Producto::factory()->conStock(0)->conProveedor(Proveedor::factory()->create())
+        ->create(['stock_minimo' => 5, 'codigo' => 'PEDIBLE-1']);
+    Producto::factory()->conStock(50)->create(['stock_minimo' => 5, 'codigo' => 'HOLGADO-1']);
+
+    expect(Producto::sinProveedorParaReponer()->orderBy('codigo')->pluck('codigo')->all())
+        ->toBe(['BAJA-001', 'SIN-001'])
+        // El aviso del armador cuenta esto y el enlace del catálogo filtra esto mismo.
+        ->and(Producto::conStock('sin_proveedor')->count())->toBe(2);
+});
+
+test('con proveedor activo deja afuera al que solo tiene proveedores de baja', function () {
+    $pedible = Producto::factory()->conProveedor(Proveedor::factory()->create())->create();
+
+    Producto::factory()->conProveedor(Proveedor::factory()->inactivo()->create())->create();
+    Producto::factory()->create();
+
+    expect(Producto::conProveedorActivo()->pluck('id')->all())->toBe([$pedible->id])
+        ->and(Producto::sinProveedorActivo()->count())->toBe(2);
+});
+
 // --- Valores vacíos y combinación -----------------------------------------
 
 test('los filtros sin valor o con un valor desconocido no filtran', function () {
@@ -162,4 +205,85 @@ test('todos los filtros se combinan entre si', function () {
         ->all();
 
     expect($resultado)->toBe([$buscado->id]);
+});
+
+// --- Proveedor ------------------------------------------------------------
+//
+// El filtro que el pendiente #31 pedía: desde la ficha de un proveedor no se podía
+// ver qué productos provee, porque el catálogo no tenía por dónde filtrarlos.
+
+test('de proveedor devuelve solo los que se le compran a ese proveedor', function () {
+    $austral = Proveedor::factory()->create();
+    $sur     = Proveedor::factory()->create();
+
+    Producto::factory()->conProveedor($austral)->create(['codigo' => 'A-1']);
+    Producto::factory()->conProveedor($sur)->create(['codigo' => 'B-1']);
+    Producto::factory()->create(['codigo' => 'C-1']);   // sin ningún proveedor
+
+    expect(Producto::deProveedor($austral->id)->pluck('codigo')->all())->toBe(['A-1']);
+});
+
+test('de proveedor encuentra el producto aunque ese proveedor no sea el preferido', function () {
+    $preferido = Proveedor::factory()->create();
+    $otro      = Proveedor::factory()->create();
+
+    Producto::factory()
+        ->conProveedor($preferido, preferido: true)
+        ->conProveedor($otro)
+        ->create(['codigo' => 'A-1']);
+
+    // Buscar por el preferido es otra pregunta: acá lo que se filtra es a quién se le
+    // compra, y a los dos se les compra.
+    expect(Producto::deProveedor($otro->id)->pluck('codigo')->all())->toBe(['A-1']);
+});
+
+test('de proveedor combinado con la busqueda no deja pasar resultados de mas', function () {
+    $austral = Proveedor::factory()->create();
+    $sur     = Proveedor::factory()->create();
+
+    Producto::factory()->conProveedor($austral)->create(['nombre' => 'Cable gamer', 'codigo' => 'A-1']);
+    Producto::factory()->conProveedor($sur)->create(['nombre' => 'Mouse gamer', 'codigo' => 'B-1']);
+
+    // "gamer" coincide por nombre en los dos. Si el OR de la búsqueda no estuviera
+    // agrupado, el filtro de proveedor sólo se aplicaría a una de sus ramas.
+    expect(Producto::buscar('gamer')->deProveedor($austral->id)->pluck('codigo')->all())->toBe(['A-1']);
+});
+
+test('de proveedor con un id inexistente no devuelve nada', function () {
+    Producto::factory()->conProveedor(Proveedor::factory()->create())->create();
+
+    // Vacío y no el catálogo entero: un proveedor que ya no está no significa «todos».
+    expect(Producto::deProveedor(999_999)->count())->toBe(0);
+});
+
+test('de proveedor sin valor no filtra', function () {
+    Producto::factory()->count(2)->create();
+
+    expect(Producto::deProveedor(null)->count())->toBe(2);
+});
+
+// --- El recorte del buscador remoto ---------------------------------------
+
+test('sinIds deja afuera los que ya estan cargados', function () {
+    $cargado = Producto::factory()->create(['codigo' => 'YA-1']);
+    Producto::factory()->create(['codigo' => 'LIBRE-1']);
+
+    expect(Producto::sinIds([$cargado->id])->pluck('codigo')->all())->toBe(['LIBRE-1']);
+});
+
+test('sinIds con la lista vacia no filtra', function () {
+    // El documento que todavía no tiene ningún renglón, que es como abre el
+    // formulario: el vacío significa «no excluyas nada».
+    Producto::factory()->count(3)->create();
+
+    expect(Producto::sinIds([])->count())->toBe(3)
+        ->and(Producto::sinIds(null)->count())->toBe(3);
+});
+
+test('sinIds ignora lo que no es un id', function () {
+    $cargado = Producto::factory()->create(['codigo' => 'YA-1']);
+    Producto::factory()->create(['codigo' => 'LIBRE-1']);
+
+    expect(Producto::sinIds([$cargado->id, 'todos', '', '-5'])->pluck('codigo')->all())
+        ->toBe(['LIBRE-1']);
 });

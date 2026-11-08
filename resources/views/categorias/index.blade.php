@@ -50,8 +50,8 @@
                     <span class="input-group-text bg-body-tertiary border-end-0 text-muted">
                         <i class="bi bi-search" aria-hidden="true"></i>
                     </span>
-                    <input type="search" class="form-control border-start-0 ps-1" id="q" name="q" value="{{ request('q') }}"
-                        placeholder="Por ejemplo: SSD">
+                    <input type="search" class="form-control border-start-0 ps-1" id="q" name="q"
+                        value="{{ request('q') }}" placeholder="Por ejemplo: SSD">
                 </div>
             </div>
 
@@ -89,7 +89,8 @@
                                 <a href="{{ request()->fullUrlWithoutQuery(['q', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de búsqueda">
-                                    <span class="text-secondary fw-normal">Texto:</span> "{{ Str::limit(request('q'), 18) }}"
+                                    <span class="text-secondary fw-normal">Texto:</span>
+                                    "{{ Str::limit(request('q'), 18) }}"
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
                             @endif
@@ -98,7 +99,8 @@
                                 <a href="{{ request()->fullUrlWithoutQuery(['parent_id', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de jerarquía">
-                                    <span class="text-secondary fw-normal">Mostrar:</span> {{ request('parent_id') === 'raiz' ? 'Solo principales' : 'Subcategorías de ' . ($padreFiltrado?->nombre ?? request('parent_id')) }}
+                                    <span class="text-secondary fw-normal">Mostrar:</span>
+                                    {{ request('parent_id') === 'raiz' ? 'Solo principales' : 'Subcategorías de ' . ($padreFiltrado?->nombre ?? request('parent_id')) }}
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
                             @endif
@@ -107,7 +109,8 @@
                                 <a href="{{ request()->fullUrlWithoutQuery(['estado', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de estado">
-                                    <span class="text-secondary fw-normal">Estado:</span> {{ request('estado') === 'activas' ? 'Activas' : 'Inactivas' }}
+                                    <span class="text-secondary fw-normal">Estado:</span>
+                                    {{ request('estado') === 'activas' ? 'Activas' : 'Inactivas' }}
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
                             @endif
@@ -119,11 +122,13 @@
 
                 <div class="d-flex gap-2">
                     @if ($hayFiltros)
-                        <a href="{{ route('categorias.index') }}" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1">
+                        <a href="{{ route('categorias.index') }}"
+                            class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1">
                             <i class="bi bi-eraser" aria-hidden="true"></i> Limpiar
                         </a>
                     @endif
 
+                    <x-imprimir ruta="categorias.imprimir" :listado="new \App\Impresion\ListadoCategorias()" />
                     <button type="submit" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center gap-1">
                         <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
                     </button>
@@ -135,88 +140,88 @@
     <div class="card border-0 shadow-sm">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-            <caption class="visually-hidden">Listado de categorías del catálogo</caption>
-            <thead class="table-light">
-                <tr>
-                    <th scope="col">Nombre</th>
-                    <th scope="col">Estado</th>
-                    <th scope="col" class="text-center">Subcategorías</th>
-                    <th scope="col" class="text-center d-none d-md-table-cell">Productos</th>
-                    <th scope="col" class="text-end">Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
-                @forelse ($categorias as $categoria)
+                <caption class="visually-hidden">Listado de categorías del catálogo</caption>
+                <thead class="table-light">
                     <tr>
-                        <td>
-                            <span class="fw-semibold">{{ $categoria->nombre }}</span>
-                            {{-- La ruta completa sólo si no está a la vista en la miga de pan. --}}
-                            @if ($categoria->padre && !$padreFiltrado)
-                                <div class="text-body-secondary small">{{ $categoria->padre->ruta }}</div>
-                            @endif
-                        </td>
-
-                        <td>
-                            <span class="badge {{ $categoria->activo ? 'text-bg-dark' : 'text-bg-secondary' }}">
-                                {{ $categoria->activo ? 'Activa' : 'Inactiva' }}
-                            </span>
-                        </td>
-
-                        <td class="text-center">
-                            @if ($categoria->hijas_count > 0)
-                                <a href="{{ route('categorias.index', ['parent_id' => $categoria->id]) }}"
-                                    class="link-dark fw-semibold"
-                                    aria-label="Ver las {{ $categoria->hijas_count }} subcategorías de {{ $categoria->nombre }}">
-                                    {{ $categoria->hijas_count }} <i class="bi bi-chevron-right small"
-                                        aria-hidden="true"></i>
-                                </a>
-                            @else
-                                <span class="text-body-secondary" aria-hidden="true">—</span>
-                                <span class="visually-hidden">Ninguna</span>
-                            @endif
-                        </td>
-
-                        <td class="text-center d-none d-md-table-cell">{{ $categoria->productos_count }}</td>
-
-                        <td class="text-end text-nowrap">
-                            @can('categoria.editar')
-                                <a href="{{ route('categorias.edit', $categoria) }}" class="btn btn-sm btn-outline-dark"
-                                    aria-label="Editar {{ $categoria->nombre }}">
-                                    <i class="bi bi-pencil" aria-hidden="true"></i>
-                                    <span class="d-none d-md-inline">Editar</span>
-                                </a>
-                            @endcan
-
-                            @can('categoria.eliminar')
-                                @php($dependencias = $categoria->hijas_count + $categoria->productos_count)
-                                <form method="POST" action="{{ route('categorias.destroy', $categoria) }}" class="d-inline"
-                                    onsubmit="return confirm(@js($dependencias > 0 ? "«{$categoria->nombre}» tiene {$categoria->hijas_count} subcategoría(s) y {$categoria->productos_count} producto(s). No se eliminará: se desactivará. ¿Continuar?" : "¿Eliminar la categoría «{$categoria->nombre}»?"));">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button class="btn btn-sm btn-outline-danger"
-                                        aria-label="Eliminar {{ $categoria->nombre }}">
-                                        <i class="bi bi-trash" aria-hidden="true"></i>
-                                    </button>
-                                </form>
-                            @endcan
-                        </td>
+                        <th scope="col">Nombre</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col" class="text-center">Subcategorías</th>
+                        <th scope="col" class="text-center d-none d-md-table-cell">Productos</th>
+                        <th scope="col" class="text-end">Acciones</th>
                     </tr>
-                @empty
-                    <tr>
-                        <td colspan="5" class="text-center text-body-secondary py-4">
-                            @if (request()->hasAny(['q', 'estado']))
-                                Ninguna categoría coincide con el filtro.
-                                <a href="{{ route('categorias.index') }}">Ver todas</a>.
-                            @elseif ($padreFiltrado)
-                                «{{ $padreFiltrado->nombre }}» no tiene subcategorías.
-                            @else
-                                Todavía no hay categorías cargadas.
-                            @endif
-                        </td>
-                    </tr>
-                @endforelse
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    @forelse ($categorias as $categoria)
+                        <tr>
+                            <td>
+                                <span class="fw-semibold">{{ $categoria->nombre }}</span>
+                                {{-- La ruta completa sólo si no está a la vista en la miga de pan. --}}
+                                @if ($categoria->padre && !$padreFiltrado)
+                                    <div class="text-body-secondary small">{{ $categoria->padre->ruta }}</div>
+                                @endif
+                            </td>
+
+                            <td>
+                                <span class="badge {{ $categoria->activo ? 'text-bg-dark' : 'text-bg-secondary' }}">
+                                    {{ $categoria->activo ? 'Activa' : 'Inactiva' }}
+                                </span>
+                            </td>
+
+                            <td class="text-center">
+                                @if ($categoria->hijas_count > 0)
+                                    <a href="{{ route('categorias.index', ['parent_id' => $categoria->id]) }}"
+                                        class="link-dark fw-semibold"
+                                        aria-label="Ver las {{ $categoria->hijas_count }} subcategorías de {{ $categoria->nombre }}">
+                                        {{ $categoria->hijas_count }} <i class="bi bi-chevron-right small"
+                                            aria-hidden="true"></i>
+                                    </a>
+                                @else
+                                    <span class="text-body-secondary" aria-hidden="true">—</span>
+                                    <span class="visually-hidden">Ninguna</span>
+                                @endif
+                            </td>
+
+                            <td class="text-center d-none d-md-table-cell">{{ $categoria->productos_count }}</td>
+
+                            <td class="text-end text-nowrap">
+                                @can('categoria.editar')
+                                    <a href="{{ route('categorias.edit', $categoria) }}" class="btn btn-sm btn-outline-dark"
+                                        aria-label="Editar {{ $categoria->nombre }}">
+                                        <i class="bi bi-pencil" aria-hidden="true"></i>
+                                        <span class="d-none d-md-inline">Editar</span>
+                                    </a>
+                                @endcan
+
+                                @can('categoria.eliminar')
+                                    @php($dependencias = $categoria->hijas_count + $categoria->productos_count)
+                                    <form method="POST" action="{{ route('categorias.destroy', $categoria) }}"
+                                        class="d-inline" onsubmit="return confirm(@js($dependencias > 0 ? "«{$categoria->nombre}» tiene {$categoria->hijas_count} subcategoría(s) y {$categoria->productos_count} producto(s). No se eliminará: se desactivará. ¿Continuar?" : "¿Eliminar la categoría «{$categoria->nombre}»?"));">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button class="btn btn-sm btn-outline-danger"
+                                            aria-label="Eliminar {{ $categoria->nombre }}">
+                                            <i class="bi bi-trash" aria-hidden="true"></i>
+                                        </button>
+                                    </form>
+                                @endcan
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="5" class="text-center text-body-secondary py-4">
+                                @if (request()->hasAny(['q', 'estado']))
+                                    Ninguna categoría coincide con el filtro.
+                                    <a href="{{ route('categorias.index') }}">Ver todas</a>.
+                                @elseif ($padreFiltrado)
+                                    «{{ $padreFiltrado->nombre }}» no tiene subcategorías.
+                                @else
+                                    Todavía no hay categorías cargadas.
+                                @endif
+                            </td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
 

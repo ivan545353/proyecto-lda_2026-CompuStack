@@ -22,10 +22,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  *   ?q=       → buscar($texto)      razón social, CUIT, contacto o correo
  *   ?estado=  → conEstado($estado)  activos | inactivos
  *   ?canal=   → conCanal($canal)    lista cerrada de CANALES
- *
- * Tener el contrato escrito en los dos extremos es la corrección de fondo de
- * A-24: el ItemController original mandaba `categoriaId`, el ItemDao leía
- * `categoria`, y no existía ningún lugar donde constara cuál era el correcto.
+
  */
 class Proveedor extends Model
 {
@@ -37,7 +34,7 @@ class Proveedor extends Model
      * La clave es exactamente el valor del ENUM de la base. La usan el Form
      * Request para validar, el scope para filtrar y la vista para armar el
      * selector, así que los tres comparan la misma lista. Es el mismo criterio
-     * que Producto::ALICUOTAS_IVA y Cliente::CONDICIONES_IVA.
+     * que Cliente::CONDICIONES_IVA.
      */
     public const CANALES = [
         'email'          => 'Correo electrónico',

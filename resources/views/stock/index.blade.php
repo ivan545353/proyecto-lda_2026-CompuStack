@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@use('App\Http\Requests\BusquedaRequest')
+
 @section('title', 'Movimientos de stock')
 
 @section('content')
@@ -60,20 +62,40 @@
             'desde' => request('desde') ? 'Desde: ' . request('desde') : null,
             'hasta' => request('hasta') ? 'Hasta: ' . request('hasta') : null,
         ])->filter();
+
+        $rotuloDelProducto =
+            $producto === null ? null : $producto->rotulo() . ($producto->activo ? '' : ' (dado de baja)');
+
+        $datosDelProducto =
+            $producto === null ? null : json_encode(['text' => $rotuloDelProducto], JSON_UNESCAPED_UNICODE);
     @endphp
+
+    <noscript>
+        <div class="alert alert-warning d-flex gap-2" role="alert">
+            <i class="bi bi-exclamation-triangle flex-shrink-0 mt-1" aria-hidden="true"></i>
+            <div>
+                <strong>Sin JavaScript no se puede filtrar por producto.</strong>
+                El buscador le pregunta al servidor mientras escribís: el desplegable con
+                el catálogo completo pesaba tres megabytes y medio en cada carga de esta
+                pantalla. Los otros filtros —tipo, quién lo registró y las fechas—
+                funcionan igual, y el filtro puesto se puede quitar con su chip.
+            </div>
+        </div>
+    </noscript>
 
     {{-- Filtros por GET: la pantalla queda enlazable y el botón "atrás" funciona --}}
     <form method="GET" action="{{ route('stock.index') }}" class="card card-body border-0 shadow-sm mb-4">
         <div class="row g-3 align-items-end">
             <div class="col-12 col-lg-4">
                 <label for="producto_id" class="form-label">Producto</label>
-                <select class="form-select" id="producto_id" name="producto_id" data-buscable>
+                <select class="form-select" id="producto_id" name="producto_id" data-buscable
+                    data-buscable-url="{{ route('busqueda.productos', ['estado' => 'todos']) }}"
+                    data-buscable-minimo="{{ BusquedaRequest::MINIMO }}" data-buscable-detalle="disponible">
                     <option value="">Todos</option>
-                    @foreach ($productos as $opcion)
-                        <option value="{{ $opcion->id }}" @selected(request()->integer('producto_id') === $opcion->id)>
-                            {{ $opcion->codigo }} — {{ $opcion->nombre }}
-                        </option>
-                    @endforeach
+                    @if ($producto)
+                        <option value="{{ $producto->id }}" selected data-data="{{ $datosDelProducto }}">
+                            {{ $rotuloDelProducto }}</option>
+                    @endif
                 </select>
             </div>
 
@@ -151,6 +173,8 @@
                         </a>
                     @endif
 
+                    <x-imprimir ruta="stock.imprimir" :listado="new \App\Impresion\ListadoMovimientos()" />
+
                     <button type="submit" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center gap-1">
                         <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
                     </button>
@@ -169,7 +193,7 @@
                         <th scope="col">Producto</th>
                         <th scope="col">Tipo</th>
                         <th scope="col" class="text-end">Cantidad</th>
-                        <th scope="col" class="text-end">Stock resultante</th>
+                        <th scope="col" class="text-end">Stock</th>
                         <th scope="col" class="d-none d-lg-table-cell">Motivo u origen</th>
                         <th scope="col" class="d-none d-md-table-cell">Lo registró</th>
                     </tr>
@@ -193,14 +217,26 @@
 
                             {{-- El signo es texto, no color: ningún dato se comunica sólo con color --}}
                             <td
-                                class="text-end text-nowrap fw-semibold {{ $movimiento->esIngreso() ? 'text-success-emphasis' : 'text-danger-emphasis' }}">
+                                class="text-end text-nowrap fw-semibold {{ $movimiento->esIngreso() ? 'text-success' : 'text-danger' }}">
                                 {{ $movimiento->esIngreso() ? '+' : '' }}{{ $movimiento->cantidad }}
                             </td>
 
-                            <td class="text-end">{{ $movimiento->stock_resultante }}</td>
+                            <td class="text-end text-nowrap">
+                                <span aria-hidden="true">
+                                    <span class="text-body-secondary">{{ $movimiento->stock_anterior }}</span>
+                                    →
+                                    <span class="fw-semibold">{{ $movimiento->stock_resultante }}</span>
+                                </span>
+                                <span class="visually-hidden">
+                                    De {{ $movimiento->stock_anterior }} a {{ $movimiento->stock_resultante }} unidades
+                                </span>
+                            </td>
 
                             <td class="d-none d-lg-table-cell small">
                                 {{ $movimiento->motivo ?? ($movimiento->origenTexto() ?? '—') }}
+                                @if ($movimiento->remitoTexto() !== null)
+                                    <div class="text-body-secondary">{{ $movimiento->remitoTexto() }}</div>
+                                @endif
                             </td>
 
                             <td class="d-none d-md-table-cell small">

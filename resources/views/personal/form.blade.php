@@ -114,7 +114,7 @@
                         @endforeach
                     </select>
                     <div id="ayudaRol" class="form-text">
-                        Determina qué puede hacer la persona dentro del sistema.
+                        Define los permisos dentro del sistema.
                     </div>
                     @error('rol_id')
                         <div id="errorRol" class="invalid-feedback">{{ $message }}</div>
@@ -203,9 +203,9 @@
                     <input type="text" inputmode="numeric"
                         class="form-control @error('empleado.dni') is-invalid @enderror" id="empleado_dni"
                         name="empleado[dni]" value="{{ old('empleado.dni', $usuario->empleado?->dni) }}"
-                        placeholder="Sin puntos: 38123456"
+                        placeholder="38123456"
                         aria-describedby="ayudaDni @error('empleado.dni') errorDni @enderror">
-                    <div id="ayudaDni" class="form-text">Sin puntos.</div>
+                    <div id="ayudaDni" class="form-text">Sin puntos ni espacios.</div>
                     @error('empleado.dni')
                         <div id="errorDni" class="invalid-feedback">{{ $message }}</div>
                     @enderror
@@ -243,7 +243,7 @@
                             value="{{ old('empleado.fecha_baja', $usuario->empleado?->fecha_baja?->toDateString()) }}"
                             aria-describedby="ayudaBaja @error('empleado.fecha_baja') errorBaja @enderror">
                         <div id="ayudaBaja" class="form-text">
-                            Vacía si sigue trabajando.
+                            Dejalo vacío si sigue en actividad.
                         </div>
                         @error('empleado.fecha_baja')
                             <div id="errorBaja" class="invalid-feedback">{{ $message }}</div>
@@ -253,14 +253,12 @@
             </div>
         </fieldset>
 
-
-        <div class="d-grid d-sm-flex gap-2 mt-4">
-            <button type="submit" class="btn btn-acento">
-                <i class="bi bi-check-lg" aria-hidden="true"></i>
-                {{ $esEdicion ? 'Guardar cambios' : 'Crear Usuario' }}
-            </button>
-
+        <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
             <a href="{{ route('personal.index') }}" class="btn btn-outline-secondary">Cancelar</a>
+            <button type="submit" class="btn btn-acento px-4">
+                <i class="bi bi-check-lg" aria-hidden="true"></i>
+                {{ $esEdicion ? 'Guardar cambios' : 'Crear usuario' }}
+            </button>
         </div>
     </form>
 

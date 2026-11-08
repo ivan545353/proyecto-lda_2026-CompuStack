@@ -7,8 +7,20 @@ import { iniciarArmadorDePedido } from './componentes/lineas-pedido';
 import { iniciarRecepcion } from './componentes/recepcion';
 import { iniciarLineasDeVenta } from './componentes/lineas-venta';
 import { iniciarGraficosDelPanel } from './componentes/graficos';
+import { iniciarAltasRapidas } from './componentes/alta-rapida';
+import { iniciarCobro } from './componentes/cobro';
+import { iniciarOpcionesDeImpresion } from './componentes/impresion';
 
 window.bootstrap = bootstrap;
+
+// Tooltips de Bootstrap en toda la aplicación
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
+        new bootstrap.Tooltip(el, {
+            container: 'body',
+        });
+    });
+});
 
 // Mostrar u ocultar la contraseña en el login
 document.addEventListener('DOMContentLoaded', () => {
@@ -151,6 +163,94 @@ document.addEventListener('DOMContentLoaded', () => {
     refrescar();
 });
 
+// Política de precios: el margen equivalente, mientras se escribe el multiplicador.
+document.addEventListener('DOMContentLoaded', () => {
+    const campo = document.getElementById('ganancia_global');
+    const badge = document.getElementById('badgeMargen');
+    const valor = document.getElementById('margenValor');
+    const aviso = document.getElementById('margenGanancia');
+
+    if (!campo || (!badge && !aviso)) return;
+
+    const elementoConDatos = badge ?? aviso;
+    const guardado = Number(elementoConDatos.dataset.guardado);
+    const originalAviso = aviso ? aviso.innerHTML : '';
+
+    // Mismo criterio que App\Support\Importe: con coma, el punto es separador
+    // de miles; sin coma, el punto es decimal.
+    const numero = (texto) => {
+        const limpio = String(texto).trim();
+
+        return Number(limpio.includes(',') ? limpio.replace(/\./g, '').replace(',', '.') : limpio);
+    };
+
+    const formatear = (v, decimales) =>
+        v.toLocaleString('es-AR', { maximumFractionDigits: decimales });
+
+    const refrescar = () => {
+        const multiplicador = numero(campo.value);
+
+        if (!Number.isFinite(multiplicador) || multiplicador <= 0) {
+            if (valor) valor.textContent = '—';
+            if (badge) {
+                badge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle';
+                badge.title = 'Multiplicador no válido';
+            }
+            if (aviso) aviso.innerHTML = originalAviso;
+            return;
+        }
+
+        const margen = (1 - 1 / multiplicador) * 100;
+        const textoMargen = formatear(margen, 2);
+
+        if (valor) {
+            valor.textContent = textoMargen;
+        }
+
+        if (badge) {
+            const esGuardado = Math.abs(multiplicador - guardado) < 0.0001;
+            badge.className = esGuardado
+                ? 'badge bg-success-subtle text-success-emphasis border border-success-subtle'
+                : 'badge bg-primary-subtle text-primary-emphasis border border-primary-subtle';
+            badge.title = esGuardado
+                ? 'Margen guardado actualmente'
+                : 'Margen correspondiente al multiplicador ingresado (sin guardar)';
+        }
+
+        if (aviso) {
+            if (Math.abs(multiplicador - guardado) < 0.0001) {
+                aviso.innerHTML = originalAviso;
+            } else {
+                aviso.textContent = `Con × ${formatear(multiplicador, 3)} el margen sería del `
+                    + `${textoMargen} % sobre la venta. Todavía no está guardado.`;
+            }
+        }
+    };
+
+    campo.addEventListener('input', refrescar);
+});
+
+// Formulario de producto: el precio de contado sólo se escribe cuando el precio
+// está fijado a mano. Deshabilitado no viaja en el POST, así que un producto que
+// pasa al cálculo automático no manda un precio que el servidor va a rechazar.
+// Mejora progresiva: sin JavaScript el campo queda editable y la validación
+// explica por qué no corresponde.
+document.addEventListener('DOMContentLoaded', () => {
+    const manual = document.getElementById('precio_manual');
+    const precio = document.getElementById('precio_contado');
+
+    // En el alta la casilla va deshabilitada y marcada: no hay nada que alternar.
+    if (!manual || !precio || manual.disabled) return;
+
+    const refrescar = () => {
+        precio.disabled = !manual.checked;
+        precio.required = manual.checked;
+    };
+
+    manual.addEventListener('change', refrescar);
+    refrescar();
+});
+
 // Líneas repetibles de la orden de compra: ver componentes/lineas-orden.js
 document.addEventListener('DOMContentLoaded', () => iniciarLineasDeOrden());
 
@@ -165,3 +265,150 @@ document.addEventListener('DOMContentLoaded', () => iniciarLineasDeVenta());
 
 // Gráficos del panel: ver componentes/graficos.js
 document.addEventListener('DOMContentLoaded', () => iniciarGraficosDelPanel());
+
+
+// Alta de cliente desde la venta, en una ventana: ver componentes/alta-rapida.js
+document.addEventListener('DOMContentLoaded', () => iniciarAltasRapidas());
+
+
+// Pantalla de cobro: ver componentes/cobro.js
+document.addEventListener('DOMContentLoaded', () => iniciarCobro());
+
+
+// El diálogo «Opciones de impresión» de los listados: ver componentes/impresion.js
+document.addEventListener('DOMContentLoaded', () => iniciarOpcionesDeImpresion());
+
+document.addEventListener('DOMContentLoaded', () => {
+    const operacion = document.getElementById('operacion');
+    const alcanceTodos = document.getElementById('alcanceTodos');
+
+    if (!operacion || !alcanceTodos) return;
+
+    // Qué bloque muestra cada operación, y qué se le explica al elegirla.
+    const operaciones = {
+        precio: {
+            bloque: 'campoPorcentaje',
+            descripcion: 'Modifica el precio de venta actual en el porcentaje indicado, sin tocar el costo.',
+        },
+        costo: {
+            bloque: 'campoPorcentaje',
+            descripcion: 'Actualiza el costo de compra y recalcula el precio con la ganancia y los factores vigentes.',
+        },
+        ganancia: {
+            bloque: 'campoGanancia',
+            descripcion: 'Fija el mismo multiplicador sobre el costo neto para todo el conjunto y recalcula.',
+        },
+        redondeo: {
+            bloque: 'campoMultiplo',
+            descripcion: 'Lleva el precio de venta al múltiplo más cercano, sin tocar el costo ni la ganancia.',
+        },
+        recalculo: {
+            bloque: 'avisoRecalculo',
+            descripcion: 'Recalcula el precio desde el costo vigente y la parametrización, sin cambiar nada más.',
+        },
+    };
+
+    const bloques = ['campoPorcentaje', 'campoGanancia', 'campoMultiplo', 'avisoRecalculo'];
+    const explicacion = document.getElementById('explicacionOperacion');
+
+    const refrescarOperacion = () => {
+        const elegida = operaciones[operacion.value] ?? operaciones.precio;
+
+        bloques.forEach((id) => {
+            const bloque = document.getElementById(id);
+            if (!bloque) return;
+
+            const corresponde = id === elegida.bloque;
+            bloque.classList.toggle('d-none', !corresponde);
+
+            const campo = bloque.querySelector('input');
+
+            if (campo) {
+                campo.disabled = !corresponde;
+                campo.required = corresponde;
+            }
+        });
+
+        if (explicacion) {
+            explicacion.textContent = elegida.descripcion;
+        }
+    };
+
+    const filtros = document.getElementById('bloqueFiltrosRecorte');
+    const avisoTodos = document.getElementById('avisoCatalogoCompleto');
+
+    const refrescarAlcance = () => {
+        const todos = alcanceTodos.checked;
+
+        filtros?.classList.toggle('d-none', todos);
+        avisoTodos?.classList.toggle('d-none', !todos);
+
+        filtros?.querySelectorAll('input, select').forEach((campo) => {
+            campo.disabled = todos;
+            campo.tomselect?.[todos ? 'disable' : 'enable']();
+        });
+    };
+
+    operacion.addEventListener('change', refrescarOperacion);
+
+    document.querySelectorAll('input[name="alcance"]').forEach((radio) => {
+        radio.addEventListener('change', refrescarAlcance);
+    });
+
+    refrescarOperacion();
+    refrescarAlcance();
+});
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('form[data-seleccion]').forEach((formulario) => {
+        const asociadas = formulario.id
+            ? document.querySelectorAll(`input[type="checkbox"][name][form="${formulario.id}"]`)
+            : [];
+
+        const casillas = [...new Set([
+            ...formulario.querySelectorAll('input[type="checkbox"][name]'),
+            ...asociadas,
+        ])];
+
+        if (casillas.length === 0) return;
+
+        const todas = formulario.id
+            ? document.querySelector(`[data-seleccion-todas="${formulario.id}"]`)
+            : null;
+        const boton = formulario.querySelector('button[type="submit"]');
+        const contador = formulario.querySelector('[data-seleccion-contador]');
+        const sinMarcar = contador?.textContent.trim() ?? '';
+        const conMarcadas = contador?.dataset.seleccionMarcadas ?? '';
+
+        const refrescar = () => {
+            const marcadas = casillas.filter((casilla) => casilla.checked).length;
+
+            if (todas) {
+                todas.checked = marcadas > 0 && marcadas === casillas.length;
+                todas.indeterminate = marcadas > 0 && marcadas < casillas.length;
+            }
+
+            // El servidor lo rinde habilitado porque sin JS tiene que poder usarse; que
+            // se apague con la selección vacía es comodidad, no el estado inicial.
+            if (boton) {
+                boton.disabled = marcadas === 0;
+            }
+
+            if (contador) {
+                contador.textContent = marcadas === 0 || conMarcadas === ''
+                    ? sinMarcar
+                    : conMarcadas.replace('{n}', marcadas);
+            }
+        };
+
+        todas?.addEventListener('change', () => {
+            casillas.forEach((casilla) => (casilla.checked = todas.checked));
+            refrescar();
+        });
+
+        casillas.forEach((casilla) => casilla.addEventListener('change', refrescar));
+
+        refrescar();
+    });
+});

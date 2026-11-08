@@ -1,30 +1,30 @@
 {{--
     Una línea del armador: producto, proveedor, cantidad y costo.
-
-    Parámetros: $indice (número o '__INDICE__'), $linea (arreglo o null),
-                $productos, $proveedores.
-
-    El selector de PRODUCTO es buscable: la lista es larga. El de PROVEEDOR no, y es
-    una decisión: tiene dos o tres opciones y el JS lo reconstruye cada vez que
-    cambia el producto, y Tom Select no permite reemplazar sus opciones al vuelo
-
-    Mejora progresiva: el servidor renderiza el selector de proveedor con TODOS los
-    activos. Con JS se filtra a los que proveen ese producto; sin JS queda completo y
-    el servidor valida el par. Se pierde el filtro, no la pantalla.
 --}}
 @use('App\Support\Importe')
+@use('App\Http\Requests\BusquedaRequest')
+
+@php
+    $idProducto = $linea['producto_id'] ?? null;
+    $producto = $idProducto === null ? null : $productos[$idProducto] ?? null;
+
+    $rotulo = $producto === null ? null : $producto->rotulo() . ($producto->activo ? '' : ' (dado de baja)');
+
+    $datos = $producto === null ? null : json_encode(['text' => $rotulo], JSON_UNESCAPED_UNICODE);
+@endphp
+
 <tr data-linea>
     <td style="min-width: 14rem;">
         <label class="visually-hidden" for="pedido_producto_{{ $indice }}">Producto</label>
         <select class="form-select form-select-sm @error("lineas.{$indice}.producto_id") is-invalid @enderror"
-            id="pedido_producto_{{ $indice }}" name="lineas[{{ $indice }}][producto_id]" data-buscable
-            required data-producto>
+            id="pedido_producto_{{ $indice }}" name="lineas[{{ $indice }}][producto_id]" required
+            data-producto data-buscable data-buscable-url="{{ route('busqueda.productos', ['con_proveedor' => 1]) }}"
+            data-buscable-minimo="{{ BusquedaRequest::MINIMO }}" data-buscable-detalle="disponible">
             <option value="">Elegí un producto</option>
-            @foreach ($productos as $opcion)
-                <option value="{{ $opcion->id }}" @selected((string) ($linea['producto_id'] ?? '') === (string) $opcion->id)>
-                    {{ $opcion->codigo }} — {{ $opcion->nombre }}
+            @if ($producto)
+                <option value="{{ $producto->id }}" selected data-data="{{ $datos }}">{{ $rotulo }}
                 </option>
-            @endforeach
+            @endif
         </select>
 
         @error("lineas.{$indice}.producto_id")
@@ -83,7 +83,8 @@
     <td class="text-end text-nowrap align-middle" style="width: 7.5rem; min-width: 6rem;" data-subtotal>—</td>
 
     <td class="text-center align-middle" style="width: 3.5rem; min-width: 3rem;">
-        <button type="button" class="btn btn-sm btn-outline-danger d-inline-flex align-items-center justify-content-center"
+        <button type="button"
+            class="btn btn-sm btn-outline-danger d-inline-flex align-items-center justify-content-center"
             data-quitar-linea aria-label="Quitar esta línea del pedido" style="width: 2rem; height: 2rem;">
             <i class="bi bi-x-lg" aria-hidden="true"></i>
         </button>

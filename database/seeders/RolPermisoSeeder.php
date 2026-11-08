@@ -35,6 +35,7 @@ class RolPermisoSeeder extends Seeder
         'compra'    => ['ver', 'crear', 'editar', 'aprobar', 'recibir'],
         'venta'     => ['ver', 'crear', 'editar', 'cobrar', 'entregar', 'anular', 'autorizar_descuento'],
         'stock'     => ['ver', 'ajustar'],
+        'precio'    => ['ver', 'editar', 'recalcular', 'ver_costo', 'ajustar_masivo', 'deshacer_ajuste'],
         'rol'       => ['ver', 'editar'],
         'panel'     => ['ver_propio', 'ver_global'],
     ];
@@ -45,12 +46,13 @@ class RolPermisoSeeder extends Seeder
             'ambito'      => 'gestion',
             'permisos'    => '*',
         ],
-                'Administrativo' => [
+        'Administrativo' => [
             'descripcion' => 'Catálogo, personas, compras y stock. Ve las ventas y resuelve las devoluciones.',
             'ambito'      => 'gestion',
             'permisos'    => [
                 'categoria.*', 'marca.*', 'producto.*', 'cliente.*', 'proveedor.*',
                 'compra.*', 'stock.*', 'venta.ver', 'venta.anular', 'panel.ver_global',
+                'precio.ver', 'precio.ver_costo', 'precio.recalcular',
             ],
         ],
         'Vendedor' => [

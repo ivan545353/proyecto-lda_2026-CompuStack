@@ -38,6 +38,14 @@
                     </li>
                 @endcan
 
+                @can('precio.ver')
+                    <li class="nav-item">
+                        <a class="nav-link text-black {{ request()->routeIs('precios.*') ? 'active' : '' }}"
+                            href="{{ route('precios.index') }}"
+                            @if (request()->routeIs('precios.*')) aria-current="page" @endif>Precios</a>
+                    </li>
+                @endcan
+
                 @canany(['usuario.ver', 'cliente.ver'])
                     @php($enUsuarios = request()->routeIs('personal.*', 'clientes.*', 'direcciones.*'))
                     <li class="nav-item dropdown">
@@ -99,10 +107,21 @@
 
                 @canany(['proveedor.ver', 'compra.ver', 'stock.ver'])
                     @php($enCompras = request()->routeIs('proveedores.*', 'compras.*', 'stock.*'))
+                    @php($enArmador = request()->routeIs('compras.sugeridos', 'compras.pedido*'))
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle text-black {{ $enCompras ? 'active' : '' }}" href="#"
                             role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             Compras
+                            {{-- Lo que está esperando que alguien lo apruebe, visible sin abrir
+                                 el menú. El número no comunica solo: lleva su texto al lado. --}}
+                            @if ($borradoresEsperando > 0)
+                                <span class="badge rounded-pill text-bg-dark ms-1">
+                                    {{ $borradoresEsperando }}
+                                    <span class="visually-hidden">
+                                        {{ $borradoresEsperando === 1 ? 'pedido en borrador esperando aprobación' : 'pedidos en borrador esperando aprobación' }}
+                                    </span>
+                                </span>
+                            @endif
                         </a>
                         <ul class="dropdown-menu">
                             @can('proveedor.ver')
@@ -113,11 +132,26 @@
                                 </li>
                             @endcan
 
+                            @can('compra.crear')
+                                <li>
+                                    <a class="dropdown-item {{ $enArmador ? 'active' : '' }}"
+                                        href="{{ route('compras.sugeridos') }}"
+                                        @if ($enArmador) aria-current="page" @endif>Armar pedido</a>
+                                </li>
+                            @endcan
+
                             @can('compra.ver')
                                 <li>
-                                    <a class="dropdown-item {{ request()->routeIs('compras.*') ? 'active' : '' }}"
+                                    <a class="dropdown-item {{ request()->routeIs('compras.*') && !$enArmador ? 'active' : '' }}"
                                         href="{{ route('compras.index') }}"
-                                        @if (request()->routeIs('compras.*')) aria-current="page" @endif>Órdenes de compra</a>
+                                        @if (request()->routeIs('compras.*') && !$enArmador) aria-current="page" @endif>
+                                        Órdenes de compra
+                                        @if ($borradoresEsperando > 0)
+                                            <span class="badge rounded-pill text-bg-dark ms-1"
+                                                data-borradores="{{ $borradoresEsperando }}">
+                                                {{ $borradoresEsperando }}
+                                        @endif
+                                    </a>
                                 </li>
                             @endcan
 

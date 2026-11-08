@@ -1,12 +1,5 @@
 @extends('layouts.app')
 
-@php
-    // Lo que el usuario mandó si hubo un error de validación; si no, una sola línea
-    // vacía la pone el JS. Las claves no se renumeran: PHP recibe lineas[0] y
-    // lineas[7] como dos elementos.
-    $lineasCargadas = old('lineas', []);
-    $proximoIndice = $lineasCargadas === [] ? 0 : max(array_keys($lineasCargadas)) + 1;
-@endphp
 
 @section('title', 'Armar pedido')
 
@@ -24,9 +17,26 @@
         </p>
     </div>
 
+    @include('compras._pestanas-pedido', ['activa' => 'armar'])
+
     @include('partials.errores')
 
-    @if ($productos->isEmpty())
+    {{-- La única advertencia de la pantalla, y sólo existe si el JS no corre. --}}
+    <noscript>
+        <div class="alert alert-warning d-flex gap-2" role="alert">
+            <i class="bi bi-exclamation-triangle flex-shrink-0 mt-1" aria-hidden="true"></i>
+            <div>
+                <strong>Sin JavaScript no se puede elegir un producto en esta pantalla.</strong>
+                El buscador le pregunta al servidor mientras escribís: mandar el catálogo
+                completo en la página la hacía pesar seis megabytes y usar 392 MB de memoria,
+                y con el doble de productos dejaba de abrir del todo. Lo que sí funciona acá:
+                el selector de proveedor, que viene completo, y los renglones que ya estén
+                cargados.
+            </div>
+        </div>
+    </noscript>
+
+    @if (!$hayPedibles)
         <div class="card card-body border-0 shadow-sm">
             <p class="mb-0">
                 No hay ningún producto que se le pueda comprar a alguien. Para poder armar un
@@ -39,25 +49,22 @@
             </p>
         </div>
     @else
-        {{-- El mapa producto → proveedores, con el costo de cada vínculo. Lo usa el
-             JS para filtrar el selector de proveedor de cada línea y para sugerir el
-             costo. Va como JSON y no en atributos data- de cada <option>: ahí
-             tendría que repetirse en cada fila que se agregue. --}}
-        <script type="application/json" id="proveedoresPorProducto">@json($mapa)</script>
-
         <form method="POST" novalidate action="{{ route('compras.pedido.store') }}">
             @csrf
 
-            <div class="card border-0 shadow-sm mb-4" data-armador data-proximo-indice="{{ $proximoIndice }}">
+            <div class="card border-0 shadow-sm mb-4" data-armador data-proximo-indice="{{ $proximoIndice }}"
+                data-proveedores-url="{{ route('busqueda.producto.proveedores', ['producto' => '__ID__']) }}">
                 <div class="card-body">
                     <div
                         class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-3">
-                        <div>
-                            <h2 class="h5 mb-1">Productos a pedir</h2>
-                            <p class="text-body-secondary small mb-0">
-                                El costo se sugiere con el último que ese proveedor cobró; escribilo si
-                                cambió. Lo que escribas no se sobrescribe.
-                            </p>
+                        <div class="d-flex align-items-center gap-2">
+                            <h2 class="h5 mb-0">Productos a pedir</h2>
+                            <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                                data-bs-toggle="tooltip" data-bs-placement="top"
+                                data-bs-title="El costo se sugiere con el último registrado para ese proveedor. Si cambió, podés escribir el nuevo."
+                                aria-label="Ayuda sobre costos sugeridos">
+                                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                            </button>
                         </div>
 
                         <button type="button"
@@ -99,7 +106,7 @@
                                 </th>
                             </tr>
 
-                            @foreach ($lineasCargadas as $indice => $linea)
+                            @foreach ($lineas as $indice => $linea)
                                 @include('compras._linea-pedido', [
                                     'indice' => $indice,
                                     'linea' => $linea,
@@ -155,13 +162,13 @@
                 </div>
             </div>
 
-            <div class="d-grid d-sm-flex gap-2">
-                <button type="submit" class="btn btn-acento d-inline-flex align-items-center justify-content-center gap-1">
-                    <i class="bi bi-check-lg" aria-hidden="true"></i> Crear los pedidos en borrador
-                </button>
-
+            <div class="d-grid d-sm-flex justify-content-sm-end gap-2">
                 <a href="{{ route('compras.index') }}"
                     class="btn btn-outline-secondary d-inline-flex align-items-center justify-content-center">Cancelar</a>
+                <button type="submit"
+                    class="btn btn-acento px-4 d-inline-flex align-items-center justify-content-center gap-1">
+                    <i class="bi bi-check-lg" aria-hidden="true"></i> Crear los pedidos en borrador
+                </button>
             </div>
         </form>
     @endif

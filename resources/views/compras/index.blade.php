@@ -23,13 +23,16 @@
     </div>
 
     @php
-        $hayFiltros = request()->hasAny(['q', 'estado', 'proveedor_id', 'desde', 'hasta']);
+        $hayFiltros = request()->hasAny(['q', 'estado', 'origen', 'proveedor_id', 'desde', 'hasta']);
         $proveedorFiltrado = $proveedores->firstWhere('id', request()->integer('proveedor_id'));
 
         $chips = collect([
             'q' => request('q') ? 'Texto: "' . Str::limit(request('q'), 18) . '"' : null,
             'estado' => request('estado')
-                ? 'Estado: ' . (App\Models\OrdenCompra::ESTADOS[request('estado')] ?? request('estado'))
+                ? 'Estado: ' . (App\Models\OrdenCompra::ESTADOS_DEL_FILTRO[request('estado')] ?? request('estado'))
+                : null,
+            'origen' => request('origen')
+                ? 'Origen: ' . (App\Models\OrdenCompra::ORIGENES[request('origen')] ?? request('origen'))
                 : null,
             'proveedor_id' => $proveedorFiltrado
                 ? 'Proveedor: ' . Str::limit($proveedorFiltrado->razon_social, 22)
@@ -69,18 +72,28 @@
                 <label for="estado" class="form-label">Estado</label>
                 <select class="form-select" id="estado" name="estado">
                     <option value="">Todos</option>
-                    @foreach (App\Models\OrdenCompra::ESTADOS as $valor => $texto)
+                    @foreach (App\Models\OrdenCompra::ESTADOS_DEL_FILTRO as $valor => $texto)
                         <option value="{{ $valor }}" @selected(request('estado') === $valor)>{{ $texto }}</option>
                     @endforeach
                 </select>
             </div>
 
-            <div class="col-12 col-sm-6">
+            <div class="col-12 col-sm-6 col-lg-4">
+                <label for="origen" class="form-label">Origen</label>
+                <select class="form-select" id="origen" name="origen">
+                    <option value="">Todos</option>
+                    @foreach (App\Models\OrdenCompra::ORIGENES as $valor => $texto)
+                        <option value="{{ $valor }}" @selected(request('origen') === $valor)>{{ $texto }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div class="col-12 col-sm-6 col-lg-4">
                 <label for="desde" class="form-label">Creada desde</label>
                 <input type="date" class="form-control" id="desde" name="desde" value="{{ request('desde') }}">
             </div>
 
-            <div class="col-12 col-sm-6">
+            <div class="col-12 col-sm-6 col-lg-4">
                 <label for="hasta" class="form-label">Creada hasta</label>
                 <input type="date" class="form-control" id="hasta" name="hasta" value="{{ request('hasta') }}"
                     aria-describedby="ayudaRangoCompra">
@@ -121,6 +134,8 @@
                         </a>
                     @endif
 
+                    <x-imprimir ruta="compras.imprimir" :listado="new \App\Impresion\ListadoCompras()" class="flex-fill flex-sm-grow-0" />
+
                     <button type="submit"
                         class="btn btn-sm btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1 flex-fill flex-sm-grow-0">
                         <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
@@ -138,7 +153,8 @@
                     <th scope="col" style="min-width: 7.5rem;">Orden</th>
                     <th scope="col" style="min-width: 12rem;">Proveedor</th>
                     <th scope="col" style="min-width: 7rem;">Estado</th>
-                    <th scope="col" class="text-center d-none d-md-table-cell" style="min-width: 5.5rem;">Productos</th>
+                    <th scope="col" class="text-center d-none d-md-table-cell" style="min-width: 5.5rem;">Productos
+                    </th>
                     <th scope="col" class="text-end" style="min-width: 8rem;">Total estimado</th>
                     <th scope="col" class="text-end" style="min-width: 5.5rem;">Acciones</th>
                 </tr>

@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ImprimeListados;
 use App\Http\Requests\OrdenCompraFiltroRequest;
 use App\Http\Requests\OrdenCompraRequest;
+use App\Impresion\ListadoCompras;
 use App\Models\OrdenCompra;
 use App\Models\Producto;
 use App\Models\Proveedor;
+use App\Http\Requests\PedidoCompraFiltroRequest;
 use App\Http\Requests\PedidoCompraRequest;
 use Illuminate\Database\Eloquent\Collection;
 use App\Services\CompraService;
@@ -18,6 +21,8 @@ use App\Models\OrdenCompraLinea;
 use Illuminate\Http\Request;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Response;
+use Illuminate\Database\Eloquent\Builder;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Órdenes de compra. Módulo nuevo: el sistema original no tenía compras.
@@ -28,7 +33,9 @@ use Illuminate\Http\Response;
  *
  * Métodos:
  *   index()             listado filtrado y paginado
+ *   imprimir()          el mismo listado filtrado, en PDF o en CSV
  *   edit()  / update()  edición del borrador; sólo en borrador
+ *   sugeridos()         qué hay que reponer: la entrada al armador
  *   armar() / guardarPedido()  el armador: una pantalla, un borrador por proveedor
  *   edit()  / update()         edición de un borrador, un proveedor
  *   show()                     la ficha, con el historial de recepciones
@@ -38,23 +45,16 @@ use Illuminate\Http\Response;
  */
 class CompraController extends Controller
 {
+    use ImprimeListados;
     public function __construct(private CompraService $service)
     {
     }
 
     public function index(OrdenCompraFiltroRequest $request): View
     {
-        $ordenes = OrdenCompra::query()
+        $ordenes = $this->filtradas($request)
             ->with('proveedor:id,razon_social')
             ->withCount('lineas')
-            ->buscar($request->query('q'))
-            ->conEstado($request->query('estado'))
-            ->deProveedor($request->query('proveedor_id'))
-            ->desde($request->query('desde'))
-            ->hasta($request->query('hasta'))
-            // El id es el número de orden, así que ordenar por id es ordenar de la
-            // más nueva a la más vieja, y es un orden total: no hace falta desempate.
-            ->orderByDesc('id')
             ->paginate(15)
             ->withQueryString();
 
@@ -64,12 +64,15 @@ class CompraController extends Controller
         ]);
     }
 
+    
+    public function imprimir(OrdenCompraFiltroRequest $request, ListadoCompras $listado): Response|StreamedResponse|RedirectResponse
+    {
+        return $this->imprimirListado($request, $listado, $this->filtradas($request), 'compras.index');
+    }
+
     public function edit(OrdenCompra $orden): View|RedirectResponse
     {
-        // El listado sólo ofrece «Editar» en los borradores; esto es la red de
-        // contención para una URL escrita a mano o guardada en favoritos. Se
-        // redirige con un aviso en lugar de abortar: la orden existe, lo que no
-        // corresponde es modificarla.
+    
         if (! $orden->esEditable()) {
             return redirect()->route('compras.index')->with(
                 'error',
@@ -78,10 +81,16 @@ class CompraController extends Controller
             );
         }
 
+        $orden->load('lineas.producto');
+
+        $lineas = $this->lineasDeLaOrden($orden);
+
         return view('compras.form', [
-            'orden'       => $orden->load('lineas.producto'),
-            'proveedores' => $this->proveedoresDisponibles(),
-            'productos'   => $this->productosDisponibles($orden),
+            'orden'         => $orden,
+            'lineas'        => $lineas,
+            'proximoIndice' => $this->proximoIndice($lineas),
+            'productos'     => $this->productosDeLasLineas($lineas),
+            'proveedores'   => $this->proveedoresDisponibles(),
         ]);
     }
 
@@ -101,9 +110,6 @@ class CompraController extends Controller
                 'lineas.producto:id,codigo,nombre',
                 'usuarioCreo:id,nombre,apellido',
                 'usuarioAprobo:id,nombre,apellido',
-                // Las recepciones de esta orden, con su fecha y su usuario. Es el
-                // historial que hace innecesaria una tabla de recepciones: el
-                // kardex ya lo guarda.
                 'movimientos.usuario:id,nombre,apellido',
                 'movimientos.producto:id,codigo,nombre',
             ]),
@@ -127,9 +133,6 @@ class CompraController extends Controller
     {
         $orden = $this->service->marcarEnviada($orden);
 
-        // El sistema no manda el pedido y el mensaje no finge que sí: la fecha
-        // registra que una persona lo hizo llegar. Es la misma razón por la que el
-        // canal de pedido es un dato y no un despachador.
         return redirect()->route('compras.show', $orden)->with(
             'exito',
             "Orden {$orden->numeroFormateado()} marcada como enviada. Queda registrado que el pedido "
@@ -172,47 +175,102 @@ class CompraController extends Controller
         return Proveedor::where('activo', true)->orderBy('razon_social')->get(['id', 'razon_social']);
     }
 
-    /**
-     * Productos que se le pueden pedir a este proveedor.
-     *
-     * En la EDICIÓN, sólo los activos que ese proveedor provee
-     */
-    private function productosDisponibles(?OrdenCompra $orden = null)
+
+    /** Qué hay que reponer: la pantalla con la que se entra a armar un pedido. */
+    public function sugeridos(): View
     {
-        $yaEnLaOrden = $orden?->exists
-            ? $orden->lineas->pluck('producto_id')
-            : collect();
+        $sugeridos = Producto::query()
+            ->paraReponer()
+            ->conProveedorActivo()
+            // proveedorParaReponer() y el costo del vínculo leen esta relación (A-26).
+            ->with('proveedores')
+            ->orderBy('codigo')
+            ->paginate(20)
+            ->withQueryString();
 
-        return Producto::query()
-            ->where(function ($query) use ($orden) {
-                $query->where('activo', true);
-
-                if ($orden?->exists) {
-                    $query->whereHas('proveedores', fn ($p) => $p->whereKey($orden->proveedor_id));
-                }
-            })
-            ->orWhereIn('id', $yaEnLaOrden)
-            ->orderBy('nombre')
-            ->get(['id', 'codigo', 'nombre', 'costo_promedio']);
+        return view('compras.sugeridos', [
+            'sugeridos' => $sugeridos,
+            'grupos' => $sugeridos->getCollection()
+                ->groupBy(fn (Producto $producto) => $producto->proveedorParaReponer()->razon_social)
+                ->sortKeys()
+                ->map(fn (Collection $productos, string $razonSocial) => [
+                    'proveedor' => $razonSocial,
+                    'productos' => $productos,
+                    'estimado'  => $this->estimadoDe($productos),
+                ])
+                ->values(),
+            'estimadoPagina' => $this->estimadoDe($sugeridos->getCollection()),
+            'sinProveedor'   => Producto::query()->sinProveedorParaReponer()->count(),
+        ]);
     }
 
-        public function armar(): View
+    /**
+     * Lo que saldría pedir estos productos, al último costo de cada proveedor.
+     *
+     * Es un número para mirar y no se persiste, así que el intermedio opera en float y
+     * redondea una sola vez, al final (A-17).
+     *
+     * @param  Collection<int, Producto>  $productos
+     */
+    private function estimadoDe(Collection $productos): float
     {
-        // Sólo productos activos que se le puedan comprar a alguien. Un producto sin
-        // proveedor activo no se puede pedir, y no se ofrece lo que el sistema va a
-        // rechazar;
-        $productos = Producto::query()
-            ->where('activo', true)
-            ->whereHas('proveedores', fn ($p) => $p->where('proveedores.activo', true))
-            ->with(['proveedores' => fn ($p) => $p->where('proveedores.activo', true)])
-            ->orderBy('nombre')
-            ->get(['id', 'codigo', 'nombre']);
+        return round($productos->sum(function (Producto $producto) {
+            $costo = $producto->proveedorParaReponer()->pivot->costo_ultimo;
+
+            return $producto->cantidad_reposicion * (float) ($costo ?? 0);
+        }), 2);
+    }
+
+    public function armar(PedidoCompraFiltroRequest $request): View
+    {
+        $elegidos  = $request->elegidos();
+        $sugeridas = $this->service->lineasSugeridas($elegidos);
+
+        // Rechaza, no corrige (M-31): entre que la pantalla se cargó y el botón se
+        // apretó, un sugerido pudo dejar de hacer falta. No entra, y se dice.
+        $descartados = count($elegidos) - count($sugeridas);
+
+        if ($descartados > 0) {
+            session()->now('aviso', $descartados === 1
+                ? 'Uno de los productos que elegiste ya no hace falta pedirlo: le cargaron stock o ya '
+                  .'tiene un pedido en curso. No se agregó.'
+                : "{$descartados} de los productos que elegiste ya no hacen falta: les cargaron stock o "
+                  .'ya tienen un pedido en curso. No se agregaron.');
+        }
+
+        $lineas = $this->lineasDelPedido($sugeridas);
 
         return view('compras.pedido', [
-            'productos'   => $productos,
-            'proveedores' => $this->proveedoresDisponibles(),
-            'mapa'        => $this->proveedoresPorProducto($productos),
+            'lineas'        => $lineas,
+            'proximoIndice' => $this->proximoIndice($lineas),
+            'productos'     => $this->productosDeLasLineas($lineas),
+            'proveedores'   => $this->proveedoresDisponibles(),
+            'hayPedibles'   => Producto::query()
+                ->where('activo', true)
+                ->conProveedorActivo()
+                ->exists(),
         ]);
+    }
+
+    /**
+     * Las filas que el formulario de la orden tiene que rendir: lo que el usuario
+     * mandó si hubo un error de validación, y si no, las líneas guardadas.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function lineasDeLaOrden(OrdenCompra $orden): array
+    {
+        $lineas = old('lineas', $orden->exists
+            ? $orden->lineas
+                ->map(fn (OrdenCompraLinea $linea) => [
+                    'producto_id'     => $linea->producto_id,
+                    'cantidad_pedida' => $linea->cantidad_pedida,
+                    'costo_unitario'  => $linea->costo_unitario,
+                ])
+                ->all()
+            : []);
+
+        return is_array($lineas) ? array_filter($lineas, 'is_array') : [];
     }
 
     public function guardarPedido(PedidoCompraRequest $request): RedirectResponse
@@ -238,40 +296,53 @@ class CompraController extends Controller
     }
 
     /**
-     * El mapa producto → proveedores que la pantalla usa para filtrar el selector de
-     * cada línea y sugerir el costo.
+     * Las filas que el armador tiene que rendir: lo que el usuario mandó si hubo un
+     * error de validación, los sugeridos con los que entró si viene de esa pantalla, y
+     * nada si abre a mano —el JS pone una fila vacía—.
      *
-     * Ordenados como el usuario los quiere ver al elegir: el preferido primero,
-     * después por costo, y los que no tienen costo cargado al final. Es el mismo
-     * criterio que `Producto::proveedorParaReponer()`, para que la pantalla proponga
-     * lo mismo que elegiría la reposición automática.
+     * old() va primero: si la validación rechazó el pedido, lo que vale es lo que el
+     * usuario tenía escrito y no la canasta con la que había entrado.
+     *
+     * @param  array<int, array<string, mixed>>  $sugeridas
+     * @return array<int, array<string, mixed>>
      */
-    private function proveedoresPorProducto(Collection $productos): array
+    private function lineasDelPedido(array $sugeridas = []): array
     {
-        return $productos->mapWithKeys(fn (Producto $producto) => [
-            $producto->id => $producto->proveedores
-                ->map(fn (Proveedor $proveedor) => [
-                    'id'        => $proveedor->id,
-                    'nombre'    => $proveedor->razon_social,
-                    'costo'     => $proveedor->pivot->costo_ultimo,
-                    'preferido' => (bool) $proveedor->pivot->es_preferido,
-                ])
-                ->sortBy(fn (array $p) => [
-                    $p['preferido'] ? 0 : 1,
-                    $p['costo'] === null ? 1 : 0,
-                    (float) ($p['costo'] ?? 0),
-                ])
-                ->values()
-                ->all(),
-        ])->all();
+        $lineas = old('lineas', $sugeridas);
+
+        return is_array($lineas) ? array_filter($lineas, 'is_array') : [];
+    }
+
+    /** El índice con el que el JS va a numerar la próxima fila. */
+    private function proximoIndice(array $lineas): int
+    {
+        return $lineas === [] ? 0 : max(array_keys($lineas)) + 1;
+    }
+
+    /**
+     * Los productos que las filas ya cargadas mencionan, por id.
+     *
+     * @param  array<int, array<string, mixed>>  $lineas
+     * @return Collection<int, Producto>
+     */
+    private function productosDeLasLineas(array $lineas): Collection
+    {
+        $ids = collect($lineas)
+            ->pluck('producto_id')
+            ->filter(fn ($id) => ctype_digit((string) $id))
+            ->unique();
+
+        if ($ids->isEmpty()) {
+            return new Collection;
+        }
+
+        return Producto::whereIn('id', $ids)
+            ->get(['id', 'codigo', 'nombre', 'costo_promedio', 'activo'])
+            ->keyBy('id');
     }
 
     public function recepcion(OrdenCompra $orden): View|RedirectResponse
     {
-        // La ficha ofrece el botón sólo cuando corresponde; esto es la red de
-        // contención para una URL escrita a mano o guardada en favoritos. Se
-        // redirige con un aviso en lugar de abortar: la orden existe, lo que no
-        // corresponde es recibir contra ella.
         if (! MaquinaEstadosCompra::puedeRecibir($orden->estado)) {
             return redirect()->route('compras.show', $orden)->with(
                 'error',
@@ -287,26 +358,27 @@ class CompraController extends Controller
 
     public function recibir(RecepcionCompraRequest $request, OrdenCompra $orden): RedirectResponse
     {
-        $cantidades = $request->validated()['cantidades'];
+        $datos      = $request->validated();
+        $cantidades = $datos['cantidades'];
+        $remito     = $datos['remito_numero'] ?? null;
 
-        // Se suma lo que el usuario declaró. Si el servicio rechaza —porque alguna
-        // línea recibe más de lo pendiente— nada de esto se usa: la excepción se
-        // traduce a un aviso en bootstrap/app.php y la transacción ya revirtió.
         $unidades = collect($cantidades)->sum(fn ($cantidad) => (int) $cantidad);
 
-        $orden = $this->service->recibir($orden, $cantidades, $request->user());
+        $orden = $this->service->recibir($orden, $cantidades, $request->user(), [
+            'numero' => $remito,
+            'fecha'  => $datos['remito_fecha'] ?? null,
+        ]);
+
+        $conRemito = $remito === null ? '' : " con el remito {$remito}";
 
         $pendientes = $orden->lineas->sum(fn (OrdenCompraLinea $linea) => $linea->cantidadPendiente());
 
-        // El mensaje dice los tres efectos, porque ninguno es evidente desde el
-        // botón: entró stock, cambió el costo promedio del producto, y quedó al día
-        // el último costo de ese proveedor para la comparación de precios.
         return redirect()->route('compras.show', $orden)->with(
             'exito',
             $pendientes === 0
-                ? "Se registraron {$unidades} unidad(es) y la orden quedó recibida completa. Se actualizó el "
+                ? "Se registraron {$unidades} unidad(es){$conRemito} y la orden quedó recibida completa. Se actualizó el "
                   .'stock, el costo promedio de cada producto y el último costo de este proveedor.'
-                : "Se registraron {$unidades} unidad(es). Quedan {$pendientes} pendientes, así que la orden "
+                : "Se registraron {$unidades} unidad(es){$conRemito}. Quedan {$pendientes} pendientes, así que la orden "
                   .'sigue parcial. Se actualizó el stock, el costo promedio y el último costo de este proveedor.',
         );
     }
@@ -330,10 +402,22 @@ class CompraController extends Controller
         ]);
 
         // Descargar es una lectura: no cambia el estado, no marca nada como enviado y
-        // se puede repetir. Marcar enviada es una acción aparte, con su permiso, que
-        // hace una persona después de que el pedido salió de verdad. El sistema no
-        // afirma hechos del mundo que no puede verificar.
+        // se puede repetir. 
         return Pdf::loadView('compras.pdf', ['orden' => $orden])
             ->download("orden-compra-{$orden->numeroFormateado()}.pdf");
+    }
+
+    
+    /** Los filtros del listado, en un solo lugar: lo que la pantalla muestra es lo que se imprime. */
+    private function filtradas(OrdenCompraFiltroRequest $request): Builder
+    {
+        return OrdenCompra::query()
+            ->buscar($request->query('q'))
+            ->conEstado($request->query('estado'))
+            ->deOrigen($request->query('origen'))
+            ->deProveedor($request->query('proveedor_id'))
+            ->desde($request->query('desde'))
+            ->hasta($request->query('hasta'))
+            ->orderByDesc('id');
     }
 }

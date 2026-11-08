@@ -65,14 +65,12 @@
             </div>
         </div>
 
-        {{-- Acciones del formulario --}}
-        <div class="d-grid d-sm-flex gap-2 mt-4">
-            <button type="submit" class="btn btn-acento">
+        <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
+            <a href="{{ route('marcas.index') }}" class="btn btn-outline-secondary">Cancelar</a>
+            <button type="submit" class="btn btn-acento px-4">
                 <i class="bi bi-check-lg" aria-hidden="true"></i>
                 {{ $esEdicion ? 'Guardar cambios' : 'Crear marca' }}
             </button>
-
-            <a href="{{ route('marcas.index') }}" class="btn btn-outline-secondary">Cancelar</a>
         </div>
     </form>
 @endsection

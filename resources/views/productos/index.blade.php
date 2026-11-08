@@ -4,8 +4,7 @@
 
 @section('title', 'Productos')
 
-@php($hayFiltros = request()->hasAny(['q', 'categoria_id', 'marca_id', 'estado', 'stock']))
-
+@php($hayFiltros = request()->hasAny(['q', 'categoria_id', 'marca_id', 'proveedor_id', 'estado', 'stock']))
 @section('content')
     <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-start gap-3 mb-4">
         <div>
@@ -50,6 +49,18 @@
                     @foreach ($marcas as $marca)
                         <option value="{{ $marca->id }}" @selected(request('marca_id') == $marca->id)>
                             {{ $marca->nombre }}{{ $marca->activo ? '' : ' (inactiva)' }}
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div class="col-12 col-sm-6 col-lg-4">
+                <label for="proveedor_id" class="form-label">Proveedor</label>
+                <select class="form-select" id="proveedor_id" name="proveedor_id" data-buscable>
+                    <option value="">Todos</option>
+                    @foreach ($proveedores as $proveedor)
+                        <option value="{{ $proveedor->id }}" @selected(request('proveedor_id') == $proveedor->id)>
+                            {{ $proveedor->razon_social }}{{ $proveedor->activo ? '' : ' (inactivo)' }}
                         </option>
                     @endforeach
                 </select>
@@ -116,6 +127,16 @@
                                 </a>
                             @endif
 
+                            @if (request()->filled('proveedor_id'))
+                                <a href="{{ request()->fullUrlWithoutQuery(['proveedor_id', 'page']) }}"
+                                    class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                    title="Quitar filtro de proveedor">
+                                    <span class="text-secondary fw-normal">Proveedor:</span>
+                                    {{ $proveedores->firstWhere('id', (int) request('proveedor_id'))?->razon_social ?? request('proveedor_id') }}
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                </a>
+                            @endif
+
                             @if (request()->filled('stock'))
                                 <a href="{{ request()->fullUrlWithoutQuery(['stock', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
@@ -148,7 +169,7 @@
                             <i class="bi bi-eraser" aria-hidden="true"></i> Limpiar
                         </a>
                     @endif
-
+                    <x-imprimir ruta="productos.imprimir" :listado="new \App\Impresion\ListadoProductos()" />
                     <button type="submit" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center gap-1">
                         <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
                     </button>
@@ -157,17 +178,28 @@
         </div>
     </form>
 
+    @php($puedeAjustar = auth()->user()->can('precio.ajustar_masivo'))
     <div class="card border-0 shadow-sm">
         <table class="table table-hover align-middle mb-0">
             <caption class="visually-hidden">Listado de productos del catálogo</caption>
             <thead class="table-light">
                 <tr>
+                    @if ($puedeAjustar)
+                        <th scope="col" style="width: 40px;">
+                            <input class="form-check-input casilla-fila mt-0" type="checkbox"
+                                data-seleccion-todas="formSeleccionAjuste"
+                                aria-label="Marcar todos los productos de esta página">
+                        </th>
+                    @endif
                     <th scope="col" class="d-none d-sm-table-cell" style="width: 64px;">
                         <span class="visually-hidden">Imagen</span>
                     </th>
                     <th scope="col">Producto</th>
                     <th scope="col" class="d-none d-lg-table-cell">Categoría</th>
                     <th scope="col" class="text-end">Precio</th>
+                    @can('precio.ver_costo')
+                        <th scope="col" class="text-end d-none d-xl-table-cell">Costo</th>
+                    @endcan
                     <th scope="col" class="text-end">Stock</th>
                     <th scope="col" class="d-none d-md-table-cell">Estado</th>
                     <th scope="col" class="text-end">Acciones</th>
@@ -176,6 +208,14 @@
             <tbody>
                 @forelse ($productos as $producto)
                     <tr>
+                        @if ($puedeAjustar)
+                            <td>
+                                <input class="form-check-input casilla-fila mt-0" type="checkbox" name="ids[]"
+                                    value="{{ $producto->id }}" form="formSeleccionAjuste"
+                                    aria-label="Marcar {{ $producto->nombre }} para el ajuste de precios">
+                            </td>
+                        @endif
+
                         <td class="d-none d-sm-table-cell">
                             @if ($producto->imagenes)
                                 <img src="{{ Storage::url($producto->imagenes[0]) }}" alt="" width="48"
@@ -211,14 +251,38 @@
 
                         <td class="d-none d-lg-table-cell small">{{ $producto->categoria->ruta }}</td>
 
+                        {{-- El mostrador cotiza con el precio de contado: es el número
+                             que se decide. El de lista es derivado y va en chico. --}}
                         <td class="text-end text-nowrap">
-                            {{ Importe::pesos($producto->precio_lista) }}
+                            {{ Importe::pesos($producto->precio_contado) }}
+
                             @if ($producto->precio_contado !== $producto->precio_lista)
                                 <div class="small text-body-secondary">
-                                    Contado {{ Importe::pesos($producto->precio_contado) }}
+                                    Lista {{ Importe::pesos($producto->precio_lista) }}
+                                </div>
+                            @endif
+
+                            @if ($producto->precio_manual)
+                                <div>
+                                    <span class="badge text-bg-light border text-body-secondary" data-bs-toggle="tooltip"
+                                        data-bs-title="Precio fijado a mano: el recálculo y el ajuste masivo no lo cambian.">
+                                        A mano
+                                    </span>
                                 </div>
                             @endif
                         </td>
+
+                        @can('precio.ver_costo')
+                            <td class="text-end text-nowrap d-none d-xl-table-cell">
+                                {{ Importe::pesos($producto->costo_promedio) }}
+
+                                @if ($producto->margen() !== null)
+                                    <div class="small text-body-secondary">
+                                        Margen {{ Importe::numero($producto->margen(), 2) }} %
+                                    </div>
+                                @endif
+                            </td>
+                        @endcan
 
                         <td class="text-end">
                             {{ $producto->stock_disponible }}
@@ -278,7 +342,8 @@
                     </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="text-center text-body-secondary py-4">
+                            <td colspan="{{ (auth()->user()->can('precio.ver_costo') ? 8 : 7) + ($puedeAjustar ? 1 : 0) }}"
+                                class="text-center text-body-secondary py-4">
                                 @if ($hayFiltros)
                                     Ningún producto coincide con el filtro.
                                     <a href="{{ route('productos.index') }}">Ver todos</a>.
@@ -291,6 +356,22 @@
                 </tbody>
             </table>
         </div>
+
+        @if ($puedeAjustar && $productos->total() > 0)
+            <form method="GET" action="{{ route('precios.ajuste') }}" id="formSeleccionAjuste" data-seleccion
+                class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mt-3">
+                <p class="text-body-secondary small mb-0" data-seleccion-contador
+                    data-seleccion-marcadas="{n} producto(s) marcados en esta página.">
+                    Marcá los productos de esta página que querés ajustar.
+                </p>
+
+                <button type="submit" class="btn btn-outline-dark text-nowrap">
+
+                    <button type="submit" id="ajustarSeleccionados" class="btn btn-outline-dark text-nowrap">
+                        <i class="bi bi-percent" aria-hidden="true"></i> Ajustar los precios seleccionados
+                    </button>
+            </form>
+        @endif
 
         @if ($productos->total() > 0)
             <div class="d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2 mt-3">

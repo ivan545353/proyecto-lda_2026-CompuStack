@@ -2,56 +2,51 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ImprimeListados;
+use Illuminate\Http\JsonResponse;
 use App\Http\Requests\ClienteFiltroRequest;
 use App\Http\Requests\ClienteRequest;
+use App\Impresion\ListadoClientes;
 use App\Models\Cliente;
 use App\Services\ClienteService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Response;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Gestión de clientes.
  *
- * Módulo nuevo: en el sistema original el comprador no existía como entidad, la
- * venta guardaba un nombre suelto y no había forma de saber a quién se le
- * facturó.
- *
- * El controlador traduce entre HTTP y ClienteService. No valida
- * (ClienteRequest), no decide reglas (ClienteService) y no arma consultas de
- * negocio: encadena los scopes del modelo.
- *
- * Este módulo NO crea cuentas de acceso. La cuenta y su ficha de cliente se
- * crean juntas desde el módulo de usuarios, que es el único que sabe mantener
- * la invariante rol↔satélite. Acá se administra al cliente de mostrador y los
- * datos fiscales de todos.
- *
  * Métodos:
  *   index()              listado filtrado y paginado
- *   create() / store()   alta de un cliente de mostrador
+ *   imprimir()           el mismo listado filtrado, en PDF o en CSV
+ *   create() / store()   alta de un cliente de mostrador; store() contesta JSON a la ventana de la venta
  *   edit()  / update()   edición de datos fiscales y de contacto
  *   destroy()            baja física; el servicio la niega si corresponde
  */
 class ClienteController extends Controller
 {
+    use ImprimeListados;
     public function __construct(private ClienteService $service)
     {
     }
 
     public function index(ClienteFiltroRequest $request): View
     {
-        $clientes = Cliente::query()
-            // Cuenta en la base. El panel original traía las tablas enteras al
-            // navegador para contarlas con .filter() (A-26).
+        $clientes = $this->filtradas($request)
             ->withCount('direcciones')
             ->with('usuario:id,email')
-            ->buscar($request->query('q'))
-            ->conCondicionIva($request->query('condicion_iva'))
-            ->conCuenta($request->query('cuenta'))
-            ->orderBy('razon_social')
-            ->paginate(15)          // A-25: el original devolvía la tabla entera
-            ->withQueryString();    // sin esto, la página 2 pierde los filtros
+            ->paginate(15)
+            ->withQueryString();   
 
         return view('clientes.index', compact('clientes'));
+    }
+
+    
+    public function imprimir(ClienteFiltroRequest $request, ListadoClientes $listado): Response|StreamedResponse|RedirectResponse
+    {
+        return $this->imprimirListado($request, $listado, $this->filtradas($request), 'clientes.index');
     }
 
     public function create(): View
@@ -61,13 +56,14 @@ class ClienteController extends Controller
         ]);
     }
 
-    public function store(ClienteRequest $request): RedirectResponse
+    public function store(ClienteRequest $request): RedirectResponse|JsonResponse
     {
         $cliente = $this->service->crear($request->validated());
 
-        // Se va a la edición y no al listado: lo siguiente que suele hacer
-        // quien acaba de cargar un cliente es agregarle una dirección, y ahí
-        // está el bloque para hacerlo.
+        // La ventana de la venta pide JSON, con el mismo criterio con que Laravel le contesta el 422.
+        if ($request->expectsJson()) {
+            return response()->json($cliente->resultadoDeBusqueda(), 201);
+        }
         return redirect()->route('clientes.edit', $cliente)
             ->with('exito', "Se creó el cliente «{$cliente->razon_social}». Ya podés agregarle direcciones.");
     }
@@ -76,8 +72,6 @@ class ClienteController extends Controller
     {
         return view('clientes.form', [
             'cliente' => $cliente->load(['usuario', 'direcciones' => fn ($q) => $q
-                // La predeterminada primero, después por antigüedad: es el mismo
-                // orden en el que se van a ofrecer al armar un envío.
                 ->orderByDesc('es_predeterminada')
                 ->orderBy('id')]),
         ]);
@@ -95,13 +89,20 @@ class ClienteController extends Controller
     {
         $nombre = $cliente->razon_social;
 
-        // Si tiene ventas o cuenta, el servicio lanza ReglaDeNegocioException y
-        // bootstrap/app.php la traduce a un mensaje para el usuario. Nada de
-        // try/catch acá: eso está resuelto una sola vez para toda la aplicación,
-        // que es la corrección de M-30.
         $this->service->eliminar($cliente);
 
         return redirect()->route('clientes.index')
             ->with('exito', "Se eliminó a «{$nombre}» y sus direcciones.");
+    }
+
+    
+    /** Los filtros del listado, en un solo lugar: lo que la pantalla muestra es lo que se imprime. */
+    private function filtradas(ClienteFiltroRequest $request): Builder
+    {
+        return Cliente::query()
+            ->buscar($request->query('q'))
+            ->conCondicionIva($request->query('condicion_iva'))
+            ->conCuenta($request->query('cuenta'))
+            ->orderBy('razon_social');
     }
 }

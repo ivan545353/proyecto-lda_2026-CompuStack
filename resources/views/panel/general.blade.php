@@ -1,6 +1,8 @@
 @use('App\Support\Importe')
 @use('Carbon\Carbon')
 @use('App\Models\Pago')
+@use('App\Models\OrdenCompra')
+@use('App\Support\Comparacion')
 
 @extends('layouts.app')
 
@@ -24,56 +26,75 @@
 
     @include('panel._periodo', ['ruta' => 'panel.general'])
 
-    {{-- «Cobrado» y «facturado» responden preguntas distintas y dan números distintos:
-         uno descuenta las devoluciones y el otro no. Van en recuadros separados y con
-         su aclaración, nunca sumados en el mismo. --}}
+    @php
+        $antes = $metricas['anterior'];
+        $contra = 'entre el ' . $antes['desde']->format('d/m') . ' y el ' . $antes['hasta']->format('d/m');
+        $borradores = $metricas['borradoresDeReposicion'];
+    @endphp
+
     <div class="row g-3 mb-4">
         @include('panel._tarjeta', [
+            'ancho' => 'col-12 col-md-4',
             'titulo' => 'Cobrado en el período',
             'valor' => Importe::pesos($metricas['cobrado']),
+            'comparacion' => Comparacion::entre($metricas['cobrado'], $antes['cobrado']),
+            'periodo' => $contra,
+            'anterior' => Importe::pesos($antes['cobrado']),
             'nota' => 'La plata que quedó: las devoluciones descuentan.',
         ])
 
         @include('panel._tarjeta', [
+            'ancho' => 'col-12 col-md-4',
             'titulo' => 'Facturado en el período',
             'valor' => Importe::pesos($metricas['facturado']),
+            'comparacion' => Comparacion::entre($metricas['facturado'], $antes['facturado']),
+            'periodo' => $contra,
+            'anterior' => Importe::pesos($antes['facturado']),
             'nota' => 'Lo que se vendió. No descuenta devoluciones.',
         ])
 
         @include('panel._tarjeta', [
-            'titulo' => 'Ventas cobradas',
-            'valor' => $metricas['cantidad'],
-        ])
-
-        @include('panel._tarjeta', [
-            'titulo' => 'Ticket promedio',
-            'valor' => Importe::pesos($metricas['ticket']),
+            'ancho' => 'col-12 col-md-4',
+            'titulo' => 'Margen bruto',
+            'valor' => Importe::pesos($metricas['margenBruto']),
+            'comparacion' => Comparacion::entre($metricas['margenBruto'], $antes['margenBruto']),
+            'periodo' => $contra,
+            'anterior' => Importe::pesos($antes['margenBruto']),
+            'nota' =>
+                'Antes de descuentos. Descuentos otorgados: ' . Importe::pesos($metricas['descuentos']) . '.',
         ])
     </div>
 
+    <h2 class="h5 mb-1">Requiere atención</h2>
+    <p class="text-body-secondary small mb-3">
+        A hoy, sin importar el período. No se comparan con antes: el sistema no guarda cuántas había.
+    </p>
+
     <div class="row g-3 mb-4">
         @include('panel._tarjeta', [
-            'titulo' => 'Margen bruto',
-            'valor' => Importe::pesos($metricas['margenBruto']),
-            'nota' => 'Antes de descuentos. Sale del costo congelado en cada línea.',
-        ])
-
-        @include('panel._tarjeta', [
-            'titulo' => 'Descuentos otorgados',
-            'valor' => Importe::pesos($metricas['descuentos']),
-            'nota' => 'Lo que el margen bruto todavía no resta.',
-        ])
-
-        @include('panel._tarjeta', [
-            'titulo' => 'Stock crítico',
+            'ancho' => 'col-12 col-md-6',
+            'titulo' => 'Para reponer',
             'valor' => $metricas['stockCritico'],
-            'nota' => 'Productos en o por debajo del mínimo, a hoy.',
+            'enlace' => route('compras.sugeridos'),
+            'permiso' => 'compra.crear',
+            'rotulo' => "Para reponer: {$metricas['stockCritico']}. Ver los sugeridos de reposición",
+            'nota' => 'Por debajo del mínimo, sin contar lo que ya viene en camino.',
         ])
 
         @include('panel._tarjeta', [
+            'ancho' => 'col-12 col-md-6',
             'titulo' => 'Órdenes de compra abiertas',
             'valor' => $metricas['comprasAbiertas'],
+            'enlace' => route('compras.index', ['estado' => OrdenCompra::ABIERTAS]),
+            'permiso' => 'compra.ver',
+            'rotulo' => "Órdenes de compra abiertas: {$metricas['comprasAbiertas']}. Ver el listado",
             'nota' => 'Esperando aprobación, envío o recepción.',
+            'detalle' => match (true) {
+                $borradores === 1 => '1 borrador lo generó la reposición y espera aprobación.',
+                $borradores > 1 => "{$borradores} borradores los generó la reposición y esperan aprobación.",
+                default => null,
+            },
+            'detalleEnlace' => route('compras.index', ['estado' => 'borrador', 'origen' => 'reposicion']),
         ])
     </div>
 
@@ -93,208 +114,127 @@
                     ],
                 )
                 ->values();
-
-            $serieMetodos = $metricas['porMetodo']
-                ->map(
-                    fn($fila) => [
-                        'metodo' => Pago::METODOS[$fila->metodo] ?? $fila->metodo,
-                        'neto' => (float) $fila->neto,
-                    ],
-                )
-                ->values();
         @endphp
 
         <script type="application/json" id="facturadoPorDia">@json($serieDias)</script>
-        <script type="application/json" id="cobradoPorMetodo">@json($serieMetodos)</script>
 
         <div class="row g-4 mb-4">
-            <div class="col-12 col-xl-6">
+            <div class="col-12 col-xl-8">
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-body">
                         <h2 class="h6 mb-1">Facturado por día</h2>
-                        <p class="text-body-secondary small mb-3">
-                            El detalle, día por día, está en la tabla de abajo.
-                        </p>
+                        <p class="text-body-secondary small mb-3">Por fecha de emisión de la venta.</p>
 
                         <canvas data-grafico-dias role="img"
-                            aria-label="Facturado de cada día del período. Los mismos números están en la tabla «Facturado por día»."></canvas>
+                            aria-label="Facturado de cada día del período. Los mismos números están en la tabla «Facturado por día», en «Ver los números», debajo del gráfico."></canvas>
+
+                        {{-- `details` y no un collapse: sin JavaScript la tabla se tiene que poder abrir. --}}
+                        <details class="mt-3" data-numeros>
+                            <summary class="small fw-semibold">Ver los números</summary>
+
+                            <div class="table-responsive mt-2">
+                                <table class="table table-sm align-middle mb-0">
+                                    <caption class="visually-hidden">Facturado por día: cada día del período</caption>
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th scope="col">Día</th>
+                                            <th scope="col" class="text-end">Ventas</th>
+                                            <th scope="col" class="text-end">Facturado</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @forelse ($metricas['porDia'] as $fila)
+                                            <tr>
+                                                <td class="text-nowrap">{{ Carbon::parse($fila->dia)->format('d/m/Y') }}
+                                                </td>
+                                                <td class="text-end">{{ $fila->cantidad }}</td>
+                                                <td class="text-end">{{ Importe::pesos($fila->facturado) }}</td>
+                                            </tr>
+                                        @empty
+                                            <tr>
+                                                <td colspan="3" class="text-body-secondary small py-3">
+                                                    Sin ventas cobradas en el período.
+                                                </td>
+                                            </tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+                        </details>
                     </div>
                 </div>
             </div>
 
-            <div class="col-12 col-xl-6">
+            <div class="col-12 col-xl-4">
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-body">
                         <h2 class="h6 mb-1">Cobrado por medio de pago</h2>
                         <p class="text-body-secondary small mb-3">
-                            Una barra hacia abajo es un medio por el que volvió más de lo que entró.
-                        </p>
-
-                        <canvas data-grafico-metodos role="img"
-                            aria-label="Neto cobrado por cada medio de pago. Los mismos números están en la tabla «Cobrado por medio de pago»."></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="row g-4">
-            <div class="col-12 col-xl-6">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-header bg-white border-0 pt-3">
-                        <h2 class="h6 mb-0">Ranking de vendedores</h2>
-                        <p class="text-body-secondary small mb-0">Quién vendió, por lo facturado.</p>
-                    </div>
-
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
-                            <caption class="visually-hidden">Vendedores del período ordenados por lo facturado</caption>
-                            <thead class="table-light">
-                                <tr>
-                                    <th scope="col">Vendedor</th>
-                                    <th scope="col" class="text-end">Ventas</th>
-                                    <th scope="col" class="text-end">Facturado</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($metricas['rankingVendedores'] as $fila)
-                                    <tr>
-                                        <td>{{ $fila->apellido }}, {{ $fila->nombre }}</td>
-                                        <td class="text-end">{{ $fila->cantidad }}</td>
-                                        <td class="text-end">{{ Importe::pesos($fila->facturado) }}</td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="3" class="text-body-secondary small py-3">
-                                            Ninguna venta del período tiene vendedor asignado.
-                                        </td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-12 col-xl-6">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-header bg-white border-0 pt-3">
-                        <h2 class="h6 mb-0">Productos más vendidos</h2>
-                        <p class="text-body-secondary small mb-0">Por unidades, descontando lo devuelto.</p>
-                    </div>
-
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
-                            <caption class="visually-hidden">Productos más vendidos del período</caption>
-                            <thead class="table-light">
-                                <tr>
-                                    <th scope="col">Producto</th>
-                                    <th scope="col" class="text-end">Unidades</th>
-                                    <th scope="col" class="text-end d-none d-sm-table-cell">Importe</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($metricas['masVendidos'] as $fila)
-                                    <tr>
-                                        <td>
-                                            <span class="fw-semibold">{{ $fila->nombre }}</span>
-                                            <div class="small text-body-secondary">{{ $fila->codigo }}</div>
-                                        </td>
-                                        <td class="text-end">{{ $fila->unidades }}</td>
-                                        <td class="text-end d-none d-sm-table-cell">
-                                            {{ Importe::pesos($fila->importe) }}
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="3" class="text-body-secondary small py-3">
-                                            Todo lo vendido en el período volvió.
-                                        </td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-12 col-xl-6">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-header bg-white border-0 pt-3">
-                        <h2 class="h6 mb-0">Cobrado por medio de pago</h2>
-                        <p class="text-body-secondary small mb-0">
                             Un medio puede quedar negativo si volvió por ahí más de lo que entró.
                         </p>
-                    </div>
 
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
-                            <caption class="visually-hidden">Neto cobrado por medio de pago</caption>
-                            <thead class="table-light">
-                                <tr>
-                                    <th scope="col">Medio</th>
-                                    <th scope="col" class="text-end">Movimientos</th>
-                                    <th scope="col" class="text-end">Neto</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($metricas['porMetodo'] as $fila)
-                                    <tr>
-                                        <td>{{ Pago::METODOS[$fila->metodo] ?? $fila->metodo }}</td>
-                                        <td class="text-end">{{ $fila->movimientos }}</td>
-                                        {{-- El signo va en el número y no sólo en el color. --}}
-                                        <td class="text-end {{ (float) $fila->neto < 0 ? 'text-danger-emphasis' : '' }}">
-                                            {{ Importe::pesos($fila->neto) }}
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="3" class="text-body-secondary small py-3">
-                                            No se registró ningún movimiento de dinero en el período.
-                                        </td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+                        <details data-numeros>
+                            <summary class="small fw-semibold">Ver los números</summary>
 
-            <div class="col-12 col-xl-6">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-header bg-white border-0 pt-3">
-                        <h2 class="h6 mb-0">Facturado por día</h2>
-                        <p class="text-body-secondary small mb-0">Por fecha de emisión de la venta.</p>
-                    </div>
-
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
-                            <caption class="visually-hidden">Facturado de cada día del período</caption>
-                            <thead class="table-light">
-                                <tr>
-                                    <th scope="col">Día</th>
-                                    <th scope="col" class="text-end">Ventas</th>
-                                    <th scope="col" class="text-end">Facturado</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($metricas['porDia'] as $fila)
-                                    <tr>
-                                        <td class="text-nowrap">{{ Carbon::parse($fila->dia)->format('d/m/Y') }}</td>
-                                        <td class="text-end">{{ $fila->cantidad }}</td>
-                                        <td class="text-end">{{ Importe::pesos($fila->facturado) }}</td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="3" class="text-body-secondary small py-3">
-                                            Sin ventas cobradas en el período.
-                                        </td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
+                            <div class="table-responsive mt-2">
+                                <table class="table table-sm align-middle mb-0">
+                                    <caption class="visually-hidden">Neto cobrado por medio de pago</caption>
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th scope="col">Medio</th>
+                                            <th scope="col" class="text-end d-none d-md-table-cell">Movimientos</th>
+                                            <th scope="col" class="text-end">Neto</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @forelse ($metricas['porMetodo'] as $fila)
+                                            <tr>
+                                                <td>{{ Pago::METODOS[$fila->metodo] ?? $fila->metodo }}</td>
+                                                <td class="text-end d-none d-md-table-cell">{{ $fila->movimientos }}</td>
+                                                {{-- El signo va en el número y no sólo en el color. --}}
+                                                <td
+                                                    class="text-end {{ (float) $fila->neto < 0 ? 'text-danger-emphasis' : '' }}">
+                                                    {{ Importe::pesos($fila->neto) }}
+                                                </td>
+                                            </tr>
+                                        @empty
+                                            <tr>
+                                                <td colspan="3" class="text-body-secondary small py-3">
+                                                    No se registró ningún movimiento de dinero en el período.
+                                                </td>
+                                            </tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+                        </details>
                     </div>
                 </div>
             </div>
         </div>
     @endif
+
+    {{-- El ranking y los más vendidos se miran una vez por mes: son informes con su
+         período y su paginación, no avisos del día. El enlace lleva el período puesto. --}}
+    @can('panel.ver_global')
+        <div class="card border-0 shadow-sm" data-informes>
+            <div class="card-body d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
+                <div>
+                    <h2 class="h6 mb-1">Informes del período</h2>
+                    <p class="text-body-secondary small mb-0">Quién vendió y qué se vendió más.</p>
+                </div>
+
+                <div class="d-flex flex-column flex-sm-row gap-2">
+                    <a href="{{ route('ventas.vendedores', request()->only(['desde', 'hasta'])) }}"
+                        class="btn btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1">
+                        <i class="bi bi-trophy" aria-hidden="true"></i> Ranking de vendedores
+                    </a>
+                    <a href="{{ route('ventas.productos', request()->only(['desde', 'hasta'])) }}"
+                        class="btn btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1">
+                        <i class="bi bi-box-seam" aria-hidden="true"></i> Productos más vendidos
+                    </a>
+                </div>
+            </div>
+        </div>
+    @endcan
 @endsection

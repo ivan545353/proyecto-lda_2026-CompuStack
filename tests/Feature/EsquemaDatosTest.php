@@ -22,18 +22,20 @@ const TABLAS_DOMINIO = [
     'ventas', 'venta_lineas', 'pagos',
 ];
 
-function tipoDeColumna(string $tabla, string $columna): string
-{
-    $fila = DB::selectOne(
-        'SELECT COLUMN_TYPE AS tipo
-           FROM information_schema.COLUMNS
-          WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?',
-        [DB::getDatabaseName(), $tabla, $columna],
-    );
+if (! function_exists('tipoDeColumna')) {
+    function tipoDeColumna(string $tabla, string $columna): string
+    {
+        $fila = DB::selectOne(
+            'SELECT COLUMN_TYPE AS tipo
+               FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+            [DB::getDatabaseName(), $tabla, $columna],
+        );
 
-    expect($fila)->not->toBeNull("No existe {$tabla}.{$columna}");
+        expect($fila)->not->toBeNull("No existe {$tabla}.{$columna}");
 
-    return $fila->tipo;
+        return $fila->tipo;
+    }
 }
 
 test('existen las dieciocho tablas de la etapa 1', function () {

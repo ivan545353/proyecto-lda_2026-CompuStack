@@ -67,9 +67,10 @@ Rotar el secreto hoy implica invalidar todas las sesiones y editar código. En L
 > ningún punto del historial, y `legacy/README.md` documenta qué se modificó y por
 > qué. La configuración vive en `.env`, ignorado por Git, con `.env.example`
 > versionado sin un solo valor real: ni contraseñas, ni correos personales. El
-> `.gitignore` excluye `vendor/`, `node_modules/` y `storage/*.key`. La Fase 8
-> vuelve a revisar el historial completo, que es lo único que este cierre no puede
-> probar por sí mismo.
+> `.gitignore` excluye `vendor/`, `node_modules/` y `storage/*.key`. Revisar el
+> historial completo es lo único que este cierre no puede probar por sí mismo; iba a
+> hacerlo la Fase 8, que no se hizo, así que queda como tarea antes de cada entrega
+> (`git log -p --all`, buscando credenciales).
 
 ### A-5 · El token no se puede revocar
 `AuthenticationService::logout()` es un no-op con comentario explicando que el logout es del lado del cliente. No hay `jti`, ni blacklist, ni refresh token. Consecuencias:
@@ -111,9 +112,9 @@ Con clientes y pagos reales esto pasa de molestia a riesgo.
 
 > **Cerrado** — Fase 2. No hay nada en `localStorage` que robar: la sesión viaja en
 > una cookie `HttpOnly`, inaccesible desde cualquier script de la página, con
-> `SameSite=lax`. Queda para la revisión de la Fase 8 poner
-> `SESSION_SECURE_COOKIE=true` en el entorno de producción, que es un asunto de
-> transporte y no de acceso desde scripts.
+> `SameSite=lax`. Queda poner `SESSION_SECURE_COOKIE=true` en el entorno de
+> producción, que es un asunto de transporte y no de acceso desde scripts. Iba a la
+> revisión de la Fase 8, que no se hizo; sin despliegue todavía no hay producción.
 ---
 
 ## 2. Lógica de negocio y concurrencia
@@ -306,9 +307,9 @@ Dos requests concurrentes leen el mismo saldo, ambos pasan la validación, ambos
 > caja tiene que poder decir.
 >
 > Queda afuera la **nota de crédito**, que es el documento fiscal de la devolución y es
-> de la Etapa 2. En la Etapa 1 la devolución mueve `cantidad_devuelta`, repone stock por
-> el kardex, escribe el contra-asiento y cambia el estado; el comprobante llega con
-> AFIP, y `comprobantes` y `comprobante_lineas` ya están justificadas en
+> de la Etapa 4, con la facturación. En la Etapa 1 la devolución mueve `cantidad_devuelta`,
+> repone stock por el kardex, escribe el contra-asiento y cambia el estado; el comprobante
+> llega con ARCA, y `comprobantes` y `comprobante_lineas` ya están justificadas en
 > `modelo-datos.md` para que la NC pueda llevar su propio detalle y cubrir sólo parte de
 > la venta.
 
@@ -503,7 +504,7 @@ El modo `descontar` hace `SELECT ... FOR UPDATE`; el modo `reponer` va directo a
 ### A-18 · Numeración de ventas frágil
 - `ventas.numero` **no tiene índice UNIQUE**. Nada impide duplicados.
 - `venta_numeracion` es una tabla de una sola fila **sin clave primaria**. `SELECT numero FROM venta_numeracion FOR UPDATE` sin `WHERE` funciona por accidente.
-- Un solo contador global. Con facturación AFIP vas a necesitar numeración **por punto de venta y por tipo de comprobante**, correlativa y sin huecos.
+- Un solo contador global. Con facturación ARCA vas a necesitar numeración **por punto de venta y por tipo de comprobante**, correlativa y sin huecos.
 > **Cerrado** — Fase 6. **El número de venta es el `id`**, formateado `V-00042`. No hay
 > columna `numero` y no hay tabla de numeración: la clave primaria garantiza unicidad
 > por construcción, sin contador, sin tabla auxiliar de una sola fila y sin condición
@@ -514,14 +515,14 @@ El modo `descontar` hace `SELECT ... FOR UPDATE`; el modo `reponer` va directo a
 >
 > Es el mismo criterio que ya se había aplicado a `ordenes_compra` en la Fase 5, y la
 > razón es la misma: **ninguno de los dos es un comprobante fiscal**. No los gobierna
-> AFIP y no necesitan ser correlativos sin huecos. El formato lo arma
+> ARCA y no necesitan ser correlativos sin huecos. El formato lo arma
 > `Venta::numeroDe()`, que es estático para que el kardex pueda nombrar el documento de
 > origen sin cargarlo, y así la ficha y el kardex dicen `V-00042` igual.
 >
 > La cuarta parte del hallazgo —numeración **por punto de venta y por tipo de
 > comprobante**, correlativa y sin huecos— es un requisito de la facturación y vive
 > donde corresponde: la tabla `comprobantes`, con `UNIQUE (tipo, punto_venta, numero)`,
-> en la Etapa 2. La fuente de verdad de ese número es AFIP, que se consulta con
+> en la Etapa 4. La fuente de verdad de ese número es ARCA, que se consulta con
 > `FECompUltimoAutorizado` antes de cada emisión, y el UNIQUE local es la red de
 > contención. Está justificado en `modelo-datos.md`, sección `comprobantes`.
 
@@ -560,8 +561,8 @@ Con el nuevo esquema de perfiles (cliente / administrador / empleado con subtipo
 > (`usuario.resetear_password`), con el token hasheado por el broker de Laravel
 > y vencimiento de una hora. El administrador nunca conoce la contraseña, así
 > que no puede operar el sistema con la identidad de otro. La recuperación por
-> correo sin intervención de un administrador queda para la Etapa 2, cuando
-> haya SMTP; las dos rutas públicas del flujo ya existen y se llaman
+> correo sin intervención de un administrador queda para cuando haya SMTP
+> (Etapa 4); las dos rutas públicas del flujo ya existen y se llaman
 > `password.reset` y `password.store`, los nombres que la notificación
 > `ResetPassword` de Laravel tiene escritos.
 
@@ -587,8 +588,9 @@ El catálogo actual (`nombre, codigo, descripcion, categoriaId, precio, stock`) 
 > con su motivo escrito:
 >
 > - `peso_gramos` y `destacado` **son columnas del esquema** desde la Fase 1, pero
->   no se exponen en el formulario: sirven a la cotización de envíos y al destaque
->   de la tienda, que son de la Etapa 2. Está anotado en el docblock de
+>   no se exponen en el formulario: sirven a la cotización de envíos (Etapa 4) y al
+>   destaque de la tienda, que entra en la Etapa 2 con una casilla en ese formulario,
+>   porque su consigna pide destacados administrados en el backend. Está anotado en el docblock de
 >   `ProductoRequest`, y `ProductoService` no las escribe porque enumera los campos
 >   uno por uno.
 > - Las **dimensiones** no se crearon como columnas, y es la única parte del
@@ -788,8 +790,10 @@ Extras del mismo tipo: `ItemDto` usa `precio = 9999999` como default si falta el
 Sin tests, los bugs C-9, A-24 y C-1 pasaron once commits sin detectarse.
 
 > Cada fase entrega sus tests y ninguno de los archivos originales sobrevivió: se
-> reescribieron de cero con Pest sobre MariaDB. El cierre de este hallazgo es la
-> Fase 8, que es donde se revisa la cobertura completa contra esta lista.
+> reescribieron de cero con Pest sobre MariaDB. Al cerrar la Etapa 1 eran unas 1.190
+> definiciones y más de 1.450 casos. La revisión de la cobertura completa contra esta
+> lista iba a ser de la Fase 8, que no se hizo: el cierre del hallazgo es por
+> acumulación, fase por fase y tramo por tramo.
 
 ### M-33 · Frontend sin control de acceso por rol
 `app.routes.ts` aplica sólo `authGuard` (¿hay token vigente?). No hay guard por perfil: cualquier usuario logueado puede navegar a `/user` o `/user/create`; el backend rechaza, pero la UI queda rota. Y el control de visibilidad es un string mágico:
@@ -833,8 +837,8 @@ La tabla `permisos` existe en la base pero **el frontend nunca la consulta**: no
 > **Cerrado** — Fase 1. El logging es el de Laravel: canal `stack` configurado en
 > `.env`, y toda excepción no atendida queda en `storage/logs/laravel.log` con su
 > traza. Ya no hay constantes de log definidas que nadie usa, ni un `error_log()`
-> comentado, ni un `log.txt` escrito a mano. Queda para la Fase 8 bajar `LOG_LEVEL`
-> de `debug` a `warning` en producción.
+> comentado, ni un `log.txt` escrito a mano. Queda bajar `LOG_LEVEL` de `debug` a
+> `warning` en producción; iba a la Fase 8, que no se hizo.
 ---
 
 ## 5. Qué conviene conservar
@@ -867,7 +871,7 @@ No todo se tira. Estas decisiones están bien y hay que llevarlas:
 | A-12 | Descuento del 100% sin autorización                           | A    | Tope por rol + vales controlados                       |
 | A-13 | Stock sin kardex ni reservas                                  | A    | Bloqueante para carrito y compra automática            |
 | A-17 | `productos.precio` en `float`                                 | A    | Todo `decimal` en el esquema nuevo                     |
-| A-18 | `ventas.numero` sin UNIQUE, contador único                    | A    | Numeración por punto de venta y tipo (AFIP)            |
+| A-18 | `ventas.numero` sin UNIQUE, contador único                    | A    | Numeración por punto de venta y tipo (ARCA)            |
 | A-24 | Filtros rotos en tres módulos                                 | A    | Tests desde el inicio                                  |
 | A-25 | Sin paginación                                                | A    | Paginación por defecto en toda colección               |
 | A-26 | Dashboard calculado en el cliente                             | A    | Endpoints de agregación por rol                        |

@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Database\Seeders\RolPermisoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use App\Models\Proveedor;
 
 uses(RefreshDatabase::class);
 
@@ -16,15 +17,11 @@ beforeEach(function () {
     $this->seed(RolPermisoSeeder::class);
     $this->service = app(PanelService::class);
 
-    // Período de referencia: marzo de 2026. Fechas fijas y no relativas, para que
-    // ningún test dependa del día en que se corre la suite.
+
     $this->desde = Carbon::parse('2026-03-01')->startOfDay();
     $this->hasta = Carbon::parse('2026-03-31')->endOfDay();
 });
 
-// El PanelService de referencia del plan-accion filtraba ['pagada', 'entregada'] y se
-// escribió antes de que existiera la devolución: dejaba afuera una venta parcialmente
-// devuelta, que sí vendió.
 
 test('los dos juegos de estados parten ESTADOS sin superponerse ni dejar huecos', function () {
     $vendidos = Venta::ESTADOS_VENDIDOS;
@@ -43,10 +40,10 @@ test('un presupuesto no entra en ninguna metrica', function () {
 
     $panel = $this->service->paraAdministrativo($this->desde, $this->hasta);
 
+    // Que tampoco entre en los más vendidos lo fija ahora InformeVentasFiltrosTest.
     expect($panel['cantidad'])->toBe(0)
         ->and($panel['facturado'])->toBe(0.0)
-        ->and($panel['margenBruto'])->toBe(0.0)
-        ->and($panel['masVendidos'])->toHaveCount(0);
+        ->and($panel['margenBruto'])->toBe(0.0);
 });
 
 test('cuenta solo las ventas del vendedor que pregunta', function () {
@@ -261,54 +258,6 @@ test('el margen es bruto y los descuentos se informan aparte', function () {
         ->and($panel['facturado'])->toBe(2700.0);
 });
 
-test('el ranking de vendedores agrupa por vendedor y ordena por facturado', function () {
-    $this->travelTo(Carbon::parse('2026-03-10 10:00'));
-
-    $producto = productoConPrecios(contado: 1000);
-    $flojo    = usuarioCon('venta.crear');
-    $fuerte   = usuarioCon('venta.crear');
-
-    ventaCobrada($producto, 1, vendedor: $flojo);
-    ventaCobrada($producto, 3, vendedor: $fuerte);
-    ventaCobrada($producto, 2, vendedor: $fuerte);
-
-    $this->travelBack();
-
-    $ranking = $this->service->paraAdministrativo($this->desde, $this->hasta)['rankingVendedores'];
-
-    expect($ranking)->toHaveCount(2)
-        ->and($ranking->first()->usuario_id)->toBe($fuerte->id)
-        ->and((int) $ranking->first()->cantidad)->toBe(2)
-        ->and(round((float) $ranking->first()->facturado, 2))->toBe(5000.0)
-        ->and($ranking->last()->usuario_id)->toBe($flojo->id);
-});
-
-test('los mas vendidos descuentan lo devuelto y excluyen lo que volvio entero', function () {
-    $this->travelTo(Carbon::parse('2026-03-10 10:00'));
-
-    $queda  = productoConPrecios(contado: 1000);
-    $vuelve = productoConPrecios(contado: 500);
-
-    ventaCobrada($queda, 5);
-
-    $devuelta = ventaCobrada($vuelve, 4);
-    app(VentaService::class)->devolver($devuelta, [
-        'cantidades' => [$devuelta->lineas->first()->id => 4],
-        'metodo'     => 'efectivo',
-    ], admin());
-
-    $this->travelBack();
-
-    $mas = $this->service->paraAdministrativo($this->desde, $this->hasta)['masVendidos'];
-
-    // El devuelto por completo da cero unidades netas y no es uno de los más vendidos:
-    // el HAVING lo saca en vez de dejarlo en la lista con un cero.
-    expect($mas)->toHaveCount(1)
-        ->and($mas->first()->producto_id)->toBe($queda->id)
-        ->and((int) $mas->first()->unidades)->toBe(5)
-        ->and(round((float) $mas->first()->importe, 2))->toBe(5000.0);
-});
-
 test('lo cobrado por metodo agrupa y deja negativo el medio por el que volvio la plata', function () {
     $this->travelTo(Carbon::parse('2026-03-10 10:00'));
 
@@ -368,6 +317,26 @@ test('el stock critico y las compras abiertas son instantaneas', function () {
         ->and($panel['comprasAbiertas'])->toBe(1);
 });
 
+test('el conteo no cuenta lo que no se repone solo ni lo que ya viene en camino', function () {
+    $proveedor = Proveedor::factory()->create();
+
+    Producto::factory()->conStock(1)->conProveedor($proveedor, costo: 1000)
+        ->create(['stock_minimo' => 5]);
+
+    // Mínimo cero: stockCritico() lo daría por crítico porque 0 <= 0, y el comando
+    // de las 07:00 nunca lo pidió. El panel lo contaba.
+    Producto::factory()->conStock(0)->create(['stock_minimo' => 0]);
+
+    $enCamino = Producto::factory()->conStock(0)->conProveedor($proveedor, costo: 1000)
+        ->create(['stock_minimo' => 5]);
+    OrdenCompra::factory()->conLinea($enCamino, 10)->create(['proveedor_id' => $proveedor->id]);
+
+    // El panel, el comando y la pantalla de sugeridos dicen el mismo número: es
+    // para lo que paraReponer() existe.
+    expect($this->service->paraAdministrativo($this->desde, $this->hasta)['stockCritico'])->toBe(1)
+        ->and(Producto::paraReponer()->count())->toBe(1);
+});
+
 test('ninguna consulta del panel trae filas completas', function () {
     $this->travelTo(Carbon::parse('2026-03-10 10:00'));
     ventaCobrada(productoConPrecios(contado: 1000), 3);
@@ -384,11 +353,10 @@ test('ninguna consulta del panel trae filas completas', function () {
 
     expect($consultas)->not->toBeEmpty();
 
-    // El criterio de terminado de la fase escrito como test: cada número del panel es
-    // una agregación. El original descargaba categorías, productos, ventas y usuarios
-    // completos al navegador y contaba con .filter() (A-26).
     foreach ($consultas as $consulta) {
-        expect($consulta)->not->toContain('select *')
+        $externa = preg_replace('/exists \(.*\)/is', 'exists (…)', $consulta);
+
+        expect($externa)->not->toContain('select *')
             ->and($consulta)->toMatch('/count\(|sum\(|avg\(|group by/i');
     }
 });

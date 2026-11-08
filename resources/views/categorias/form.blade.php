@@ -120,13 +120,12 @@
             </div>
         </div>
 
-        {{-- En móvil, botones a lo ancho y el principal arriba. --}}
-        <div class="d-grid d-sm-flex gap-2 mt-4">
-            <button type="submit" class="btn btn-acento">
+        <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
+            <a href="{{ $volverA }}" class="btn btn-outline-secondary">Cancelar</a>
+            <button type="submit" class="btn btn-acento px-4">
                 <i class="bi bi-check-lg" aria-hidden="true"></i>
                 {{ $esEdicion ? 'Guardar cambios' : 'Crear categoría' }}
             </button>
-            <a href="{{ $volverA }}" class="btn btn-outline-secondary">Cancelar</a>
         </div>
     </form>
 @endsection

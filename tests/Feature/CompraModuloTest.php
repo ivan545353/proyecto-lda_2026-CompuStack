@@ -773,3 +773,129 @@ test('la ficha ofrece el PDF solo cuando la orden se puede imprimir', function (
         ->get(route('compras.show', $aprobada))
         ->assertSee(route('compras.pdf', $aprobada));
 });
+
+/*
+|--------------------------------------------------------------------------
+| El gesto de cargar un renglón — el pendiente #30
+|--------------------------------------------------------------------------
+|
+| El #30 decía que el formulario deja elegir el mismo producto en dos líneas y el
+| servidor lo rechaza señalando la línea, y que lo correcto sería no ofrecer en una
+| línea el producto ya elegido en otra —pero que manipular las opciones de Tom
+| Select al vuelo no era directo—. Con un solo buscador arriba de la tabla el punto
+| deja de existir por otra vía: no hay una opción que esconder en cada fila, hay una
+| lista de exclusión en un buscador.
+|
+| El `distinct` de `OrdenCompraRequest` se queda igual: una petición armada a mano
+| sigue siendo posible, y la pantalla que no ofrece no es la barrera.
+|
+| Y queda cerrado por construcción lo que el tramo E cerró con un `if`: el renglón
+| ya no publica ningún costo en el HTML, porque el costo sugerido ahora llega con el
+| resultado de la búsqueda y sólo si el endpoint lo mandó.
+|
+*/
+
+test('el renglon de la orden rinde el producto como texto y lo excluye del buscador', function () {
+    $proveedor = Proveedor::factory()->create();
+    $producto  = productoDe($proveedor, codigo: 'AUS-001', cambios: [
+        'codigo' => 'TEC-00123',
+        'nombre' => 'Teclado mecánico',
+    ]);
+
+    $orden = OrdenCompra::factory()->conLinea($producto, 2, 1000)->create(['proveedor_id' => $proveedor->id]);
+
+    $this->actingAs(usuarioCon('compra.editar'))
+        ->get(route('compras.edit', $orden))
+        ->assertOk()
+        // El id en un campo oculto y el nombre como texto: no queda selector que
+        // mantener, así que no hay dónde elegir dos veces lo mismo.
+        ->assertSee('name="lineas[0][producto_id]"', false)
+        ->assertSee('TEC-00123 — Teclado mecánico')
+        ->assertSee('data-buscable-excluir="'.$producto->id.'"', false)
+        // Y el buscador existe una sola vez, arriba de la tabla.
+        ->assertSee('data-buscador-producto', false);
+});
+
+test('el buscador de la orden recorta por el proveedor y publica la plantilla del elegido', function () {
+    $proveedor = Proveedor::factory()->create();
+    $producto  = productoDe($proveedor);
+    $orden     = OrdenCompra::factory()->conLinea($producto, 2)->create(['proveedor_id' => $proveedor->id]);
+
+    // La URL inicial la rinde el servidor con el proveedor guardado, y la plantilla
+    // es lo que el JavaScript usa para seguir al selector cuando se lo cambia:
+    // `OrdenCompraRequest::provistos()` rechaza lo que el proveedor no provee, y su
+    // docblock promete que la pantalla filtra para no llegar ahí por accidente.
+    $this->actingAs(usuarioCon('compra.editar'))
+        ->get(route('compras.edit', $orden))
+        ->assertOk()
+        ->assertSee('proveedor_id='.$proveedor->id, false)
+        ->assertSee('proveedor_id=__PROVEEDOR__', false);
+});
+
+test('el renglon de la orden no publica ningun costo en el HTML', function () {
+    $proveedor = Proveedor::factory()->create();
+
+    $producto = Producto::factory()
+        ->conProveedor($proveedor, costo: 1000)
+        ->conStockYCosto(5, 7777.77)
+        ->create();
+
+    $orden = OrdenCompra::factory()->conLinea($producto, 2, 1000)->create(['proveedor_id' => $proveedor->id]);
+
+    // Es la filtración que el tramo E encontró y cerró con una comprobación de
+    // `precio.ver_costo`. Ahora no hay nada que comprobar: el costo sugerido viaja
+    // con el resultado de la búsqueda, y el endpoint ya decide si corresponde. Se
+    // prueba con un usuario que SÍ tiene el permiso, porque lo que se afirma no es
+    // que esté protegido: es que no está.
+    $this->actingAs(usuarioCon('compra.editar', 'precio.ver_costo'))
+        ->get(route('compras.edit', $orden))
+        ->assertOk()
+        ->assertDontSee('7777.77')
+        ->assertDontSee('7.777,77')
+        ->assertDontSee('data-costo-sugerido', false);
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| Los destinos del panel
+|--------------------------------------------------------------------------
+|
+| El tramo L enlaza la tarjeta de órdenes abiertas a este listado. Un enlace de
+| atención apunta a un listado ya filtrado, así que el filtro tiene que existir acá.
+|
+*/
+
+test('el estado abiertas llega al listado y lista las que esperan algo', function () {
+    $producto = Producto::factory()->create();
+
+    OrdenCompra::factory()->conLinea($producto, 1)->create();                 // borrador
+    OrdenCompra::factory()->aprobada()->conLinea($producto, 1)->create();
+    OrdenCompra::factory()->recibida()->conLinea($producto, 1)->create();
+    OrdenCompra::factory()->cancelada()->conLinea($producto, 1)->create();
+
+    $this->actingAs(usuarioCon('compra.ver'))
+        ->get(route('compras.index', ['estado' => OrdenCompra::ABIERTAS]))
+        ->assertOk()
+        ->assertSeeText('Estado: Abiertas')
+        ->assertViewHas('ordenes', fn ($o) => $o->total() === 2);
+});
+
+test('el parametro origen llega al listado y separa lo que genero la reposicion', function () {
+    $producto   = Producto::factory()->create();
+    $delSistema = OrdenCompra::factory()->conLinea($producto, 1)->create(['usuario_creo_id' => null]);
+    OrdenCompra::factory()->conLinea($producto, 1)->create();
+
+    $this->actingAs(usuarioCon('compra.ver'))
+        ->get(route('compras.index', ['estado' => 'borrador', 'origen' => 'reposicion']))
+        ->assertOk()
+        ->assertSeeText('Origen: Generada por la reposición')
+        ->assertViewHas('ordenes', fn ($o) => $o->total() === 1 && $o->first()->is($delSistema));
+});
+
+test('un origen inexistente vuelve al listado limpio con aviso', function () {
+    $this->actingAs(usuarioCon('compra.ver'))
+        ->get(route('compras.index', ['origen' => 'telepatia']))
+        ->assertRedirect(route('compras.index'))
+        ->assertSessionHas('error');
+});

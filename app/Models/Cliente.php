@@ -35,11 +35,6 @@ class Cliente extends Model
 
     /**
      * Condiciones frente al IVA, con su texto para la pantalla.
-     *
-     * La clave es exactamente el valor del ENUM de la base. La usan el Form
-     * Request para validar, el scope para filtrar y la vista para armar el
-     * selector, así que los tres comparan la misma lista. Es el mismo criterio
-     * que Producto::ALICUOTAS_IVA.
      */
     public const CONDICIONES_IVA = [
         'consumidor_final'      => 'Consumidor final',
@@ -82,13 +77,6 @@ class Cliente extends Model
 
     /**
      * Su historial de compras.
-     *
-     * `ClienteService` ya preguntaba por esta tabla con `DB::table('ventas')`, que
-     * funciona sin modelo y seguía siendo correcto. La relación existe para lo que
-     * el `DB::table` no puede hacer: el `withCount('ventas')` del listado, que es
-     * lo que falta para no ofrecer un botón de eliminar que el servicio va a
-     * rechazar (pendiente #1), y la ficha con el historial del cliente
-     * (pendiente #8).
      */
     public function ventas(): HasMany
     {
@@ -107,24 +95,47 @@ class Cliente extends Model
         return $this->condicion_iva === 'responsable_inscripto' ? 'factura_a' : 'factura_b';
     }
 
+    /** «DNI 41556778», o null si no tiene documento cargado. */
+    public function documento(): ?string
+    {
+        return blank($this->nro_doc)
+            ? null
+            : trim((self::TIPOS_DOC[$this->tipo_doc] ?? '').' '.$this->nro_doc);
+    }
+
+    /**
+     * Cómo se nombra un cliente cuando hay que elegirlo.
+     */
+    public function razonConDocumento(): string
+    {
+        $documento = $this->documento();
+
+        return $documento === null
+            ? $this->razon_social
+            : "{$this->razon_social} — {$documento}";
+    }
+
+    /**
+     * La fila con la que un cliente llega al buscador, venga de una búsqueda o de un alta.
+     *
+     * @return array{id: int, texto: string, razon_social: string, documento: ?string}
+     */
+    public function resultadoDeBusqueda(): array
+    {
+        return [
+            'id'           => $this->id,
+            'texto'        => $this->razonConDocumento(),
+            'razon_social' => $this->razon_social,
+            'documento'    => $this->documento(),
+        ];
+    }
+
     // ------------------------------------------------------------------
     // Filtros
     // ------------------------------------------------------------------
 
     /**
      * Busca por razón social, documento, correo o teléfono.
-     *
-     * Un CUIT se lee de una factura escrito `30-71555888-1` y se guarda
-     * `30715558881`. Quien lo pega tal cual no puede recibir cero resultados, así
-     * que el texto se busca también sin separadores contra `nro_doc`.
-     *
-     * Sólo si quedan al menos 6 dígitos, que es el mínimo de un DNI: sin ese
-     * piso, buscar "Austral 2" traería a todos los clientes que tengan un 2 en
-     * el documento.
-     *
-     * El OR va agrupado en un closure. Sin el grupo, encadenar otro filtro
-     * después produce `(a AND b) OR c` en lugar de `a AND (b OR c)`, y el
-     * listado devolvería filas que no cumplen el otro filtro.
      */
     public function scopeBuscar(Builder $query, ?string $texto): Builder
     {

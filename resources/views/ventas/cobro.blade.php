@@ -67,81 +67,105 @@
                     </dd>
                 </dl>
 
-                <p class="text-body-secondary small mb-0 mt-3">
-                    El cobro tiene que ser por este monto exacto. Se puede repartir entre varios
-                    medios, pero la suma tiene que dar justo:
-                    <strong>el sistema no registra el vuelto</strong>, así que se carga lo que vale la
-                    venta y no lo que el cliente puso sobre el mostrador.
-                </p>
+                <div class="alert alert-light border small text-body-secondary mb-0 mt-3 d-flex align-items-center gap-2">
+                    <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
+                    <div>
+                        Monto exacto: cargá lo que vale la venta, no lo que te dieron.
+                        El vuelto se calcula en pantalla y no se registra.
+                    </div>
+                </div>
             </div>
         </div>
 
         <div class="col-12 col-lg-7">
-            <form method="POST" action="{{ route('pagos.store', $venta) }}"
-                class="card card-body border-0 shadow-sm h-100">
+            {{-- La propuesta es del servidor y va en el value: sin JavaScript también llega.
+                 Si la pantalla vuelve de un rechazo, muestra lo que se mandó y no propone
+                 de nuevo: re-proponer el saldo sumaría dos veces lo que el cajero repartió. --}}
+            @php
+                $hayDevueltos = session()->hasOldInput('pagos');
+                $propuesta = $saldo > 0 ? Importe::paraFormulario($saldo) : '';
+                $valorDe = fn(int $indice, string $clave) => $hayDevueltos
+                    ? old("pagos.{$indice}.monto")
+                    : ($clave === 'efectivo'
+                        ? $propuesta
+                        : '');
+                $principal = array_filter($medios, fn(string $clave) => $clave === 'efectivo');
+                $adicionales = array_diff_key($medios, $principal);
+                $abrirAdicionales = collect($adicionales)
+                    ->keys()
+                    ->contains(
+                        fn(int $indice) => filled(old("pagos.{$indice}.monto")) ||
+                            $errors->has("pagos.{$indice}.monto"),
+                    );
+            @endphp
+
+            <form method="POST" action="{{ route('pagos.store', $venta) }}" class="card card-body border-0 shadow-sm h-100"
+                data-cobro data-cobro-saldo="{{ number_format($saldo, 2, '.', '') }}">
                 @csrf
 
                 <h2 class="h6 text-body-secondary">Con qué se pagó</h2>
 
                 <div class="row g-3">
-                    {{-- Una fila por medio ofrecido, con el medio fijo y el monto
-                         vacío. Las filas sin monto se descartan en el Form Request,
-                         así que «un solo medio por cobro» se cumple por construcción
-                         y no hay armador de filas que mantener: la pantalla funciona
-                         sin una línea de JavaScript.
-
-                         `mercadopago` no aparece aunque esté en el ENUM: sin
-                         integración, un cobro por ese medio afirmaría una
-                         acreditación que el sistema no conoce. --}}
-                    @foreach ($medios as $indice => $clave)
-                        @php
-                            $campo = "pagos.{$indice}.monto";
-                            $tieneError = $errors->has($campo);
-                        @endphp
-
-                        <div class="col-12 col-sm-6">
-                            <input type="hidden" name="pagos[{{ $indice }}][metodo]" value="{{ $clave }}">
-
-                            <label for="monto-{{ $clave }}" class="form-label">
-                                {{ Pago::METODOS[$clave] }}
-                            </label>
-
-                            <div class="input-group">
-                                <span class="input-group-text" aria-hidden="true">$</span>
-
-                                {{-- Campo de dinero: `text` con `inputmode="decimal"`,
-                                     nunca `number`. Un `number` redondea, rechaza la
-                                     coma del formato argentino y en algunos
-                                     navegadores cambia el valor con la rueda del
-                                     mouse. --}}
-                                <input type="text" inputmode="decimal"
-                                    class="form-control @error($campo) is-invalid @enderror" id="monto-{{ $clave }}"
-                                    name="pagos[{{ $indice }}][monto]" value="{{ old($campo) }}"
-                                    placeholder="0,00"
-                                    aria-describedby="ayuda-{{ $clave }}@if ($tieneError) error-{{ $clave }} @endif">
-                            </div>
-
-                            <div id="ayuda-{{ $clave }}" class="form-text">
-                                Vacío si por este medio no entró nada.
-                            </div>
-
-                            @error($campo)
-                                <div id="error-{{ $clave }}" class="invalid-feedback d-block">{{ $message }}</div>
-                            @enderror
-                        </div>
+                    @foreach ($principal as $indice => $clave)
+                        @include('ventas._medio-cobro', [
+                            'valor' => $valorDe($indice, $clave),
+                            'propuesto' => !$hayDevueltos && $propuesta !== '',
+                            'autofocus' => $problemas === [] && !$errors->any(),
+                            'ayuda' => 'Ya trae el saldo entero. Borralo si no entró efectivo.',
+                        ])
                     @endforeach
+
+                    {{-- El vuelto se muestra y no se guarda: los botones no tienen name y
+                         nada de este bloque viaja. Sólo funciona con JavaScript. --}}
+                    <div class="col-12 col-sm-6" data-cobro-billetes hidden>
+                        <p class="form-label mb-2" id="billetesTitulo">Con qué billetes pagó</p>
+
+                        <div class="d-flex flex-wrap gap-2" role="group" aria-labelledby="billetesTitulo">
+                            @foreach (config('venta.cobro.billetes') as $billete)
+                                <button type="button" class="btn btn-sm btn-outline-dark"
+                                    data-billete="{{ $billete }}"
+                                    aria-label="Sumar un billete de {{ Importe::pesos($billete) }}">
+                                    $ {{ number_format($billete, 0, ',', '.') }}
+                                </button>
+                            @endforeach
+
+                            <button type="button" class="btn btn-sm btn-link link-secondary" data-billetes-borrar
+                                aria-label="Borrar los billetes sumados">
+                                Borrar
+                            </button>
+                        </div>
+
+                        <p class="small mb-0 mt-2" data-cobro-vuelto aria-live="polite"></p>
+                    </div>
                 </div>
 
-                <div class="d-grid d-sm-flex gap-2 mt-4">
-                    <button type="submit" class="btn btn-acento">
-                        <i class="bi bi-cash-coin" aria-hidden="true"></i> Registrar el cobro
-                    </button>
+                {{-- `details` y no un collapse de Bootstrap: sin JavaScript, un collapse
+                     queda cerrado para siempre. Nace abierto si trae un importe o un error. --}}
+                <details class="mt-3" @if ($abrirAdicionales) open @endif>
+                    <summary class="fw-semibold">Dividir el pago o cobrar por otro medio</summary>
 
+                    <div class="row g-3 mt-1">
+                        @foreach ($adicionales as $indice => $clave)
+                            @include('ventas._medio-cobro', [
+                                'valor' => $valorDe($indice, $clave),
+                                'propuesto' => false,
+                                'autofocus' => false,
+                                'ayuda' => 'Vacío si por este medio no entró nada.',
+                            ])
+                        @endforeach
+                    </div>
+                </details>
+
+                <p class="small mt-3 mb-0" data-cobro-suma aria-live="polite" hidden></p>
+
+                <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
                     <a href="{{ route('ventas.show', $venta) }}" class="btn btn-outline-secondary">
                         Cancelar
                     </a>
+                    <button type="submit" class="btn btn-acento px-4">
+                        <i class="bi bi-cash-coin" aria-hidden="true"></i> Registrar el cobro
+                    </button>
                 </div>
-
             </form>
         </div>
     </div>

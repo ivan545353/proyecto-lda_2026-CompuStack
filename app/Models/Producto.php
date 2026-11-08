@@ -13,27 +13,28 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * Producto del catálogo.
  *
- * Respecto del original (nombre, código, descripción, categoría, precio, stock)
- * suma dos precios, alícuota de IVA, costo promedio, stock mínimo, cantidad de
- * reposición, imágenes y marca. Todo importe es decimal: el original tenía
- * productos.precio en float(12,2) y acumulaba error de redondeo (A-17).
- *
- * stock, stock_reservado y costo_promedio no son asignables en masa: sólo los
- * mueve el StockService (Fase 5), dejando un movimiento en el kardex.
- *
  * Scopes (uno por filtro del listado; la correspondencia con el parámetro de
  * la URL está declarada acá y en ProductoFiltroRequest):
  *   ?q=             → buscar($texto)          código o nombre contiene
- *   ?categoria_id=  → deCategoria($id)        categoría exacta, sin subcategorías
+ *   ?categoria_id=  → deCategoria($id)        la categoría y todas sus subcategorías
  *   ?marca_id=      → deMarca($id)            marca exacta
+ *   ?proveedor_id=  → deProveedor($id)        los que se le compran a ese proveedor
  *   ?estado=        → conEstado($estado)      activos | inactivos
  *   ?stock=         → conStock($stock)        disponible | agotado | critico
- *   ?categoria_id=  → deCategoria($id)        la categoría y todas sus subcategorías
+ *
+ * Los recortes del ajuste masivo. No son filtros del listado del
+ * catálogo: su contrato lo declara AjusteMasivoRequest, y por eso no están en
+ * ProductoFiltroRequest. Se encadenan con los de arriba, y de ahí salen los
+ * recortes cruzados sin una línea más:
+ *   ?ids[]=            → conIds($ids)                  la selección con casillas
+ *   ?costo_desde=      → conCostoDesde($costo)         inclusive
+ *   ?costo_hasta=      → conCostoHasta($costo)         inclusive
+ *   ?precio_desde=     → conPrecioDesde($precio)       sobre precio_contado
+ *   ?precio_hasta=     → conPrecioHasta($precio)       sobre precio_contado
+ *   ?incluir_manuales= → conPrecioManual($manual)      null no filtra
+ *   ?excluir[]=        → sinIds($ids)                  lo que ya está cargado
+ *
  * 
- * Fuera del listado:
- *   stockCritico()      lo reusan la reposición automática y el panel (Fase 7)
- *   reponibles()        los que se reponen solos: activos y con mínimo declarado
- *   sinPedidoEnCurso()  los que no están ya dentro de una orden de compra abierta
  *
  * Relaciones:
  *   proveedores()       BelongsToMany  a quiénes se le compra, con el precio de cada uno
@@ -41,40 +42,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *   ventaLineas()       HasMany        en qué ventas aparece
  *   movimientos()       HasMany        el kardex del producto
  *
- * Todo lo relativo a stock se calcula sobre el DISPONIBLE (stock menos lo
- * reservado), que es la misma definición que usa la reposición automática. Si
- * el filtro y el job usaran definiciones distintas, dirían cosas distintas
- * sobre el mismo producto.
- *
- * A quién se le compra NO es un campo del producto: se le puede comprar a varios,
- * a precios distintos, y eso vive en la pivote `producto_proveedor`. La columna
- * `productos.proveedor_id` existió hasta la Fase 5 y se eliminó: la relación es
- * proveedores(), y la administra ProductoProveedorService.
- * 
- * @
- *   proveedores()  BelongsToMany  a quiénes se le compra, con el precio de cada uno
  */
 class Producto extends Model
 {
     use HasFactory;
 
-    private const DISPONIBLE = '(productos.stock - productos.stock_reservado)';
+    public const DISPONIBLE = '(productos.stock - productos.stock_reservado)';
 
-    /**
-     * Alícuotas de IVA admitidas, con su texto para la pantalla.
-     *
-     * La clave está escrita como la devuelve la base con el cast decimal:2
-     * ('21.00', no 21 ni '21'). La usan el Request para validar y la vista
-     * para armar el selector, así que las dos comparan exactamente lo mismo.
-     * Con Rule::in([0, 10.5, 21]), '21.00' no coincidiría con '21' y ningún
-     * producto existente se podría volver a guardar.
-     *
-     */
-    public const ALICUOTAS_IVA = [
-        '21.00' => '21 %',
-        '10.50' => '10,5 %',
-        '0.00'  => '0 % (exento)',
-    ];
 
     public const MAX_IMAGENES = 5;
 
@@ -85,12 +59,14 @@ class Producto extends Model
         'descripcion', 'imagenes', 'precio_lista', 'precio_contado',
         'alicuota_iva', 'stock_minimo', 'cantidad_reposicion',
         'peso_gramos', 'destacado', 'activo',
+        'ganancia', 'precio_manual',
     ];
 
     protected $attributes = [
         'stock'           => 0,
         'stock_reservado' => 0,
         'costo_promedio'  => 0,
+        'precio_manual'   => false,
     ];
 
     protected function casts(): array
@@ -101,6 +77,8 @@ class Producto extends Model
             'precio_contado'      => 'decimal:2',
             'alicuota_iva'        => 'decimal:2',
             'costo_promedio'      => 'decimal:2',
+            'ganancia'      => 'decimal:3',
+            'precio_manual' => 'boolean',
             'stock'               => 'integer',
             'stock_reservado'     => 'integer',
             'stock_minimo'        => 'integer',
@@ -137,16 +115,6 @@ class Producto extends Model
     /**
      * A quién se le pide la reposición de este producto.
      *
-     * La regla, en orden: el preferido si está marcado; si no hay, el de menor
-     * `costo_ultimo`; y si ninguno tiene costo cargado, el primero por razón
-     * social, para que la decisión sea determinista y no dependa del orden en que
-     * se cargaron los vínculos.
-     *
-     * Que el preferido gane sobre el precio es a propósito: a veces el barato
-     * entrega en tres semanas, y eso no es más barato.
-     *
-     * Sólo se consideran los proveedores activos: a uno dado de baja no se le
-     * manda un pedido automático.
      */
     public function proveedorParaReponer(): ?Proveedor
     {
@@ -156,8 +124,6 @@ class Producto extends Model
 
         return $candidatos->firstWhere('pivot.es_preferido', true)
             ?? $candidatos->sortBy(fn (Proveedor $proveedor) => [
-                // Los que no tienen costo cargado van al final, no adelante como
-                // haría un null tratado como cero.
                 $proveedor->pivot->costo_ultimo === null ? 1 : 0,
                 (float) ($proveedor->pivot->costo_ultimo ?? 0),
                 $proveedor->razon_social,
@@ -174,6 +140,33 @@ class Producto extends Model
             ->whereNotNull('pivot.costo_ultimo')
             ->sortBy(fn (Proveedor $proveedor) => (float) $proveedor->pivot->costo_ultimo)
             ->first();
+    }
+
+    /**
+     * Los proveedores a los que se le puede pedir, en el orden de conveniencia.
+     *
+     * @return array<int, array{id: int, nombre: string, costo: string|null, preferido: bool}>
+     */
+    public function proveedoresParaElegir(): array
+    {
+        $this->loadMissing('proveedores');
+
+        return $this->proveedores
+            ->where('activo', true)
+            ->map(fn (Proveedor $proveedor) => [
+                'id'        => $proveedor->id,
+                'nombre'    => $proveedor->razon_social,
+                'costo'     => $proveedor->pivot->costo_ultimo,
+                'preferido' => (bool) $proveedor->pivot->es_preferido,
+            ])
+            ->sortBy(fn (array $proveedor) => [
+                $proveedor['preferido'] ? 0 : 1,
+                $proveedor['costo'] === null ? 1 : 0,
+                (float) ($proveedor['costo'] ?? 0),
+                $proveedor['nombre'],
+            ])
+            ->values()
+            ->all();
     }
 
     /**
@@ -198,12 +191,14 @@ class Producto extends Model
         return $this->hasMany(MovimientoStock::class, 'producto_id');
     }
 
+    /** Cada cambio de precio del producto, con su motivo y su autor. */
+    public function historialPrecios(): HasMany
+    {
+        return $this->hasMany(HistorialPrecio::class, 'producto_id');
+    }
+
     /**
      * Todas las líneas de orden de compra en las que aparece este producto.
-     *
-     * No es un historial para mostrar —para eso está el kardex, que tiene fecha y
-     * usuario—: existe para poder preguntarle a la base si el producto ya está
-     * pedido sin traer ninguna línea a PHP. La usa scopeSinPedidoEnCurso().
      */
     public function ordenCompraLineas(): HasMany
     {
@@ -212,13 +207,6 @@ class Producto extends Model
 
     /**
      * Todas las líneas de venta en las que aparece este producto.
-     *
-     * Igual que `ordenCompraLineas()`, no es un historial para mostrar —para eso
-     * está el kardex, que tiene fecha y usuario—: existe para poder preguntarle a la
-     * base si el producto se vendió alguna vez sin traer ninguna línea a PHP.
-     * `ProductoService` ya lo pregunta con `DB::table('venta_lineas')` para decidir
-     * si la baja es física o lógica, y eso sigue estando bien; la relación es para
-     * los `withCount` del listado y para el más vendido del panel de la Fase 7.
      */
     public function ventaLineas(): HasMany
     {
@@ -230,6 +218,29 @@ class Producto extends Model
         return $this->stock - $this->stock_reservado;
     }
 
+    /**
+     * El margen sobre la venta del precio de contado, en porcentaje.
+     */
+    public function margen(): ?float
+    {
+        $costo = (float) $this->costo_promedio;
+
+        if ($costo <= 0) {
+            return null;
+        }
+
+        $neto = (float) $this->precio_contado / (1 + ((float) $this->alicuota_iva / 100));
+
+        return $neto > 0 ? round((($neto - $costo) / $neto) * 100, 2) : null;
+    }
+
+    /**
+     * Cómo se nombra un producto cuando hay que elegirlo: «TEC-00123 — Teclado».
+     */
+    public function rotulo(): string
+    {
+        return "{$this->codigo} — {$this->nombre}";
+    }
 
     // ------------------------------------------------------------------
     // Filtros
@@ -248,18 +259,6 @@ class Producto extends Model
 
     /**
      * La categoría y todas sus subcategorías.
-     *
-     * Los productos viven en las hojas del árbol (Discos SSD, no
-     * Almacenamiento). Filtrar sólo la categoría exacta devolvía vacío
-     * justamente en las categorías que más se usan para buscar.
-     *
-     * No es el mismo criterio que el filtro ?parent_id= del listado de
-     * categorías, que muestra sólo las hijas directas: aquel es navegación
-     * (se baja de a un nivel), este es búsqueda ("¿qué tengo de
-     * almacenamiento?").
-     *
-     * Cuesta como mucho cuatro consultas, porque el árbol no pasa de tres
-     * niveles (Categoria::PROFUNDIDAD_MAXIMA).
      */
     public function scopeDeCategoria(Builder $query, int|string|null $id): Builder
     {
@@ -287,6 +286,17 @@ class Producto extends Model
         );
     }
 
+    public function scopeDeProveedor(Builder $query, int|string|null $id): Builder
+    {
+        return $query->when(
+            ctype_digit((string) $id),
+            fn (Builder $query) => $query->whereHas(
+                'proveedores',
+                fn (Builder $proveedor) => $proveedor->where('proveedores.id', (int) $id),
+            ),
+        );
+    }
+
     public function scopeConEstado(Builder $query, ?string $estado): Builder
     {
         return match ($estado) {
@@ -299,11 +309,91 @@ class Producto extends Model
     public function scopeConStock(Builder $query, ?string $stock): Builder
     {
         return match ($stock) {
-            'disponible' => $query->whereRaw(self::DISPONIBLE.' > 0'),
-            'agotado'    => $query->whereRaw(self::DISPONIBLE.' <= 0'),
-            'critico'    => $query->stockCritico(),
-            default      => $query,
+            'disponible'    => $query->whereRaw(self::DISPONIBLE.' > 0'),
+            'agotado'       => $query->whereRaw(self::DISPONIBLE.' <= 0'),
+            'critico'       => $query->stockCritico(),
+            'sin_proveedor' => $query->sinProveedorParaReponer(),
+            default         => $query,
         };
+    }
+
+    /**
+     * Los productos elegidos a mano, con las casillas del listado.
+     *
+     * @param  array<int, int|string>|null  $ids
+     */
+    public function scopeConIds(Builder $query, ?array $ids): Builder
+    {
+        $limpios = array_filter((array) $ids, fn ($id) => ctype_digit((string) $id));
+
+        return $query->when(
+            $limpios !== [],
+            fn (Builder $query) => $query->whereIn('id', array_map('intval', $limpios)),
+        );
+    }
+
+    /**
+     * Todo menos esos ids: lo que el buscador no vuelve a ofrecer porque ya está cargado.
+     *
+     * @param  array<int, int|string>|null  $ids
+     */
+    public function scopeSinIds(Builder $query, ?array $ids): Builder
+    {
+        $limpios = array_filter((array) $ids, fn ($id) => ctype_digit((string) $id));
+
+        return $query->when(
+            $limpios !== [],
+            fn (Builder $query) => $query->whereNotIn('id', array_map('intval', $limpios)),
+        );
+    }
+
+    /** Desde ese costo, inclusive. */
+    public function scopeConCostoDesde(Builder $query, float|string|null $costo): Builder
+    {
+        return $query->when(
+            is_numeric($costo),
+            fn (Builder $query) => $query->where('costo_promedio', '>=', $costo),
+        );
+    }
+
+    /** Hasta ese costo, inclusive: el recorte «todo lo de menos de $10.000». */
+    public function scopeConCostoHasta(Builder $query, float|string|null $costo): Builder
+    {
+        return $query->when(
+            is_numeric($costo),
+            fn (Builder $query) => $query->where('costo_promedio', '<=', $costo),
+        );
+    }
+
+    /**
+     * Desde ese precio, inclusive.
+     */
+    public function scopeConPrecioDesde(Builder $query, float|string|null $precio): Builder
+    {
+        return $query->when(
+            is_numeric($precio),
+            fn (Builder $query) => $query->where('precio_contado', '>=', $precio),
+        );
+    }
+
+    /** Hasta ese precio de contado, inclusive. */
+    public function scopeConPrecioHasta(Builder $query, float|string|null $precio): Builder
+    {
+        return $query->when(
+            is_numeric($precio),
+            fn (Builder $query) => $query->where('precio_contado', '<=', $precio),
+        );
+    }
+
+    /**
+     * Los que tienen el precio fijado a mano, o los que no.
+     */
+    public function scopeConPrecioManual(Builder $query, ?bool $manual): Builder
+    {
+        return $query->when(
+            $manual !== null,
+            fn (Builder $query) => $query->where('precio_manual', $manual),
+        );
     }
 
 
@@ -314,21 +404,6 @@ class Producto extends Model
 
     /**
      * Los productos que la reposición automática mira.
-     *
-     * `stock_minimo > 0` ES la declaración de «este producto se repone solo»:
-     * ProductoRequest exige `cantidad_reposicion` mayor que cero exactamente
-     * cuando el mínimo lo es, así que todo producto que entra acá tiene una
-     * cantidad a pedir y el comando nunca genera una línea de cero unidades.
-     *
-     * Por eso no alcanza con stockCritico(): con mínimo cero y stock cero,
-     * `disponible <= minimo` da verdadero, y el comando pediría algo que nadie
-     * quiere reponer. El scope del listado no se toca —ahí «crítico» significa «en
-     * o por debajo de su mínimo», y está bien—; lo que la reposición necesita es
-     * una condición más.
-     *
-     * Es el mismo criterio que noSePuedeReponer() usa para el aviso del listado,
-     * escrito en SQL en vez de en PHP: los dos lugares dicen lo mismo del mismo
-     * producto.
      */
     public function scopeReponibles(Builder $query): Builder
     {
@@ -338,15 +413,6 @@ class Producto extends Model
     /**
      * Los que no están ya dentro de una orden de compra abierta.
      *
-     * «Abierta» lo define OrdenCompra::ESTADOS_ABIERTOS —borrador, aprobada,
-     * enviada, recibida parcial—, el mismo lugar que usa el resto del sistema. Si
-     * mañana se agrega un estado vivo, esta consulta lo contempla sola.
-     *
-     * De CUALQUIER proveedor, a propósito: si la mercadería ya viene en camino, da
-     * igual quién la manda. Esto es lo que hace que el comando sea idempotente —se
-     * puede correr dos veces seguidas sin pedir dos veces lo mismo— y lo que lo
-     * deja reintentar solo: si una corrida generó dos de tres órdenes, la
-     * siguiente genera la que faltaba y nada más.
      */
     public function scopeSinPedidoEnCurso(Builder $query): Builder
     {
@@ -354,5 +420,35 @@ class Producto extends Model
             'ordenCompraLineas.ordenCompra',
             fn (Builder $orden) => $orden->abiertas(),
         );
+    }
+
+    /** Hay al menos un proveedor activo a quien pedirle. */
+    public function scopeConProveedorActivo(Builder $query): Builder
+    {
+        return $query->whereHas(
+            'proveedores',
+            fn (Builder $proveedor) => $proveedor->where('proveedores.activo', true),
+        );
+    }
+
+    /** No queda ningún proveedor activo: no se le puede pedir a nadie. */
+    public function scopeSinProveedorActivo(Builder $query): Builder
+    {
+        return $query->whereDoesntHave(
+            'proveedores',
+            fn (Builder $proveedor) => $proveedor->where('proveedores.activo', true),
+        );
+    }
+
+    /** Lo que hay que pedir, y la única definición de eso en el sistema. */
+    public function scopeParaReponer(Builder $query): Builder
+    {
+        return $query->reponibles()->stockCritico()->sinPedidoEnCurso();
+    }
+
+    /** Lo que hay que pedir y no se le puede pedir a nadie: el aviso del armador. */
+    public function scopeSinProveedorParaReponer(Builder $query): Builder
+    {
+        return $query->paraReponer()->sinProveedorActivo();
     }
 }

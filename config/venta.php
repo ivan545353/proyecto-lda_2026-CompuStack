@@ -46,4 +46,20 @@ return [
         'validez_dias' => 15,
     ],
 
+    
+    /*
+    |--------------------------------------------------------------------------
+    | Billetes del cobro (tramo I)
+    |--------------------------------------------------------------------------
+    |
+    | Los botones que suman lo que el cliente entregó, para mostrar el vuelto en
+    | la pantalla de cobro. El vuelto se muestra y no se registra. Viven acá y no
+    | en la vista por el mismo motivo que los topes: cuando cambie el billete que
+    | más circula, se cambia un dato y no una pantalla.
+    |
+    */
+
+    'cobro' => [
+        'billetes' => [2000, 10000, 20000],
+    ],
 ];

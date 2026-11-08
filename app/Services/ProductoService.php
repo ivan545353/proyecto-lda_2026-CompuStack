@@ -7,6 +7,9 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Categoria;
+use App\Models\Impuesto;
+use App\Models\User;
+use App\Services\PrecioService;
 use App\Models\Marca;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -18,25 +21,6 @@ use Throwable;
  * Reemplaza a ItemService del original. Las validaciones de campo pasaron a
  * ProductoRequest; acá quedan las reglas que dependen del estado del sistema.
  *
- * Reglas propias:
- *
- *   1. Si el precio de contado viene vacío, es igual al de lista. La ayuda del
- *      formulario lo dice: no es un valor puesto en silencio.
- *   2. stock, stock_reservado y costo_promedio no se tocan nunca desde acá.
- *      Los mueve el StockService (Fase 5), dejando movimiento en el kardex.
- *   3. Las imágenes finales las describe un orden (ver
- *      ProductoRequest::ordenDeImagenes()): cuáles quedan, en qué orden y
- *      cuál es la principal. Las nuevas se guardan antes de la transacción
- *      y se borran si la base rechaza la operación; las que se quitan se
- *      borran después del commit, y la lista de qué borrar se calcula a
- *      partir de lo que el producto tiene, nunca de lo que envía el usuario.
- *   4. Un producto referenciado —en ventas, órdenes de compra o el kardex— o
- *      con stock distinto de cero no se borra.
- *   5. Los proveedores del producto NO se administran acá. Viven en la pivote
- *      `producto_proveedor`, los administra ProductoProveedorService, y se cargan
- *      desde /productos/{producto}/proveedores. Este servicio no los lee ni los
- *      escribe: un producto se le puede comprar a varios, y el formulario del
- *      producto no tiene con qué expresar eso.
  * Métodos:
  *   crear()        alta, con imágenes opcionales
  *   actualizar()   edición, agregando y quitando imágenes
@@ -48,20 +32,38 @@ class ProductoService
 
     private const REFERENCIAS = ['venta_lineas', 'orden_compra_lineas', 'movimientos_stock'];
 
+    public function __construct(private PrecioService $precios){
+    }
 
-     /**
+    /**
      * @param  array<int, UploadedFile>  $imagenes
      * @param  array<int, array>|null    $orden  ver ProductoRequest::ordenDeImagenes()
      */
-    public function crear(array $datos, array $imagenes = [], ?array $orden = null): Producto
+       /**
+     * @param  array<int, UploadedFile>  $imagenes
+     * @param  array<int, array>|null    $orden  ver ProductoRequest::ordenDeImagenes()
+     */
+    public function crear(array $datos, array $imagenes = [], ?array $orden = null, ?User $usuario = null): Producto
     {
         $nuevas = $this->guardarNuevas($imagenes, $orden);
 
         try {
-            return DB::transaction(fn () => Producto::create([
-                ...$this->atributos($datos),
-                'imagenes' => $this->componerImagenes([], $nuevas, $orden) ?: null,
-            ]));
+            return DB::transaction(function () use ($datos, $nuevas, $orden, $usuario) {
+                // En el alta el precio siempre viene tipeado: el producto todavía
+                // no tiene costo, así que el motor no tiene con qué calcularlo.
+                $contado = $datos['precio_contado'];
+
+                $producto = Producto::create([
+                    ...$this->atributos($datos),
+                    'precio_contado' => $contado,
+                    'precio_lista'   => $this->precios->listaDesdeContado($contado),
+                    'imagenes'       => $this->componerImagenes([], $nuevas, $orden) ?: null,
+                ]);
+
+                $this->precios->asentarAlta($producto, $usuario);
+
+                return $producto;
+            });
         } catch (Throwable $e) {
             $this->borrarArchivos(array_values($nuevas));
 
@@ -73,18 +75,31 @@ class ProductoService
      * @param  array<int, UploadedFile>  $imagenes
      * @param  array<int, array>|null    $orden  ver ProductoRequest::ordenDeImagenes()
      */
-    public function actualizar(Producto $producto, array $datos, array $imagenes = [], ?array $orden = null): Producto
+    public function actualizar(Producto $producto, array $datos, array $imagenes = [], ?array $orden = null, ?User $usuario = null): Producto
     {
         $actuales = $producto->imagenes ?? [];
         $nuevas   = $this->guardarNuevas($imagenes, $orden);
         $final    = $this->componerImagenes($actuales, $nuevas, $orden);
 
         try {
-            $actualizado = DB::transaction(function () use ($producto, $datos, $final) {
+            $actualizado = DB::transaction(function () use ($producto, $datos, $final, $usuario) {
                 $producto->update([
                     ...$this->atributos($datos),
                     'imagenes' => $final ?: null,
                 ]);
+
+                // Un precio tipeado es un cambio de precio y deja su fila en el
+                // historial. Sin precio manual el número es del motor: no se toca
+                // acá, se recalcula desde la ficha o desde el ajuste masivo.
+                if ($producto->precio_manual && isset($datos['precio_contado'])) {
+                    $this->precios->fijarPrecios(
+                        $producto,
+                        $datos['precio_contado'],
+                        $this->precios->listaDesdeContado($datos['precio_contado']),
+                        $usuario,
+                        'manual',
+                    );
+                }
 
                 return $producto->fresh();
             });
@@ -129,12 +144,7 @@ class ProductoService
      * Opciones de los selectores del formulario: las activas, más la que el
      * producto ya tiene aunque se haya desactivado.
      *
-     * Mismo criterio que ProductoRequest::referenciaActiva() y que
-     * CategoriaService::padresPosibles(): si la actual no apareciera, el
-     * selector se abriría en otra opción y guardar sin tocar nada le
-     * cambiaría la marca o la categoría al producto.
-     *
-     * @return array{categorias: Collection, marcas: Collection}
+     * @return array{categorias: Collection, marcas: Collection, alicuotas: array<string, string>}
      */
     public function opciones(?Producto $producto = null): array
     {
@@ -142,11 +152,25 @@ class ProductoService
             'categorias' => $this->activasOActual(Categoria::query()->with('padre.padre'), $producto?->categoria_id)
                 ->sortBy('ruta', SORT_NATURAL | SORT_FLAG_CASE)
                 ->values(),
-            'marcas' => $this->activasOActual(Marca::query()->orderBy('nombre'), $producto?->marca_id),
+            'marcas'    => $this->activasOActual(Marca::query()->orderBy('nombre'), $producto?->marca_id),
+            'alicuotas' => $this->alicuotasPara($producto),
         ];
     }
 
-        /**
+    /** @return array<string, string> */
+    private function alicuotasPara(?Producto $producto): array
+    {
+        $opciones = Impuesto::opcionesDeAlicuota();
+        $actual   = $producto?->alicuota_iva;
+
+        if ($actual !== null && ! array_key_exists($actual, $opciones)) {
+            $opciones[$actual] = "IVA {$actual} % (dada de baja)";
+        }
+
+        return $opciones;
+    }
+
+    /**
      * Guarda en disco sólo los archivos nuevos que el orden usa: un archivo
      * subido que no figura en la lista final no se guarda, así no queda
      * huérfano.
@@ -237,12 +261,6 @@ class ProductoService
 
     /**
      * Las columnas que el formulario puede escribir, una por una.
-     *
-     * No se pasa $datos entero al modelo: validated() trae 'imagenes' con los
-     * ARCHIVOS subidos, y 'imagenes' también es una columna asignable. Un
-     * create($request->validated()) intentaría guardar objetos UploadedFile
-     * en el JSON. Enumerar los campos además deja fuera, por construcción,
-     * todo lo que no está en esta lista.
      */
     private function atributos(array $datos): array
     {
@@ -252,9 +270,9 @@ class ProductoService
             'descripcion'         => $datos['descripcion'] ?? null,
             'categoria_id'        => $datos['categoria_id'],
             'marca_id'            => $datos['marca_id'] ?? null,
-            'precio_lista'        => $datos['precio_lista'],
-            'precio_contado'      => $datos['precio_contado'] ?? $datos['precio_lista'],
             'alicuota_iva'        => $datos['alicuota_iva'],
+            'ganancia'            => $datos['ganancia'] ?? null,
+            'precio_manual'       => $datos['precio_manual'],
             'stock_minimo'        => $datos['stock_minimo'],
             'cantidad_reposicion' => $datos['cantidad_reposicion'],
             'activo'              => $datos['activo'],

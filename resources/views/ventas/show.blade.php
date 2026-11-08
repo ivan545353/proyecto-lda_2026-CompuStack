@@ -7,6 +7,10 @@
     $cliente = $venta->cliente;
     $porcentaje = $venta->descuentoPorcentaje();
     $hayDevoluciones = $venta->lineas->sum('cantidad_devuelta') > 0;
+    $hayEntregas = $venta->entregas->isNotEmpty();
+    $columnasAntesDelTotal = 5 + (int) $hayDevoluciones + (int) $hayEntregas;
+    $pendientesDeEntregar = $venta->lineas->sum(fn($linea) => $linea->cantidadPendienteDeEntregar());
+    $faltantes = $venta->esPresupuesto() ? $venta->faltantesDeStock()->keyBy('id') : collect();
 @endphp
 
 @section('title', "Venta {$venta->numeroFormateado()}")
@@ -24,6 +28,12 @@
                 Venta {{ $venta->numeroFormateado() }}
                 {{-- El estado nunca se comunica sólo con color: el badge lleva texto. --}}
                 <span class="badge {{ $venta->estadoClase() }} align-middle ms-2">{{ $venta->estadoTexto() }}</span>
+                @if ($faltantes->isNotEmpty())
+                    <span class="badge text-bg-warning align-middle ms-1" id="insigniaSinStock">
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                        Sin stock suficiente
+                    </span>
+                @endif
             </h1>
 
             <p class="text-body-secondary small mb-0">
@@ -112,11 +122,11 @@
                         @endcan
                     </div>
                 @else
-                    <p class="mb-0 fw-semibold">Consumidor final</p>
+                    <p class="mb-0 fw-semibold">{{ $venta->clienteTexto() }}</p>
                     {{-- cliente_id en null SIGNIFICA esto: no es un dato que falte.
                          La venta rápida de mostrador no identifica al comprador, y
-                         el monto a partir del cual AFIP lo exige es un asunto de la
-                         facturación, en la Etapa 2. --}}
+                         el monto a partir del cual ARCA lo exige es un asunto de la
+                         facturación, en la Etapa 4. --}}
                     <p class="small text-body-secondary mb-0">
                         La venta no identifica al comprador, que es lo habitual en el mostrador.
                     </p>
@@ -160,6 +170,9 @@
                     <tr>
                         <th scope="col">Producto</th>
                         <th scope="col" class="text-end">Cantidad</th>
+                        @if ($hayEntregas)
+                            <th scope="col" class="text-end">Entregadas</th>
+                        @endif
                         @if ($hayDevoluciones)
                             <th scope="col" class="text-end">Devueltas</th>
                         @endif
@@ -182,7 +195,17 @@
                                     · IVA {{ Importe::paraFormulario($linea->alicuota_iva) }} %
                                 </div>
                             </td>
-                            <td class="text-end">{{ $linea->cantidad }}</td>
+                            <td class="text-end">
+                                {{ $linea->cantidad }}
+
+                                @if ($faltantes->has($linea->id))
+                                    <div class="small text-warning-emphasis text-nowrap">
+                                        {{ $linea->producto->stock_disponible > 0
+                                            ? 'Hay ' . $linea->producto->stock_disponible . ' disponible(s)'
+                                            : 'Sin stock disponible' }}
+                                    </div>
+                                @endif
+                            </td>
                             @if ($hayDevoluciones)
                                 <td class="text-end">
                                     @if ($linea->cantidad_devuelta > 0)
@@ -191,18 +214,30 @@
                                         <span class="text-body-secondary">—</span>
                                     @endif
                                 </td>
+                                @if ($hayEntregas)
+                                    <td class="text-end text-nowrap">
+                                        {{ $linea->cantidad_entregada }}
+                                        @if ($linea->cantidadPendienteDeEntregar() > 0)
+                                            <div class="small text-body-secondary">
+                                                faltan {{ $linea->cantidadPendienteDeEntregar() }}
+                                            </div>
+                                        @endif
+                                    </td>
+                                @endif
                             @endif
                             <td class="text-end text-nowrap">{{ Importe::pesos($linea->precio_unitario) }}</td>
-                            {{-- Neto e IVA están persistidos y no se recalculan al
-                                 mostrar: son los importes que se declaran, y
-                                 recalcularlos con una división en cada consulta
-                                 introduciría diferencias de centavos contra lo ya
-                                 declarado. --}}
                             <td class="text-end text-nowrap d-none d-md-table-cell">
                                 {{ Importe::pesos($linea->neto) }}
                             </td>
-                            <td class="text-end text-nowrap d-none d-md-table-cell">
-                                {{ Importe::pesos($linea->iva) }}
+                            <td class="text-end d-none d-md-table-cell">
+                                @forelse ($linea->impuestos as $impuesto)
+                                    <div>
+                                        <span class="text-body-secondary small">{{ $impuesto->nombre }}</span>
+                                        {{ Importe::pesos($impuesto->importe) }}
+                                    </div>
+                                @empty
+                                    {{ Importe::pesos($linea->iva) }}
+                                @endforelse
                             </td>
                             <td class="text-end text-nowrap">{{ Importe::pesos($linea->total) }}</td>
                         </tr>
@@ -210,13 +245,13 @@
                 </tbody>
                 <tfoot>
                     <tr>
-                        <td colspan="{{ $hayDevoluciones ? 6 : 5 }}" class="text-end text-body-secondary">Subtotal</td>
+                        <td colspan="{{ $columnasAntesDelTotal }}" class="text-end text-body-secondary">Subtotal</td>
                         <td class="text-end text-nowrap">{{ Importe::pesos($venta->subtotal) }}</td>
                     </tr>
 
                     @if ((float) $venta->descuento > 0)
                         <tr>
-                            <td colspan="{{ $hayDevoluciones ? 6 : 5 }}" class="text-end text-body-secondary">
+                            <td colspan="{{ $columnasAntesDelTotal }}" class="text-end text-body-secondary">
                                 Descuento ({{ Importe::paraFormulario($porcentaje) }} %)
                             </td>
                             <td class="text-end text-nowrap">− {{ Importe::pesos($venta->descuento) }}</td>
@@ -224,7 +259,7 @@
                     @endif
 
                     <tr>
-                        <td colspan="{{ $hayDevoluciones ? 6 : 5 }}" class="text-end fw-semibold">Total</td>
+                        <td colspan="{{ $columnasAntesDelTotal }}" class="text-end fw-semibold">Total</td>
                         <td class="text-end fw-semibold text-nowrap">{{ Importe::pesos($venta->total) }}</td>
                     </tr>
                 </tfoot>
@@ -245,20 +280,55 @@
         </div>
     @endif
 
-    {{-- M-33: lo que no se puede hacer no se ofrece.
+    @if ($hayEntregas)
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body pb-3">
+                <h2 class="h5 mb-0">Entregas</h2>
+            </div>
 
-         **Por qué la tarjeta ya no está detrás de un solo `@can('venta.editar')`.**
-         Lo estaba, y era un error que se veía recién al existir el cobro: el rol
-         Cajero tiene `venta.ver` y `venta.cobrar` y **no** tiene `venta.editar`, así
-         que la tarjeta entera no se renderizaba y el cajero no veía el botón de
-         cobrar. Un permiso por acción en la ruta exige un permiso por acción en la
-         pantalla; agrupar varios botones detrás del permiso de uno es la misma
-         confusión que el `?? "can_update"` del original, en la interfaz.
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <caption class="visually-hidden">Entregas de la venta {{ $venta->numeroFormateado() }}</caption>
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col">Comprobante</th>
+                            <th scope="col">Fecha</th>
+                            <th scope="col" class="d-none d-md-table-cell">Entregó</th>
+                            <th scope="col" class="text-end">Unidades</th>
+                            <th scope="col" class="text-end"><span class="visually-hidden">Descargar</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($venta->entregas as $entrega)
+                            <tr>
+                                <td class="fw-semibold">{{ $entrega->numeroFormateado() }}</td>
+                                <td class="text-nowrap">{{ $entrega->created_at->format('d/m/Y H:i') }}</td>
+                                <td class="d-none d-md-table-cell">{{ $entrega->quienTexto() }}</td>
+                                <td class="text-end">{{ $entrega->unidades }}</td>
+                                <td class="text-end">
+                                    @can('venta.ver')
+                                        <a href="{{ route('ventas.entregas.pdf', [$venta, $entrega]) }}"
+                                            class="btn btn-sm btn-outline-dark"
+                                            aria-label="Descargar el comprobante de entrega {{ $entrega->numeroFormateado() }}">
+                                            <i class="bi bi-file-earmark-arrow-down" aria-hidden="true"></i>
+                                            <span class="d-none d-sm-inline">Descargar</span>
+                                        </a>
+                                    @endcan
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    @elseif ($venta->estado === 'entregada')
+        <p class="text-body-secondary small" id="entregaSinComprobante">
+            <i class="bi bi-info-circle" aria-hidden="true"></i>
+            Esta venta se entregó antes de que el sistema registrara cada entrega, así que no tiene
+            comprobante de entrega.
+        </p>
+    @endif
 
-         Ahora cada botón lleva su propio `@can`, y el `@canany` de afuera evita una
-         tarjeta vacía para quien sólo puede mirar. Qué transiciones existen sale de
-         la tabla, igual que en la ficha de la orden de compra: la pantalla no
-         inventa botones que el servidor va a rechazar. --}}
     @php
         $destinos = MaquinaEstadosVenta::destinosDesde($venta->estado);
     @endphp
@@ -287,9 +357,8 @@
                     </div>
 
                     <p class="text-body-secondary small mb-3">
-                        <strong>Editar</strong> conserva el precio de las líneas que ya estaban y cotiza al
-                        precio de hoy sólo lo que agregues. <strong>Recotizar</strong> trae los precios de
-                        hoy a todas, y te dice qué cambió antes de que se lo pases al cliente.
+                        Podés editar manteniendo precios anteriores o recotizar para actualizar todas las líneas con los valores de
+                        hoy.
                     </p>
                 @endcan
             @endif
@@ -312,12 +381,22 @@
                     @if (in_array('entregada', $destinos, true))
                         @can('venta.entregar')
                             <form method="POST" action="{{ route('ventas.entregar', $venta) }}"
-                                onsubmit="return confirm(@js("¿Marcar la venta {$venta->numeroFormateado()} como entregada? No mueve stock: eso ya pasó al cobrar."));">
+                                onsubmit="return confirm(@js("¿Entregar lo pendiente de la venta {$venta->numeroFormateado()}? No mueve stock: eso ya pasó al cobrar."));">
                                 @csrf
                                 <button type="submit" class="btn btn-outline-dark w-100">
-                                    <i class="bi bi-box-arrow-up" aria-hidden="true"></i> Marcar como entregada
+                                    <i class="bi bi-box-arrow-up" aria-hidden="true"></i>
+                                    {{ $hayEntregas ? 'Entregar lo que falta' : 'Entregar todo' }}
                                 </button>
                             </form>
+                        @endcan
+                    @endif
+
+                    {{-- Con una sola unidad pendiente no hay parte que elegir. --}}
+                    @if (in_array('entregada_parcial', $destinos, true) && $pendientesDeEntregar > 1)
+                        @can('venta.entregar')
+                            <a href="{{ route('ventas.entrega', $venta) }}" class="btn btn-outline-dark">
+                                <i class="bi bi-boxes" aria-hidden="true"></i> Entregar una parte
+                            </a>
                         @endcan
                     @endif
 
@@ -355,8 +434,8 @@
 
                 @if ($venta->esPresupuesto())
                     <p class="text-body-secondary small mb-0 mt-3">
-                        <strong>Cobrar</strong> es lo que convierte el presupuesto en venta: descuenta el
-                        stock de cada producto y lo deja registrado en el kardex.
+                        <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+                        Cobrar convierte el presupuesto en venta y descuenta el stock en el kardex.
                     </p>
                 @endif
             @endif
@@ -370,12 +449,16 @@
          intactas (A-11). --}}
     @if ($venta->pagos->isNotEmpty())
         <div class="card border-0 shadow-sm">
-            <div class="card-body pb-0">
-                <h2 class="h5 mb-1">Movimientos de dinero</h2>
-                <p class="text-body-secondary small">
-                    Cada fila es un hecho: nada se borra ni se corrige. Una devolución agrega el
-                    asiento en contra.
-                </p>
+            <div class="card-body pb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h2 class="h5 mb-0">Movimientos de dinero</h2>
+                    <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                        data-bs-toggle="tooltip" data-bs-placement="top"
+                        data-bs-title="Registro inmutable de pagos y reintegros asociados a la venta."
+                        aria-label="Información sobre movimientos de dinero">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
+                </div>
             </div>
 
             <div class="table-responsive">

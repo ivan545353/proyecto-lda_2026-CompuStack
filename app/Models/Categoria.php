@@ -42,7 +42,7 @@ class Categoria extends Model
 
     protected $table = 'categorias';
 
-    protected $fillable = ['parent_id', 'nombre', 'slug', 'orden', 'peso_default_gramos', 'activo'];
+    protected $fillable = ['parent_id', 'nombre', 'slug', 'orden', 'peso_default_gramos', 'activo', 'ganancia'];
 
     protected function casts(): array
     {
@@ -52,6 +52,7 @@ class Categoria extends Model
             'parent_id'           => 'integer',
             'orden'               => 'integer',
             'peso_default_gramos' => 'integer',
+            'ganancia' => 'decimal:3',
             'activo'              => 'boolean',
         ];
     }

@@ -2,6 +2,13 @@
 
 Implementación concreta del plan de migración. Código de referencia e instrucciones paso a paso.
 
+> **Documento histórico.** La Etapa 1 está cerrada, y el código real se apartó de varios
+> fragmentos de acá: cuando difieren, manda el código, y los porqués están en los
+> documentos de cada fase. Dos cosas cambiaron desde que se escribió. El alcance de las
+> etapas siguientes: lo que este plan llama «Etapa 2» —facturación, vales, envíos— pasó
+> a la Etapa 4, y la Etapa 2 es la tienda móvil (ver `modelo-datos.md` §10). Y la Fase 8
+> no se hizo (ver `plan-fase-7-5.md` §8).
+
 ---
 
 # PROMPT PARA NUEVOS CHATS
@@ -24,7 +31,7 @@ Implementar las fases del plan de acción adjunto, en orden. Indicame en qué fa
 
 **Reglas que no se rompen**
 
-1. **Alcance de la Etapa 1.** No implementar tienda pública, carrito, Mercado Pago, facturación AFIP, Zipnova, vales, banners ni Flutter. Si algo de eso hace falta más adelante, dejarlo preparado en el esquema, no implementado.
+1. **Alcance de la Etapa 1.** No implementar tienda pública, carrito, Mercado Pago, facturación ARCA, Zipnova, vales, banners ni Flutter. Si algo de eso hace falta más adelante, dejarlo preparado en el esquema, no implementado.
 2. **Nada de credenciales en el repositorio.** Todo va a `.env`, con `.env.example` versionado.
 3. **Los permisos son claves nombradas y se deniega por defecto.** Nunca un permiso por descarte ni un valor por omisión permisivo.
 4. **La lógica de negocio va en servicios, no en controladores.** En la Etapa 3 los mismos servicios se consumen desde una API; si la lógica queda en el controlador, hay que reescribir todo.
@@ -295,7 +302,7 @@ Schema::create('ventas', function (Blueprint $table) {
 });
 ```
 
-> `vale_id` **no** se agrega ahora: la tabla `vales` es de la Etapa 2 y una clave foránea no puede apuntar a algo inexistente. Se sumará con un `ADD COLUMN` nullable.
+> `vale_id` **no** se agrega ahora: la tabla `vales` es de una etapa siguiente (hoy, la Etapa 4) y una clave foránea no puede apuntar a algo inexistente. Se sumará con un `ADD COLUMN` nullable.
 
 **Pagos** — con las columnas de Mercado Pago desde ahora, nulas hasta la Etapa 2:
 
@@ -1086,7 +1093,7 @@ class MaquinaEstadosVenta
         'presupuesto'      => ['pagada', 'cancelada'],
         'pendiente_pago'   => ['pagada', 'cancelada'],          // Etapa 2
         'pagada'           => ['en_preparacion', 'entregada', 'devuelta_parcial', 'devuelta'],
-        'en_preparacion'   => ['despachada', 'lista_retiro'],   // Etapa 2
+        'en_preparacion'   => ['despachada', 'lista_retiro'],   // Etapa 4 (envíos)
         'despachada'       => ['entregada'],
         'lista_retiro'     => ['entregada'],
         'entregada'        => ['devuelta_parcial', 'devuelta'],
@@ -1362,11 +1369,14 @@ public function exportarVenta(Venta $venta): Response
 }
 ```
 
-El PDF pasa al servidor porque en Blade no hay jsPDF, y porque en la Etapa 2 las facturas necesitan CAE y código QR, que no pueden generarse en el cliente.
+El PDF pasa al servidor porque en Blade no hay jsPDF, y porque las facturas —hoy, Etapa 4— necesitan CAE y código QR, que no pueden generarse en el cliente.
 
 ---
 
 ## Fase 8 — Cierre
+
+> **No se hizo.** La Etapa 1 se presentó sin ella. Cómo quedó cada tarea está en
+> `plan-fase-7-5.md` §8.
 
 Rama: `feat/fase-8-cierre`
 

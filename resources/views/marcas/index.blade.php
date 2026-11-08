@@ -31,8 +31,8 @@
                     <span class="input-group-text bg-body-tertiary border-end-0 text-muted">
                         <i class="bi bi-search" aria-hidden="true"></i>
                     </span>
-                    <input type="search" class="form-control border-start-0 ps-1" id="q" name="q" value="{{ request('q') }}"
-                        placeholder="Por ejemplo: Kingston">
+                    <input type="search" class="form-control border-start-0 ps-1" id="q" name="q"
+                        value="{{ request('q') }}" placeholder="Por ejemplo: Kingston">
                 </div>
             </div>
 
@@ -63,7 +63,8 @@
                                 <a href="{{ request()->fullUrlWithoutQuery(['q', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de búsqueda">
-                                    <span class="text-secondary fw-normal">Texto:</span> "{{ Str::limit(request('q'), 18) }}"
+                                    <span class="text-secondary fw-normal">Texto:</span>
+                                    "{{ Str::limit(request('q'), 18) }}"
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
                             @endif
@@ -72,7 +73,8 @@
                                 <a href="{{ request()->fullUrlWithoutQuery(['estado', 'page']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de estado">
-                                    <span class="text-secondary fw-normal">Estado:</span> {{ request('estado') === 'activas' ? 'Activas' : 'Inactivas' }}
+                                    <span class="text-secondary fw-normal">Estado:</span>
+                                    {{ request('estado') === 'activas' ? 'Activas' : 'Inactivas' }}
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
                             @endif
@@ -84,10 +86,13 @@
 
                 <div class="d-flex gap-2">
                     @if ($hayFiltros)
-                        <a href="{{ route('marcas.index') }}" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1">
+                        <a href="{{ route('marcas.index') }}"
+                            class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1">
                             <i class="bi bi-eraser" aria-hidden="true"></i> Limpiar
                         </a>
                     @endif
+
+                    <x-imprimir ruta="marcas.imprimir" :listado="new \App\Impresion\ListadoMarcas()" />
 
                     <button type="submit" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center gap-1">
                         <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
@@ -127,7 +132,8 @@
                             <td>
                                 <span class="fw-semibold">{{ $marca->nombre }}</span>
                                 <div class="clave-permiso d-inline-block ms-1">{{ $marca->slug }}</div>
-                                <div class="small text-body-secondary d-sm-none">{{ $marca->productos_count }} producto(s)</div>
+                                <div class="small text-body-secondary d-sm-none">{{ $marca->productos_count }} producto(s)
+                                </div>
                             </td>
 
                             {{-- Estado (accesible: comunica con texto y no solo con color) --}}

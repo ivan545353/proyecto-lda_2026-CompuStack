@@ -33,7 +33,7 @@ use Illuminate\Support\Facades\Cache;
  *
  * Métodos:
  *   getNombreCompletoAttribute()  accesor para mostrar
- *   clavesDePermiso()             claves del rol, cacheadas por una hora
+ *   clavesDePermiso()             claves del rol, memorizadas por petición
  *   tienePermiso(string)          lo que consulta Gate::before
  *   esDeGestion()                 lee roles.ambito, nunca el nombre del rol
  *   claveCache(int)               la clave de caché, compartida con RolService
@@ -122,16 +122,22 @@ class User extends Authenticatable
     }
 
     /**
-     * Claves de permiso del rol, cacheadas por una hora.
+     * El resultado de clavesDePermiso() dentro de esta petición.
+     * @var Collection<int, string>|null
+     */
+    private ?Collection $clavesMemorizadas = null;
+
+    /**
+     * Claves de permiso del rol, memorizadas por petición y cacheadas por una hora.
      *
-     * La caché es por rol y no por usuario: veinte vendedores comparten una sola
-     * entrada, y cambiar los permisos del rol invalida a todos de una vez.
+     * La caché compartida es por rol y no por usuario: veinte vendedores comparten
+     * una sola entrada, y cambiar los permisos del rol invalida a todos de una vez.
      *
      * @return Collection<int, string>
      */
     public function clavesDePermiso(): Collection
     {
-        return Cache::remember(
+        return $this->clavesMemorizadas ??= Cache::remember(
             self::claveCache($this->rol_id),
             now()->addHour(),
             fn () => $this->rol->permisos()->pluck('clave'),

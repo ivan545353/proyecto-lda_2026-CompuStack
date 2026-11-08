@@ -71,12 +71,11 @@
                         autocomplete="new-password">
                 </div>
 
-                <div class="d-flex gap-2">
-                    <button type="submit" class="btn btn-acento">
-                        <i class="bi bi-check-lg" aria-hidden="true"></i> Cambiar mi contraseña
-                    </button>
-
+                <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
                     <a href="{{ route('panel') }}" class="btn btn-outline-secondary">Cancelar</a>
+                    <button type="submit" class="btn btn-acento px-4">
+                        <i class="bi bi-check-lg" aria-hidden="true"></i> Cambiar contraseña
+                    </button>
                 </div>
             </form>
 

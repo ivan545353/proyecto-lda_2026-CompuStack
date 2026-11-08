@@ -15,38 +15,6 @@ use Illuminate\Support\Facades\DB;
 /**
  * Reglas de negocio de las órdenes de compra.
  *
- * No conoce la petición HTTP ni la sesión: recibe datos validados y modelos, y
- * devuelve modelos. En la Etapa 3 la API llama a estos mismos métodos.
- *
- * Tres invariantes propias:
- *
- *   1. **Sólo un borrador se edita.** Una vez aprobada, el monto está comprometido
- *      y las líneas quedan congeladas. Por eso `actualizarBorrador()` reemplaza las
- *      líneas: en borrador ninguna tiene cantidad recibida, así que no se pierde
- *      nada. Es la misma técnica que el `SaleDao::update()` original usaba mal
- *      (M-14) —borraba las líneas y las reinsertaba releyendo el precio, y un
- *      presupuesto emitido cambiaba de total—; acá el costo lo trae el formulario y
- *      no hay nada guardado en la línea que el formulario no cargue. La misma
- *      técnica está bien o mal según si la fila tiene estado propio.
- *
- *   2. **El total es derivado.** Se recalcula desde las líneas al guardar y al
- *      aprobar, nunca llega desde el formulario. El monto que se autoriza es el de
- *      las líneas que están guardadas en ese momento.
- *
- *   3. **Todo cambio de estado pasa por la máquina de estados**, y `estado` está
- *      fuera de `$fillable` para que no pueda llegar desde una petición.
- *   4. **El costo del vínculo se graba al recibir, no al pedir.** Un borrador puede
- *      cambiar de costo, o no llegar nunca; lo que se graba en
- *      `producto_proveedor.costo_ultimo` es el costo de la línea de una orden que
- *      efectivamente entró al depósito. Es el costo **acordado**, no el facturado:
- *      la recepción no pide un costo, así que si el proveedor facturara otro hoy no
- *      hay dónde registrarlo. Está anotado en los pendientes de usabilidad.
- *   5. **Lo que el documento imprime se copia en la línea, no se referencia.**
- *      `costo_unitario` y `codigo_proveedor` quedan congelados al escribirla. Es lo
- *      que permite no archivar el PDF del pedido: regenerarlo dentro de un año da
- *      el mismo documento, aunque el proveedor haya cambiado de precios y de
- *      códigos. Mismo principio que `venta_lineas.precio_unitario`.
- *
  * Métodos:
  *   crearBorrador()       alta; sin usuario significa que la generó el sistema
  *   actualizarBorrador()  reemplaza las líneas de un borrador
@@ -57,6 +25,8 @@ use Illuminate\Support\Facades\DB;
  *   generarBorrador()     el alta que usa la tarea de reposición, con el costo del
  *                         vínculo de ese proveedor
  *   armarPedido()         el armador: una pantalla, un borrador por proveedor
+ *   lineasSugeridas()     los sugeridos elegidos, convertidos en renglones del
+ *                         armador, con el proveedor y el costo que decide el servidor
  *   recibir()             recepción total o parcial; ingresa stock y graba el costo
  */
 class CompraService
@@ -81,8 +51,6 @@ class CompraService
             $orden = OrdenCompra::create([
                 'proveedor_id'  => $datos['proveedor_id'],
                 'observaciones' => $datos['observaciones'] ?? null,
-                // null SIGNIFICA «la generó el sistema». La pantalla lo dice con
-                // palabras en lugar de mostrar una celda vacía.
                 'usuario_creo_id' => $usuario?->id,
             ]);
 
@@ -94,12 +62,6 @@ class CompraService
 
     /**
      * El alta de la tarea de reposición.
-     *
-     * El costo de cada línea sale de `producto_proveedor.costo_ultimo` **de este
-     * proveedor**: es lo último que ESE proveedor cobró por ESE producto, que es el
-     * número que el pedido necesita. `productos.costo_promedio` no sirve acá —es el
-     * promedio ponderado de todas las compras a todos los proveedores, y no es el
-     * precio de ninguno—; queda donde es correcto, en el margen de la venta.
      *
      */
     public function generarBorrador(int $proveedorId, iterable $productos): OrdenCompra
@@ -119,6 +81,43 @@ class CompraService
             'observaciones' => 'Generada automáticamente: stock por debajo del mínimo.',
             'lineas'        => $lineas,
         ]);
+    }
+    
+    /**
+     * Los sugeridos elegidos, convertidos en renglones del armador.
+     *
+     * @param  array<int, int>  $elegidos  ids de productos
+     * @return array<int, array<string, mixed>>
+     */
+    public function lineasSugeridas(array $elegidos): array
+    {
+        if ($elegidos === []) {
+            return [];
+        }
+
+        return Producto::query()
+            ->paraReponer()
+            ->conProveedorActivo()
+            ->conIds($elegidos)
+            // proveedorParaReponer() y el costo del vínculo leen esta relación (A-26).
+            ->with('proveedores')
+            // Por código, para que los renglones salgan en el orden en que la
+            // pantalla los mostró y no en el que se tildaron.
+            ->orderBy('codigo')
+            ->get()
+            ->map(function (Producto $producto) {
+                $proveedor = $producto->proveedorParaReponer();
+
+                return [
+                    'producto_id'     => $producto->id,
+                    'proveedor_id'    => $proveedor->id,
+                    // Fija, y puede no alcanzar: es el pendiente #34. Si quedó en
+                    // cero el armador lo rechaza al guardar, que es lo correcto.
+                    'cantidad_pedida' => $producto->cantidad_reposicion,
+                    'costo_unitario'  => $this->costoDelProveedor($producto, $proveedor->id),
+                ];
+            })
+            ->all();
     }
 
     /**
@@ -192,16 +191,7 @@ class CompraService
                 throw new ReglaDeNegocioException('No se puede aprobar una orden sin productos.');
             }
 
-            // El total se recalcula justo antes: es el monto que esta persona
-            // autoriza, y tiene que ser el de las líneas guardadas en este momento.
             $this->recalcularTotal($o);
-
-            // No se prohíbe que apruebe quien la creó. A diferencia del cambio de
-            // rol propio —que no tiene ningún uso legítimo y por eso C-3 se cierra
-            // prohibiéndolo—, aprobar tu propia orden sí lo tiene: en un negocio
-            // con un solo administrativo es el único camino posible. El control es
-            // que las dos identidades quedan grabadas y una auditoría ve cuándo
-            // coinciden.
             $this->cambiarEstado($o, 'aprobada', [
                 'usuario_aprobo_id' => $usuario->id,
                 'fecha_aprobacion'  => now(),
@@ -213,10 +203,6 @@ class CompraService
 
     /**
      * El administrativo declara que el pedido salió hacia el proveedor.
-     *
-     * No recibe el usuario porque no hay dónde guardarlo: la decisión de no agregar
-     * `usuario_envio_id` está escrita en `modelo-datos.md`, y el responsable del
-     * compromiso es quien aprobó. Un parámetro que no se usa sería decoración.
      */
     public function marcarEnviada(OrdenCompra $orden): OrdenCompra
     {
@@ -233,19 +219,19 @@ class CompraService
      * Recepción de mercadería, total o parcial.
      *
      * @param  array<int|string, int|string>  $cantidades  [id de línea => cuántas llegaron ahora]
+     * @param  array{numero?: string|null, fecha?: string|null}  $remito  el del proveedor: los dos datos o ninguno
      */
-    public function recibir(OrdenCompra $orden, array $cantidades, User $usuario): OrdenCompra
+    public function recibir(OrdenCompra $orden, array $cantidades, User $usuario, array $remito = []): OrdenCompra
     {
-        // Las líneas donde no llegó nada no son un error: el formulario las manda
-        // en cero porque muestra todas. Lo que no puede pasar es que no llegue nada
-        // en ninguna.
         $cantidades = array_filter(array_map('intval', $cantidades), fn (int $c) => $c > 0);
 
         if ($cantidades === []) {
             throw new ReglaDeNegocioException('Indicá cuántas unidades llegaron en al menos un producto.');
         }
 
-        return DB::transaction(function () use ($orden, $cantidades, $usuario) {
+        [$remitoNumero, $remitoFecha] = $this->remitoDe($remito);
+
+        return DB::transaction(function () use ($orden, $cantidades, $usuario, $remitoNumero, $remitoFecha) {
             $o = OrdenCompra::lockForUpdate()->findOrFail($orden->id);
 
             if (! MaquinaEstadosCompra::puedeRecibir($o->estado)) {
@@ -255,10 +241,6 @@ class CompraService
             }
 
             foreach ($cantidades as $lineaId => $cantidad) {
-                // El hijo se resuelve a través de la relación del padre. Buscar la
-                // línea por su id suelto permitiría recibir mercadería contra la
-                // orden de otro proveedor con una petición armada a mano: Laravel
-                // no verifica que dos parámetros estén relacionados.
                 $linea = $o->lineas()->findOrFail($lineaId);
 
                 $pendiente = $linea->cantidadPendiente();
@@ -271,15 +253,14 @@ class CompraService
                     );
                 }
 
-                // StockService abre su propia transacción. En Laravel una
-                // transacción anidada es un savepoint, así que si una línea
-                // posterior falla se revierte todo junto, incluido el kardex.
                 $this->stock->recibirCompra(
                     $linea->producto,
                     $cantidad,
                     $linea->costo_unitario,
                     $o,
                     $usuario,
+                    $remitoNumero,
+                    $remitoFecha,
                 );
 
                 $this->proveedores->registrarCosto(
@@ -292,8 +273,6 @@ class CompraService
                 $linea->save();
             }
 
-            // El estado se deriva de las líneas, no se elige: mientras quede algo
-            // pendiente la orden sigue parcial.
             $this->cambiarEstado(
                 $o,
                 $o->fresh('lineas')->tienePendientes() ? 'recibida_parcial' : 'recibida',
@@ -323,8 +302,6 @@ class CompraService
                 );
             }
 
-            // «recibida» significa cerrada. Cuánto llegó de cada producto lo dicen
-            // las líneas, que es donde vive el saldo.
             $this->cambiarEstado($o, 'recibida');
 
             return $o->fresh('lineas');
@@ -336,9 +313,6 @@ class CompraService
         return DB::transaction(function () use ($orden) {
             $o = OrdenCompra::lockForUpdate()->findOrFail($orden->id);
 
-            // `recibida_parcial` no está entre los orígenes de `cancelada` en la
-            // máquina de estados, así que una orden con mercadería recibida se
-            // rechaza acá sin ningún `if`: la tabla de transiciones ya lo dice.
             $this->cambiarEstado($o, 'cancelada');
 
             return $o->fresh();
@@ -351,11 +325,6 @@ class CompraService
 
     /**
      * Cambia el estado validando la transición.
-     *
-     * `estado` está fuera de `$fillable`, así que se asigna por propiedad: un
-     * `update(['estado' => …])` lo **descartaría en silencio** y la orden se
-     * quedaría en el estado anterior sin que nada falle. Pasar siempre por acá
-     * evita tener que recordarlo en cada método.
      */
     private function cambiarEstado(OrdenCompra $orden, string $nuevo, array $columnas = []): void
     {
@@ -442,11 +411,29 @@ class CompraService
         }
     }
 
+
+    /**
+     * El remito del proveedor como par [número, fecha]: completo o vacío, nunca a medias.
+     *
+     * @param  array{numero?: string|null, fecha?: string|null}  $remito
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function remitoDe(array $remito): array
+    {
+        $numero = trim((string) ($remito['numero'] ?? ''));
+        $fecha  = trim((string) ($remito['fecha'] ?? ''));
+
+        if (($numero === '') !== ($fecha === '')) {
+            throw new ReglaDeNegocioException(
+                'El remito del proveedor se registra con su número y su fecha, o no se registra.'
+            );
+        }
+
+        return $numero === '' ? [null, null] : [$numero, $fecha];
+    }
+
     /**
      * Lo último que este proveedor cobró por este producto, o cero si no consta.
-     *
-     * Devuelve el valor de la pivote tal como lo da la base, sin castear: lo
-     * consume `reemplazarLineas()`, que escribe en una columna `decimal(12,2)`.
      */
     private function costoDelProveedor(Producto $producto, int $proveedorId): string|float
     {

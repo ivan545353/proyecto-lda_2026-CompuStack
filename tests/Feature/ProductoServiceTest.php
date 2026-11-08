@@ -26,8 +26,9 @@ beforeEach(function () {
         'descripcion'         => null,
         'categoria_id'        => $this->categoria->id,
         'marca_id'            => null,
-        'precio_lista'        => '95000.00',
-        'precio_contado'      => null,
+        'precio_contado'      => '95000.00',
+        'precio_manual'       => true,
+        'ganancia'            => null,
         'alicuota_iva'        => '10.50',
         'stock_minimo'        => 2,
         'cantidad_reposicion' => 5,
@@ -37,12 +38,14 @@ beforeEach(function () {
 
 // --- Alta -----------------------------------------------------------------
 
-test('sin precio de contado se usa el de lista, y si viene se respeta', function () {
-    $sinContado = $this->service->crear(($this->datos)());
-    $conContado = $this->service->crear(($this->datos)(['codigo' => 'SSD-2TB', 'precio_contado' => '85500.00']));
+test('el alta deriva el precio de lista y asienta el precio inicial', function () {
+    app(\App\Models\PoliticaPrecios::class)::vigente()->update(['recargo_lista' => '10.000']);
 
-    expect($sinContado->precio_contado)->toBe('95000.00')
-        ->and($conContado->precio_contado)->toBe('85500.00');
+    $producto = $this->service->crear(($this->datos)());
+
+    expect($producto->precio_contado)->toBe('95000.00')
+        ->and($producto->precio_lista)->toBe('104500.00')
+        ->and(\App\Models\HistorialPrecio::sole()->motivo)->toBe('alta');
 });
 
 test('el alta guarda las imagenes en el orden en que se subieron', function () {

@@ -54,21 +54,27 @@
 
         <div class="row g-3">
             <div class="col-12 col-md-5">
-                <label for="stock_contado" class="form-label">
-                    Unidades contadas <span class="text-danger" aria-hidden="true">*</span>
-                </label>
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label for="stock_contado" class="form-label mb-0">
+                        Unidades contadas <span class="text-danger" aria-hidden="true">*</span>
+                    </label>
+                    <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                        data-bs-toggle="tooltip" data-bs-placement="top"
+                        data-bs-title="Escribí la cantidad exacta que contaste físicamente. El sistema calculará la diferencia respecto a las {{ $producto->stock }} registradas."
+                        aria-label="Ayuda sobre conteo físico">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
+                </div>
 
                 {{-- El campo arranca vacío a propósito: precargarlo con el stock
                      actual ancla el conteo y vuelve demasiado fácil confirmar un
                      número que nadie contó. --}}
                 <input type="number" class="form-control @error('stock_contado') is-invalid @enderror" id="stock_contado"
                     name="stock_contado" value="{{ old('stock_contado') }}" required min="0" max="1000000"
-                    step="1" autofocus inputmode="numeric"
-                    aria-describedby="diferenciaAjuste ayudaContado @error('stock_contado') errorContado @enderror">
+                    step="1" autofocus inputmode="numeric" placeholder="Ej: {{ $producto->stock }}"
+                    aria-describedby="diferenciaAjuste @error('stock_contado') errorContado @enderror">
 
-                <div id="ayudaContado" class="form-text">Lo que hay de verdad en el depósito.</div>
-
-                <div id="diferenciaAjuste" class="form-text fw-semibold" aria-live="polite"
+                <div id="diferenciaAjuste" class="form-text fw-semibold text-primary" aria-live="polite"
                     data-stock-actual="{{ $producto->stock }}"></div>
 
                 @error('stock_contado')
@@ -86,7 +92,7 @@
                     placeholder="Por ejemplo: dos unidades con la caja rota, dadas de baja">{{ old('motivo') }}</textarea>
 
                 <div id="ayudaMotivo" class="form-text">
-                    El motivo por el qué se realizo el ajuste.
+                    Explicá el motivo por el cual se realiza el ajuste.
                 </div>
 
                 @error('motivo')
@@ -95,13 +101,12 @@
             </div>
         </div>
 
-        <div class="d-grid d-sm-flex gap-2 mt-4">
-            <button type="submit" class="btn btn-acento">
-                <i class="bi bi-check-lg" aria-hidden="true"></i> Registrar ajuste
-            </button>
-
+        <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
             <a href="{{ route('stock.index', ['producto_id' => $producto->id]) }}"
                 class="btn btn-outline-secondary">Cancelar</a>
+            <button type="submit" class="btn btn-acento px-4">
+                <i class="bi bi-check-lg" aria-hidden="true"></i> Registrar ajuste
+            </button>
         </div>
     </form>
 @endsection

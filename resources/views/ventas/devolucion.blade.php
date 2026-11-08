@@ -32,12 +32,16 @@
         @csrf
 
         <div class="card border-0 shadow-sm mb-4">
-            <div class="card-body pb-0">
-                <p class="text-body-secondary small mb-3">
-                    Los campos arrancan vacíos a propósito: lo que se carga acá mueve stock y mueve
-                    plata, así que conviene escribir lo que el cliente trajo y no confirmar lo que
-                    uno supone.
-                </p>
+            <div class="card-body pb-2">
+                <span class="text-body-secondary small d-inline-flex align-items-center gap-1">
+                    <i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i> Ingresá las unidades físicas que devolvió el cliente
+                    <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                        data-bs-toggle="tooltip" data-bs-placement="top"
+                        data-bs-title="Los campos arrancan vacíos para registrar lo efectivamente traído. Mueve stock de vuelta al depósito y registra el reintegro de dinero."
+                        aria-label="Ayuda sobre devoluciones">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
+                </span>
             </div>
 
             <div class="table-responsive">
@@ -163,8 +167,7 @@
                         </select>
 
                         <div id="ayudaMetodo" class="form-text">
-                            Viene propuesto el medio del cobro, pero cambialo si la plata vuelve por
-                            otro: el sistema registra cómo volvió de verdad.
+                            Cambiá el medio si devolvés el dinero por otra vía.
                         </div>
 
                         @error('metodo')
@@ -182,8 +185,7 @@
                             placeholder="Vino fallado, no era el modelo que pidió…">{{ old('motivo') }}</textarea>
 
                         <div id="ayudaMotivo" class="form-text">
-                            Queda escrito en el movimiento de stock de cada producto que vuelve. Es lo
-                            único de la devolución que no se puede reconstruir después.
+                            Se registra en el kardex de stock de cada producto reintegrado.
                         </div>
 
                         @error('motivo')
@@ -194,19 +196,18 @@
             </div>
         </div>
 
-        <div class="d-grid d-sm-flex gap-2">
-            <button type="submit" class="btn btn-danger" onclick="return confirm(@js('La devolución no se puede deshacer: el stock vuelve al depósito y la plata se devuelve. ¿Seguimos?'));">
-                <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Registrar la devolución
-            </button>
-
-            <a href="{{ route('ventas.show', $venta) }}" class="btn btn-outline-secondary">Cancelar</a>
+        <div class="alert alert-secondary d-flex align-items-start gap-2 small py-2 px-3 mt-4 mb-0 border-0 bg-body-tertiary">
+            <i class="bi bi-info-circle text-body-secondary mt-1 flex-shrink-0" aria-hidden="true"></i>
+            <div>
+                El estado (<strong>parcial</strong> o <strong>total</strong>) se calcula automáticamente según las unidades. La venta original no se anula: se asienta el reintegro correspondiente.
+            </div>
         </div>
 
-        <p class="text-body-secondary small mb-0 mt-3">
-            <i class="bi bi-info-circle" aria-hidden="true"></i>
-            Que la devolución quede <strong>parcial</strong> o <strong>total</strong> no se elige: se
-            deriva de cuánto queda sin devolver. Y la venta no se borra ni se anula — el cobro
-            original queda registrado y se le suma el asiento en contra.
-        </p>
+        <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
+            <a href="{{ route('ventas.show', $venta) }}" class="btn btn-outline-secondary">Cancelar</a>
+            <button type="submit" class="btn btn-danger px-4" onclick="return confirm(@js('La devolución no se puede deshacer: el stock vuelve al depósito y la plata se devuelve. ¿Seguimos?'));">
+                <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Registrar devolución
+            </button>
+        </div>
     </form>
 @endsection

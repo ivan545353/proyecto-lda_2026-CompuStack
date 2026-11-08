@@ -2,33 +2,32 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ImprimeListados;
 use App\Http\Requests\CategoriaFiltroRequest;
 use App\Http\Requests\CategoriaRequest;
+use App\Impresion\ListadoCategorias;
 use App\Models\Categoria;
 use App\Services\CategoriaService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * CRUD de categorías, con jerarquía.
  *
- * Reemplaza a CategoryController del original, que manejaba una lista plana y
- * cuyos filtros no filtraban . Sigue el patrón de MarcaController: el
- * controlador traduce, el Request valida, el servicio decide.
- *
- * La jerarquía se navega con el filtro parent_id: cada fila enlaza a sus
- * subcategorías y la vista muestra una miga de pan para volver. El listado
- * sigue siendo plano y paginado (A-25).
- *
  * Métodos:
  *   index()              listado filtrado y paginado
+ *   imprimir()           el mismo listado filtrado, en PDF o en CSV
  *   create() / store()   alta; acepta ?parent_id= para precargar el padre
  *   edit()  / update()   edición
  *   destroy()            baja física o lógica
  */
 class CategoriaController extends Controller
 {
+    use ImprimeListados;
     public function __construct(private CategoriaService $service)
     {
     }
@@ -37,16 +36,9 @@ class CategoriaController extends Controller
     {
         $padre = $request->query('parent_id');
 
-        $categorias = Categoria::query()
+        $categorias = $this->filtradas($request)
             ->with('padre.padre')                  // la ruta, sin una consulta por fila
             ->withCount(['hijas', 'productos'])    // contados en la base (A-26)
-            ->buscar($request->query('q'))
-            ->dePadre($padre)
-            ->conEstado($request->query('estado'))
-            // `orden` sólo tiene sentido entre hermanas: se aplica cuando el
-            // listado muestra las hijas de un mismo padre.
-            ->when(filled($padre), fn ($query) => $query->orderBy('orden'))
-            ->orderBy('nombre')
             ->paginate(15)
             ->withQueryString();
 
@@ -59,15 +51,18 @@ class CategoriaController extends Controller
         ]);
     }
 
+
+    public function imprimir(CategoriaFiltroRequest $request, ListadoCategorias $listado): Response|StreamedResponse|RedirectResponse
+    {
+        return $this->imprimirListado($request, $listado, $this->filtradas($request), 'categorias.index');
+    }
+
     public function create(Request $request): View
     {
         return view('categorias.form', [
             'categoria' => new Categoria([
                 'activo'    => true,
                 'orden'     => 0,
-                // Desde el listado de las hijas de "Componentes", el botón de
-                // alta precarga ese padre. Si el id no es un padre posible, el
-                // select simplemente no lo encuentra y queda en "Ninguna".
                 'parent_id' => $request->integer('parent_id') ?: null,
             ]),
             'padres' => $this->service->padresPosibles(),
@@ -117,10 +112,6 @@ class CategoriaController extends Controller
 
     /**
      * El mensaje dice qué pasó con el contenido de la categoría.
-     *
-     * Desactivar una categoría sin avisar qué queda adentro es un cambio de
-     * estado invisible: el administrativo cree que sacó la línea de venta y
-     * los productos siguen a la venta, o al revés.
      */
     private function mensaje(Categoria $categoria, array $contenido, bool $seDesactiva, bool $enCascada): string
     {
@@ -148,5 +139,21 @@ class CategoriaController extends Controller
         return $enCascada
             ? "«{$categoria->nombre}» se desactivó junto con {$listado}."
             : "«{$categoria->nombre}» se desactivó. {$listado} siguen activos y a la venta; la categoría ya no se va a ofrecer para cargar productos nuevos.";
+    }
+
+
+    /** Los filtros del listado, en un solo lugar: lo que la pantalla muestra es lo que se imprime. */
+    private function filtradas(CategoriaFiltroRequest $request): Builder
+    {
+        $padre = $request->query('parent_id');
+
+        return Categoria::query()
+            ->buscar($request->query('q'))
+            ->dePadre($padre)
+            ->conEstado($request->query('estado'))
+            // `orden` sólo tiene sentido entre hermanas: se aplica cuando el
+            // listado muestra las hijas de un mismo padre.
+            ->when(filled($padre), fn ($query) => $query->orderBy('orden'))
+            ->orderBy('nombre');
     }
 }

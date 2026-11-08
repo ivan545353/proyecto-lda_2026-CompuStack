@@ -359,3 +359,156 @@ function ventaCobrada(
 
     return $venta->fresh();
 }
+
+/**
+ * Cuántas consultas hace el bloque.
+ *
+ * Con `DB::listen()` y no con el log de consultas: el log guarda cada sentencia con
+ * sus bindings y crece con los datos, y acá sólo importa el número.
+ *
+ * El oyente no se puede dar de baja, pero la aplicación se reconstruye entre tests,
+ * así que no sobrevive al que lo registró. Dentro de un mismo test, dos llamadas
+ * dejan dos oyentes con su propio contador, que es lo correcto.
+ */
+function contarConsultas(callable $bloque): int
+{
+    $consultas = 0;
+
+    \Illuminate\Support\Facades\DB::listen(function () use (&$consultas) {
+        $consultas++;
+    });
+
+    $bloque();
+
+    return $consultas;
+}
+
+/**
+ * Cuántas de las consultas del bloque nombran esa tabla.
+ *
+ * Compara contra el SQL en bruto, que alcanza para distinguir de qué tabla se
+ * trata: lo usa el test que vigila que los permisos no se lean una vez por `@can`.
+ */
+function consultasSobre(string $tabla, callable $bloque): int
+{
+    $consultas = 0;
+
+    \Illuminate\Support\Facades\DB::listen(
+        function (\Illuminate\Database\Events\QueryExecuted $consulta) use ($tabla, &$consultas) {
+            if (str_contains($consulta->sql, $tabla)) {
+                $consultas++;
+            }
+        }
+    );
+
+    $bloque();
+
+    return $consultas;
+}
+
+if (! function_exists('tipoDeColumna')) {
+    function tipoDeColumna(string $tabla, string $columna): string
+    {
+        $fila = \Illuminate\Support\Facades\DB::selectOne(
+            'SELECT COLUMN_TYPE AS tipo
+               FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+            [\Illuminate\Support\Facades\DB::getDatabaseName(), $tabla, $columna],
+        );
+
+        expect($fila)->not->toBeNull("No existe {$tabla}.{$columna}");
+
+        return $fila->tipo;
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Precios y ajuste masivo
+|--------------------------------------------------------------------------
+|
+| Las usan cinco archivos de prueba, y viven acá por el mismo motivo que
+| `datosDeEmpleado()`: una ayuda declarada dentro de un archivo de test se vuelve
+| invisible en cuanto la suite se corre por partes. `php artisan test` con una
+| ruta concreta carga sólo esos archivos, y entonces la función no existe.
+|
+*/
+
+/**
+ * Fija los números del comercio y devuelve un servicio de precios NUEVO.
+ *
+ * La parametrización se memoriza por instancia, así que un servicio creado antes
+ * de fijar estos valores no los vería.
+ */
+function servicioConPolitica(array $valores = []): \App\Services\PrecioService
+{
+    \App\Models\PoliticaPrecios::vigente()->update(array_merge([
+        'ganancia_global'   => '2.500',
+        'recargo_lista'     => '0.000',
+        'redondeo_multiplo' => '0.01',
+        'redondeo_modo'     => 'cercano',
+    ], $valores));
+
+    return app(\App\Services\PrecioService::class);
+}
+
+/** Un producto con costo cargado, IVA 21 % y sin ganancia propia. */
+function productoConCosto(float $costo = 20000, array $cambios = []): \App\Models\Producto
+{
+    return \App\Models\Producto::factory()
+        ->conStockYCosto(10, $costo)
+        ->create(array_merge([
+            'alicuota_iva'   => '21.00',
+            'precio_contado' => '1.00',
+            'precio_lista'   => '1.00',
+        ], $cambios));
+}
+
+/** Lo mismo, ya pasado por el motor: 20.000 × 2,5 × 1,21 = 60.500. */
+function productoConPrecioCalculado(float $costo = 20000, array $cambios = []): \App\Models\Producto
+{
+    $producto = productoConCosto($costo, $cambios);
+
+    app(\App\Services\PrecioService::class)->recalcular($producto);
+
+    return $producto->fresh();
+}
+
+/**
+ * Un lote de ajuste mínimo, para colgarle asientos o para pedir su ruta.
+ *
+ * `LoteAjuste` no tiene factory a propósito —un lote sin los cambios de precio que
+ * dice haber hecho sería una fila que afirma algo que no pasó—, así que los tests
+ * que necesitan uno de verdad lo crean llamando al servicio. Este es para los que
+ * sólo necesitan la fila.
+ */
+function loteDePrueba(array $cambios = []): \App\Models\LoteAjuste
+{
+    return \App\Models\LoteAjuste::create(array_merge([
+        'usuario_id'     => null,
+        'operacion'      => 'precio',
+        'porcentaje'     => '15.000',
+        'criterio'       => ['alcance' => 'todos'],
+        'criterio_texto' => 'Todos los productos',
+        'alcanzados'     => 0,
+        'omitidos'       => 0,
+    ], $cambios));
+}
+
+/**
+ * Las claves de permiso de un módulo, leídas de la base.
+ *
+ * La usan los datasets de permisos para armar «todos los permisos del módulo menos
+ * el de esta ruta», que es la primera mitad de C-2. Sale del seeder y no de una
+ * lista escrita en el test: una lista copiada se desactualiza el día que el módulo
+ * gana una acción, y ese día es justamente cuando el test tendría que cubrirla.
+ *
+ * Requiere que `RolPermisoSeeder` haya corrido, que es lo que hace cada test de
+ * módulo en su `beforeEach`.
+ *
+ * @return array<int, string>
+ */
+function permisosDelModulo(string $modulo): array
+{
+    return \App\Models\Permiso::where('modulo', $modulo)->orderBy('clave')->pluck('clave')->all();
+}

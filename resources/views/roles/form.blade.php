@@ -65,7 +65,7 @@
                         @error('ambito')
                             <div class="invalid-feedback">{{ $message }}</div>
                         @enderror
-                        <div class="form-text">Decide si accede al sistema de gestión o a la tienda.</div>
+                        <div class="form-text">Define el acceso: panel de gestión o tienda online.</div>
                     </div>
 
                     <div class="col-md-5">
@@ -83,17 +83,19 @@
 
         <div class="card border-0 shadow-sm @error('permisos') border border-danger @enderror">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                <span class="fw-semibold">Permisos</span>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="fw-semibold">Permisos</span>
+                    <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                        data-bs-toggle="tooltip" data-bs-placement="top"
+                        data-bs-title="Marcar cualquier acción habilita la de ver ese módulo. Quitar la de ver desmarca el módulo entero."
+                        aria-label="Regla de selección de permisos">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
+                </div>
                 <span class="text-body-secondary small" id="contadorPermisos" aria-live="polite"></span>
             </div>
 
             <div class="card-body">
-
-                <p class="text-body-secondary small mb-3">
-                    Marcar cualquier acción habilita automáticamente la de ver ese módulo.
-                    Quitar la de ver quita el módulo entero.
-                </p>
-
                 <div class="row g-4">
                     @foreach ($permisos as $modulo => $delModulo)
                         <div class="col-md-6 col-lg-4">
@@ -132,7 +134,7 @@
 
             <div class="card-footer bg-white d-grid d-sm-flex justify-content-sm-end gap-2">
                 <a href="{{ route('roles.index') }}" class="btn btn-outline-secondary order-sm-first">Cancelar</a>
-                <button type="submit" class="btn btn-acento">
+                <button type="submit" class="btn btn-acento px-4">
                     <i class="bi bi-check-lg"></i> Guardar
                 </button>
             </div>

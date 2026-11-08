@@ -172,16 +172,18 @@ test('el panel propio no entrega los numeros del conjunto', function () {
             && ! array_key_exists('margenBruto', $m));
 });
 
-test('el panel general entrega el conjunto y los rankings', function () {
+test('el panel general entrega el conjunto y ya no calcula los rankings', function () {
     ventaCobrada(productoConPrecios(contado: 1000, costo: 600), 3);
 
+    // Desde el tramo L el ranking y los más vendidos son listados (ventas.vendedores y
+    // ventas.productos): el panel no los calcula para no mostrarlos.
     $this->actingAs(usuarioCon('panel.ver_global'))
         ->get(route('panel.general'))
         ->assertOk()
         ->assertViewHas('metricas', fn (array $m) => $m['facturado'] === 3000.0
             && $m['margenBruto'] === 1200.0
-            && $m['rankingVendedores']->count() === 1
-            && $m['masVendidos']->count() === 1);
+            && ! array_key_exists('rankingVendedores', $m)
+            && ! array_key_exists('masVendidos', $m));
 });
 
 test('el panel general informa el margen bruto y los descuentos por separado', function () {

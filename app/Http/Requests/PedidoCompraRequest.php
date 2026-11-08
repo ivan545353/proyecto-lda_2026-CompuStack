@@ -11,27 +11,6 @@ use Illuminate\Validation\Rule;
 
 /**
  * Validación del armador de pedido: una pantalla, varias órdenes.
- *
- * Tres reglas propias del armador:
- *
- *   1. **El proveedor de cada línea tiene que proveer ese producto**, contra
- *      `producto_proveedor`. La pantalla filtra el selector; esto es la barrera.
- *
- *   2. **El par (producto, proveedor) no se repite**, y el producto solo **sí**
- *      puede. El mismo producto a dos proveedores es partir una compra, y es
- *      legítimo: son dos órdenes distintas, y el `UNIQUE (orden_compra_id,
- *      producto_id)` de la base lo permite. El mismo par dos veces serían dos
- *      líneas de la misma orden para el mismo producto, y eso no.
- *
- *   3. **El producto tiene que estar activo.** Acá se puede exigir, al contrario
- *      que en `OrdenCompraRequest`: un pedido nuevo no tiene líneas viejas que
- *      proteger, así que no hace falta la excepción de «el que ya estaba».
- *
- * No hay campo de observaciones. Cada grupo se convierte en un documento distinto,
- * y una sola observación para todos diría lo mismo a tres proveedores, que casi
- * siempre es falso. Se agregan editando cada borrador, que es para lo que el
- * borrador existe.
- *
  * Métodos:
  *   authorize()             true; la ruta exige compra.crear
  *   prepareForValidation()  descarta filas vacías y normaliza el costo
@@ -42,6 +21,8 @@ use Illuminate\Validation\Rule;
  */
 class PedidoCompraRequest extends FormRequest
 {
+    public const MAXIMO_LINEAS = 50;
+
     /** @var array<int, array<int, bool>>|null */
     private ?array $pares = null;
 
@@ -58,17 +39,11 @@ class PedidoCompraRequest extends FormRequest
             return;
         }
 
-        // Una fila completamente vacía es una fila que el usuario agregó y no usó:
-        // se descarta. Si tiene algo cargado se conserva, para que la validación le
-        // diga qué le falta en lugar de borrarle lo que escribió.
         $lineas = array_values(array_filter(
             $lineas,
             fn ($linea) => is_array($linea) && collect($linea)->contains(fn ($valor) => filled($valor)),
         ));
 
-        // "25.000,50" → "25000.50". Lo ambiguo llega sin tocar y lo rechaza
-        // `numeric`: leer "1.500" como 1,5 guardaría mil quinientos pesos como uno
-        // con cincuenta sin reportar ningún error.
         foreach ($lineas as $indice => $linea) {
             if (array_key_exists('costo_unitario', $linea)) {
                 $lineas[$indice]['costo_unitario'] = Importe::normalizar($linea['costo_unitario']);
@@ -81,10 +56,9 @@ class PedidoCompraRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'lineas'   => ['required', 'array', 'min:1', 'max:50'],
+            'lineas'   => ['required', 'array', 'min:1', 'max:'.self::MAXIMO_LINEAS],
             'lineas.*' => ['array'],
 
-            // Activo, sí: un pedido nuevo no arrastra líneas viejas que proteger.
             'lineas.*.producto_id' => [
                 'required', 'integer',
                 Rule::exists('productos', 'id')->where('activo', true),
@@ -97,10 +71,6 @@ class PedidoCompraRequest extends FormRequest
             ],
 
             'lineas.*.cantidad_pedida' => ['required', 'integer', 'min:1', 'max:100000'],
-
-            // Cero es válido, igual que en OrdenCompraRequest: un producto que nunca
-            // se compró a ese proveedor no tiene costo conocido, y el borrador en
-            // cero se nota antes de aprobar.
             'lineas.*.costo_unitario' => ['required', 'numeric', 'min:0', 'max:9999999999'],
         ];
     }
@@ -115,13 +85,11 @@ class PedidoCompraRequest extends FormRequest
                 $proveedor = $linea['proveedor_id'] ?? null;
 
                 if ($producto === null || $proveedor === null) {
-                    continue;   // les falta un campo; otras reglas lo dicen
+                    continue;  
                 }
 
                 $par = "{$producto}-{$proveedor}";
 
-                // El error se cuelga de la línea culpable y no del arreglo entero,
-                // así la pantalla puede marcar esa fila.
                 if (isset($vistos[$par])) {
                     $validator->errors()->add(
                         "lineas.{$indice}.producto_id",
@@ -136,10 +104,6 @@ class PedidoCompraRequest extends FormRequest
 
     /**
      * El proveedor de la línea provee ese producto.
-     *
-     * El atributo llega como `lineas.3.proveedor_id`, así que el índice sale de ahí
-     * y con él se lee el producto de la misma línea. Es la única forma de validar
-     * dos campos hermanos en un arreglo.
      */
     protected function provistoPorEseProveedor(string $atributo, mixed $valor, Closure $fallar): void
     {
@@ -199,7 +163,7 @@ class PedidoCompraRequest extends FormRequest
         return [
             'lineas.required' => 'El pedido necesita al menos un producto.',
             'lineas.min'      => 'El pedido necesita al menos un producto.',
-            'lineas.max'      => 'Un pedido no puede tener más de 50 líneas. Guardalo y armá otro.',
+            'lineas.max'      => 'Un pedido no puede tener más de '.self::MAXIMO_LINEAS.' líneas. Guardalo y armá otro.',
 
             'lineas.*.producto_id.required' => 'Elegí el producto de esta línea.',
             'lineas.*.producto_id.exists'   => 'Ese producto no existe o está dado de baja.',

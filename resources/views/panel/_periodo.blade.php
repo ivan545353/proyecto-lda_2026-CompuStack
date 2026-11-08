@@ -22,7 +22,7 @@
 
         <div class="col-12">
             <div id="ayudaPeriodo" class="form-text">
-                Las dos fechas se incluyen completas. Sin elegir nada, el panel muestra del primero del mes a hoy.
+                Las dos fechas se incluyen completas. Sin elegir nada, se muestra del primero del mes a hoy.
             </div>
         </div>
     </div>

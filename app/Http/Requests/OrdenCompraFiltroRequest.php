@@ -25,7 +25,8 @@ class OrdenCompraFiltroRequest extends FormRequest
     {
         return [
             'q'            => ['nullable', 'string', 'max:100'],
-            'estado'       => ['nullable', Rule::in(array_keys(OrdenCompra::ESTADOS))],
+            'estado'       => ['nullable', Rule::in(array_keys(OrdenCompra::ESTADOS_DEL_FILTRO))],
+            'origen'       => ['nullable', Rule::in(array_keys(OrdenCompra::ORIGENES))],
             'proveedor_id' => ['nullable', 'integer', 'exists:proveedores,id'],
             'desde'        => ['nullable', 'date'],
             'hasta'        => ['nullable', 'date', 'after_or_equal:desde'],

@@ -68,6 +68,28 @@ final class Importe
             : (string) $valor;
     }
 
+    /**
+     * Un número con coma decimal y sin ceros sobrantes: 2,500 → "2,5".
+     *
+     * Para porcentajes y multiplicadores, que no son importes: un precio
+     * siempre lleva dos decimales, una ganancia de 2,5 escrita "2,500" se lee
+     * peor, y un flete de 2,375 % necesita los tres.
+     */
+    public static function numero(mixed $valor, int $decimales = 3): string
+    {
+        if ($valor === null || $valor === '') {
+            return '';
+        }
+
+        if (! is_numeric($valor)) {
+            return (string) $valor;
+        }
+
+        $texto = number_format((float) $valor, $decimales, ',', '.');
+
+        return str_contains($texto, ',') ? rtrim(rtrim($texto, '0'), ',') : $texto;
+    }
+
     /** "1500.5" → "$ 1.500,50", para mostrar un importe en pantalla. */
     public static function pesos(mixed $valor): string
     {

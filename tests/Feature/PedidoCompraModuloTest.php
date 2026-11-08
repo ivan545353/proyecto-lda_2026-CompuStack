@@ -25,9 +25,11 @@ beforeEach(function () {
 const PERMISOS_COMPRA = ['compra.ver', 'compra.crear', 'compra.editar', 'compra.aprobar', 'compra.recibir'];
 
 /** Un producto que se le puede comprar a ese proveedor, con su costo y su código. */
-function productoDe(Proveedor $proveedor, float $costo = 1000, ?string $codigo = null): Producto
+function productoDe(Proveedor $proveedor, float $costo = 1000, ?string $codigo = null, array $cambios = []): Producto
 {
-    return Producto::factory()->conProveedor($proveedor, costo: $costo, codigo: $codigo)->create();
+    return Producto::factory()
+        ->conProveedor($proveedor, costo: $costo, codigo: $codigo)
+        ->create($cambios);
 }
 
 /*
@@ -71,41 +73,22 @@ test('solo ofrece productos activos que algun proveedor activo provea', function
     $proveedor = Proveedor::factory()->create();
     $deBaja    = Proveedor::factory()->inactivo()->create();
 
-    $pedible      = productoDe($proveedor);
-    $sinProveedor = Producto::factory()->create();
-    $inactivo     = Producto::factory()->inactivo()->conProveedor($proveedor)->create();
-    $soloDeBaja   = productoDe($deBaja);
+    $pedible      = productoDe($proveedor, cambios: ['nombre' => 'Fuente que se puede pedir']);
+    $sinProveedor = Producto::factory()->create(['nombre' => 'Fuente sin proveedor']);
+    $inactivo     = Producto::factory()->inactivo()->conProveedor($proveedor)
+        ->create(['nombre' => 'Fuente dada de baja']);
+    $soloDeBaja   = productoDe($deBaja, cambios: ['nombre' => 'Fuente de un proveedor de baja']);
+    $respuesta = $this->actingAs(usuarioCon('compra.crear', 'producto.ver'))
+        ->getJson(route('busqueda.productos', ['q' => 'fuente', 'con_proveedor' => 1]))
+        ->assertOk();
 
-    // No se ofrece lo que el Form Request va a rechazar. El badge «Sin proveedor»
-    // del catálogo es el camino para arreglar el caso del medio.
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->get(route('compras.pedido'))
-        ->assertOk()
-        ->assertViewHas('productos', fn ($p) => $p->pluck('id')->all() === [$pedible->id]);
-});
-
-test('el mapa de proveedores por producto llega a la pantalla con el costo y el preferido', function () {
-    $caro   = Proveedor::factory()->create(['razon_social' => 'Caro']);
-    $barato = Proveedor::factory()->create(['razon_social' => 'Barato']);
-
-    $producto = Producto::factory()
-        ->conProveedor($caro, costo: 2000)
-        ->conProveedor($barato, costo: 1000)
-        ->create();
+    expect(array_column($respuesta->json('resultados'), 'id'))->toBe([$pedible->id]);
 
     $this->actingAs(usuarioCon('compra.crear'))
         ->get(route('compras.pedido'))
-        ->assertOk()
-        ->assertViewHas('mapa', function ($mapa) use ($producto, $caro, $barato) {
-            $entrada = $mapa[$producto->id];
-
-            // El preferido primero —el primero vinculado lo es— y después por costo.
-            return count($entrada) === 2
-                && $entrada[0]['id'] === $caro->id
-                && $entrada[0]['preferido'] === true
-                && $entrada[1]['id'] === $barato->id;
-        });
+        ->assertOk();
 });
+
 
 test('la pantalla avisa cuando no hay nada que se pueda pedir', function () {
     Producto::factory()->create();   // sin proveedores
@@ -265,4 +248,140 @@ test('una sola linea crea un solo pedido y el mensaje lo dice en singular', func
             && str_contains($mensaje, 'Austral'));
 
     expect(OrdenCompra::count())->toBe(1);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Los sugeridos de reposición
+|--------------------------------------------------------------------------
+*/
+
+test('solo compra.crear abre la pantalla de sugeridos', function () {
+    $otros = array_values(array_diff(PERMISOS_COMPRA, ['compra.crear']));
+
+    $this->actingAs(usuarioCon(...$otros))->get(route('compras.sugeridos'))->assertForbidden();
+    $this->actingAs(usuarioCon('compra.crear'))->get(route('compras.sugeridos'))->assertOk();
+});
+
+test('los sugeridos son lo que hay que reponer y nada mas', function () {
+    $proveedor = Proveedor::factory()->create();
+
+    $aPedir   = productoDe($proveedor, cambios: ['stock_minimo' => 5]);
+    $enCamino = productoDe($proveedor, cambios: ['stock_minimo' => 5]);
+
+    Producto::factory()->conStock(50)->conProveedor($proveedor)->create(['stock_minimo' => 5]);
+    Producto::factory()->conStock(0)->conProveedor($proveedor)->create(['stock_minimo' => 0]);
+    Producto::factory()->conStock(0)->create(['stock_minimo' => 5]);   // sin proveedor
+
+    OrdenCompra::factory()->conLinea($enCamino, 10)->create(['proveedor_id' => $proveedor->id]);
+
+    $this->actingAs(usuarioCon('compra.crear'))
+        ->get(route('compras.sugeridos'))
+        ->assertOk()
+        ->assertViewHas('sugeridos', fn ($sugeridos) => $sugeridos->pluck('id')->all() === [$aPedir->id]);
+});
+
+test('el aviso dice cuantos no se pueden pedir y enlaza al catalogo filtrado', function () {
+    productoDe(Proveedor::factory()->create(), cambios: ['stock_minimo' => 5]);
+
+    Producto::factory()->count(3)->conStock(0)->create(['stock_minimo' => 5]);
+
+    $this->actingAs(usuarioCon('compra.crear', 'producto.ver'))
+        ->get(route('compras.sugeridos'))
+        ->assertOk()
+        ->assertSee('data-sin-proveedor="3"', false)
+        ->assertSee(route('productos.index', ['stock' => 'sin_proveedor']), false);
+});
+
+test('sin huerfanos el aviso no existe', function () {
+    productoDe(Proveedor::factory()->create(), cambios: ['stock_minimo' => 5]);
+
+    $this->actingAs(usuarioCon('compra.crear'))
+        ->get(route('compras.sugeridos'))
+        ->assertOk()
+        ->assertDontSee('avisoSinProveedor', false);
+});
+
+test('la pantalla pagina y no rinde todo lo que hay que reponer', function () {
+    Producto::factory()->count(21)->conProveedor(Proveedor::factory()->create())
+        ->create(['stock_minimo' => 5]);
+
+    $this->actingAs(usuarioCon('compra.crear'))
+        ->get(route('compras.sugeridos'))
+        ->assertOk()
+        ->assertViewHas('sugeridos', fn ($sugeridos) => $sugeridos->count() === 20
+            && $sugeridos->total() === 21);
+});
+
+test('el ultimo costo no se muestra sin el permiso de verlo', function () {
+    productoDe(Proveedor::factory()->create(), costo: 12000, cambios: ['stock_minimo' => 5]);
+
+    $this->actingAs(usuarioCon('compra.crear'))
+        ->get(route('compras.sugeridos'))
+        ->assertOk()
+        ->assertDontSee('Último costo');
+
+    $this->actingAs(usuarioCon('compra.crear', 'precio.ver_costo'))
+        ->get(route('compras.sugeridos'))
+        ->assertOk()
+        ->assertSee('Último costo');
+});
+
+test('los sugeridos elegidos llegan al armador como renglones', function () {
+    $proveedor = Proveedor::factory()->create(['razon_social' => 'Austral']);
+    $producto  = productoDe($proveedor, costo: 12000, cambios: [
+        'codigo'              => 'FUE-001',
+        'stock_minimo'        => 5,
+        'cantidad_reposicion' => 7,
+    ]);
+
+    $this->actingAs(usuarioCon('compra.crear'))
+        ->get(route('compras.pedido', ['productos' => [$producto->id]]))
+        ->assertOk()
+        // El proveedor, la cantidad y el costo los pone el servidor: la pantalla
+        // mandó un id y nada más.
+        ->assertViewHas('lineas', fn ($lineas) => count($lineas) === 1
+            && $lineas[0]['producto_id'] === $producto->id
+            && $lineas[0]['proveedor_id'] === $proveedor->id
+            && $lineas[0]['cantidad_pedida'] === 7
+            && (float) $lineas[0]['costo_unitario'] === 12000.0)
+        ->assertSee('FUE-001');
+});
+
+test('un sugerido que ya no hace falta no entra y el armador lo dice', function () {
+    $proveedor = Proveedor::factory()->create();
+
+    $sigue   = productoDe($proveedor, cambios: ['stock_minimo' => 5]);
+    $cargado = Producto::factory()->conStock(50)->conProveedor($proveedor)->create(['stock_minimo' => 5]);
+
+    $this->actingAs(usuarioCon('compra.crear'))
+        ->get(route('compras.pedido', ['productos' => [$sigue->id, $cargado->id]]))
+        ->assertOk()
+        ->assertViewHas('lineas', fn ($lineas) => count($lineas) === 1)
+        // Rechaza, no corrige: el renglón no se agrega y se dice por qué (M-31).
+        ->assertSee('ya no hace falta');
+});
+
+test('una lista de productos invalida devuelve el armador limpio con un error', function () {
+    $this->actingAs(usuarioCon('compra.crear'))
+        ->get(route('compras.pedido', ['productos' => [99999]]))
+        ->assertRedirect(route('compras.pedido'))
+        ->assertSessionHas('error');
+});
+
+test('la insignia del menu cuenta los borradores para quien puede aprobar', function () {
+    OrdenCompra::factory()->count(2)->create(['proveedor_id' => Proveedor::factory()->create()->id]);
+
+    $this->actingAs(usuarioCon('compra.ver', 'compra.aprobar'))
+        ->get(route('compras.index'))
+        ->assertOk()
+        ->assertSee('data-borradores="2"', false)
+        ->assertSee('esperando aprobación');
+
+    // Para quien no puede aprobar no sería una llamada a la acción: no se rinde, y
+    // tampoco se paga la consulta.
+    $this->actingAs(usuarioCon('compra.ver'))
+        ->get(route('compras.index'))
+        ->assertOk()
+        ->assertDontSee('data-borradores', false);
 });

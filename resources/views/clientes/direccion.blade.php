@@ -97,7 +97,7 @@
                             id="codigo_postal" name="codigo_postal" maxlength="10" placeholder="9011"
                             value="{{ old('codigo_postal', $direccion->codigo_postal) }}"
                             aria-describedby="ayudaCp @error('codigo_postal') errorCp @enderror">
-                        <div id="ayudaCp" class="form-text">9011 o Z9011XAA.</div>
+                        <div id="ayudaCp" class="form-text">Formato: 9011 o Z9011XAA.</div>
                         @error('codigo_postal')
                             <div id="errorCp" class="invalid-feedback">{{ $message }}</div>
                         @enderror
@@ -127,13 +127,12 @@
                     </div>
                 </div>
 
-                <div class="d-flex gap-2 mt-4">
-                    <button type="submit" class="btn btn-acento">
+                <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
+                    <a href="{{ route('clientes.edit', $cliente) }}" class="btn btn-outline-secondary">Cancelar</a>
+                    <button type="submit" class="btn btn-acento px-4">
                         <i class="bi bi-check-lg" aria-hidden="true"></i>
                         {{ $esEdicion ? 'Guardar cambios' : 'Agregar dirección' }}
                     </button>
-
-                    <a href="{{ route('clientes.edit', $cliente) }}" class="btn btn-outline-secondary">Cancelar</a>
                 </div>
             </form>
         </div>

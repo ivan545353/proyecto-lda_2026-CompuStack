@@ -1,17 +1,16 @@
 import Chart from 'chart.js/auto';
 
 /**
- * Gráficos del panel general.
+ * El gráfico del panel general: facturado por día.
  *
  * Los números llegan ya agregados desde el servidor y acá sólo se dibujan: un gráfico
  * que recibiera filas y las contara en el navegador sería A-26 otra vez con otra ropa.
  *
- * Mejora progresiva: sin este archivo las dos tablas de abajo muestran exactamente los
- * mismos números, así que no se pierde ningún dato.
+ * Mejora progresiva: sin este archivo la tabla plegada debajo del gráfico muestra
+ * exactamente los mismos números, así que no se pierde ningún dato.
  */
 export function iniciarGraficosDelPanel(raiz = document) {
     const dias = leerJson('facturadoPorDia');
-    const metodos = leerJson('cobradoPorMetodo');
 
     // El color sale de la variable del sistema para no tener dos paletas.
     const acento = getComputedStyle(document.documentElement)
@@ -58,26 +57,6 @@ export function iniciarGraficosDelPanel(raiz = document) {
                 }],
             },
             options: { ...sinLeyenda, scales: { y: { ...ejeDePesos, beginAtZero: true } } },
-        });
-    }
-
-    const lienzoMetodos = raiz.querySelector('[data-grafico-metodos]');
-
-    if (lienzoMetodos && metodos.length) {
-        // Barras y no torta: un medio puede quedar negativo cuando volvió por ahí más
-        // de lo que entró, y una torta no puede dibujar eso. El signo lo comunica la
-        // dirección de la barra, no sólo el color.
-        new Chart(lienzoMetodos, {
-            type: 'bar',
-            data: {
-                labels: metodos.map((fila) => fila.metodo),
-                datasets: [{
-                    data: metodos.map((fila) => fila.neto),
-                    backgroundColor: metodos.map((fila) => (fila.neto < 0 ? '#b02a37' : acento)),
-                    borderRadius: 4,
-                }],
-            },
-            options: { ...sinLeyenda, scales: { y: ejeDePesos } },
         });
     }
 }

@@ -1,16 +1,6 @@
-import { iniciarSelectsBuscables } from './selects-buscables';
-
+import { olvidarBusquedas } from './selects-buscables';
 /**
  * Líneas repetibles de una orden de compra.
- *
- * Mejora progresiva: sin este archivo el formulario sigue funcionando con las
- * líneas que el servidor haya renderizado —al menos una—, y el servidor valida
- * exactamente lo mismo. Lo que se pierde es agregar filas y ver los subtotales.
- *
- * Las claves del arreglo no se renumeran nunca. PHP recibe `lineas[0]` y
- * `lineas[7]` como un arreglo de dos elementos, y las reglas `lineas.*.campo` se
- * aplican igual, así que un contador que sólo crece evita toda la clase de errores
- * que produce reindexar al quitar una fila del medio.
  */
 export function iniciarLineasDeOrden(raiz = document) {
     const tabla = raiz.querySelector('[data-lineas-orden]');
@@ -18,12 +8,14 @@ export function iniciarLineasDeOrden(raiz = document) {
 
     const cuerpo = tabla.querySelector('tbody');
     const plantilla = tabla.querySelector('#plantillaLinea');
-    const botonAgregar = raiz.querySelector('[data-agregar-linea]');
-    const totalEl = tabla.querySelector('[data-total-orden]');
-    const avisoVacio = raiz.querySelector('[data-sin-lineas]');
-    
 
     if (!cuerpo || !plantilla) return;
+
+    const buscador = raiz.querySelector('[data-buscador-producto]');
+    const campoProveedor = raiz.querySelector('[data-proveedor-orden]');
+    const faltaProveedor = raiz.querySelector('[data-falta-proveedor]');
+    const totalEl = tabla.querySelector('[data-total-orden]');
+    const avisoVacio = raiz.querySelector('[data-sin-lineas]');
 
     let proximoIndice = Number(tabla.dataset.proximoIndice ?? 0);
 
@@ -31,6 +23,12 @@ export function iniciarLineasDeOrden(raiz = document) {
         style: 'currency',
         currency: 'ARS',
         minimumFractionDigits: 2,
+    });
+
+    // El costo sugerido se escribe en el formato en que se tipea: 25.000,50
+    const decimal = new Intl.NumberFormat('es-AR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
     });
 
     // El costo se escribe en formato argentino: 25.000,50
@@ -41,7 +39,25 @@ export function iniciarLineasDeOrden(raiz = document) {
         return Number.isFinite(numero) ? numero : 0;
     };
 
-    const filas = () => [...cuerpo.querySelectorAll('tr')];
+    const filas = () => [...cuerpo.querySelectorAll('tr[data-linea]')];
+
+    const idsCargados = () => filas()
+        .map((fila) => fila.querySelector('[data-producto]')?.value ?? '')
+        .filter((id) => id !== '');
+
+    /**
+     * Lo que el buscador no vuelve a ofrecer, y el olvido que va con eso.
+     */
+    const sincronizarExclusion = () => {
+        if (!buscador) return;
+
+        const lista = idsCargados().join(',');
+
+        if (buscador.dataset.buscableExcluir === lista) return;
+
+        buscador.dataset.buscableExcluir = lista;
+        olvidarBusquedas(buscador);
+    };
 
     const refrescar = () => {
         let total = 0;
@@ -59,57 +75,127 @@ export function iniciarLineasDeOrden(raiz = document) {
 
         if (totalEl) totalEl.textContent = pesos.format(total);
         if (avisoVacio) avisoVacio.hidden = filas().length > 0;
+
+        sincronizarExclusion();
     };
 
-    const agregar = () => {
+    const seguirAlProveedor = () => {
+        if (!buscador) return;
+
+        const proveedorId = campoProveedor?.value ?? '';
+        const sinProveedor = proveedorId === '';
+        const plantillaUrl = tabla.dataset.productosUrl ?? '';
+
+        // Si la vista no publicó la plantilla, se queda la URL que rindió el
+        // servidor: vale más el recorte guardado que ninguno.
+        if (plantillaUrl !== '') {
+            buscador.dataset.buscableUrl = plantillaUrl
+                .replace('__PROVEEDOR__', encodeURIComponent(proveedorId));
+        }
+
+        if (faltaProveedor) faltaProveedor.hidden = !sinProveedor;
+
+        if (sinProveedor) buscador.tomselect?.disable();
+        else buscador.tomselect?.enable();
+
+        olvidarBusquedas(buscador);
+    };
+
+    /** Un renglón nuevo, ya con su producto, la cantidad en 1 y el foco en la cantidad. */
+    const agregarProducto = (datos) => {
         const fila = plantilla.content.firstElementChild.cloneNode(true);
 
-        // El marcador se reemplaza sobre el HTML de la fila antes de insertarla,
-        // así los name, los id y los for quedan consistentes entre sí.
         fila.innerHTML = fila.innerHTML.replaceAll('__INDICE__', String(proximoIndice));
         proximoIndice += 1;
 
+        const campoProducto = fila.querySelector('[data-producto]');
+        const rotulo = fila.querySelector('[data-rotulo]');
+        const campoCantidad = fila.querySelector('[data-cantidad]');
+        const campoCosto = fila.querySelector('[data-costo-unitario]');
+
+        const nombre = datos.text ?? '';
+
+        if (campoProducto) campoProducto.value = String(datos.value ?? datos.id ?? '');
+        if (rotulo) rotulo.textContent = nombre;
+
+        // Los dos textos que nombran el renglón para un lector de pantalla, los
+        // mismos que el servidor escribe en las filas que rinde él.
+        fila.querySelectorAll('[data-rotulo-campo]').forEach((etiqueta) => {
+            etiqueta.textContent = `${etiqueta.dataset.rotuloCampo} de ${nombre}`;
+        });
+
+        fila.querySelector('[data-quitar-linea]')
+            ?.setAttribute('aria-label', `Quitar ${nombre} de la orden`);
+
+        if (campoCantidad) campoCantidad.value = '1';
+
+        // El último costo registrado para ese proveedor, si el servidor lo mandó. Sin
+        // `precio.ver_costo` la clave no viene y sin costo cargado viene en null: las
+        // dos cosas dejan el campo vacío para que se escriba, y por eso acá no se
+        // distinguen. Lo que no se puede es afirmar un costo que no se recibió.
+        if (campoCosto) {
+            campoCosto.value = datos.costo === undefined || datos.costo === null
+                ? ''
+                : decimal.format(Number(datos.costo));
+        }
+
         cuerpo.insertBefore(fila, plantilla);
 
-        // El selector con búsqueda se inicia en DOMContentLoaded: una fila creada
-        // después tiene que pedirlo.
-        iniciarSelectsBuscables(fila);
-
         refrescar();
+
+        campoCantidad?.focus();
+        campoCantidad?.select();
     };
 
-    botonAgregar?.addEventListener('click', agregar);
+    // Elegir en el buscador ES agregar el renglón. Se limpia en silencio para no
+    // volver a disparar este mismo evento.
+    buscador?.addEventListener('change', () => {
+        const elegido = buscador.value;
+
+        if (elegido === '') return;
+
+        const datos = buscador.tomselect?.options?.[elegido];
+
+        buscador.tomselect?.clear(true);
+
+        if (datos) agregarProducto(datos);
+    });
+
+    campoProveedor?.addEventListener('change', seguirAlProveedor);
 
     cuerpo.addEventListener('input', refrescar);
+    cuerpo.addEventListener('change', refrescar);
 
-    // Al elegir un producto se sugiere su último costo, y sólo si el campo está
-    // vacío: sobrescribir lo que el usuario escribió sería corregirlo.
-    cuerpo.addEventListener('change', (evento) => {
-        const select = evento.target.closest('[data-producto]');
-        if (!select) return;
+    // El recorrido con teclado del renglón de compras tiene tres campos y no dos:
+    // cantidad, costo, y de vuelta al buscador. Enter avanza en lugar de enviar el
+    // formulario; sin JavaScript, Enter sigue enviando como en cualquier formulario.
+    cuerpo.addEventListener('keydown', (evento) => {
+        if (evento.key !== 'Enter') return;
 
-        const campoCosto = select.closest('tr')?.querySelector('[data-costo-unitario]');
-        const sugerido = select.selectedOptions[0]?.dataset.costoSugerido;
+        if (evento.target.matches('[data-cantidad]')) {
+            evento.preventDefault();
+            evento.target.closest('tr[data-linea]')?.querySelector('[data-costo-unitario]')?.focus();
 
-        if (campoCosto && campoCosto.value.trim() === '' && sugerido && Number(sugerido) > 0) {
-            campoCosto.value = new Intl.NumberFormat('es-AR', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }).format(Number(sugerido));
+            return;
+        }
 
-            refrescar();
+        if (evento.target.matches('[data-costo-unitario]')) {
+            evento.preventDefault();
+            buscador?.tomselect?.focus();
         }
     });
 
     cuerpo.addEventListener('click', (evento) => {
         if (!evento.target.closest('[data-quitar-linea]')) return;
 
-        evento.target.closest('tr').remove();
+        evento.target.closest('tr[data-linea]')?.remove();
         refrescar();
+
+        // El producto que se quitó vuelve a estar disponible para elegir, y el foco
+        // vuelve al único lugar desde donde se agrega.
+        buscador?.tomselect?.focus();
     });
 
-    // Un formulario de alta abre con una fila lista para usar.
-    if (filas().length === 0) agregar();
-
+    seguirAlProveedor();
     refrescar();
 }

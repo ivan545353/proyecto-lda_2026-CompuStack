@@ -1,11 +1,15 @@
 <?php
 
+use App\Impresion\ListadoVentas;
 use App\Models\Cliente;
 use App\Models\Producto;
 use App\Models\User;
 use App\Models\Venta;
+use App\Services\ImpresionService;
 use App\Services\VentaService;
+use App\Support\Importe;
 use Database\Seeders\RolPermisoSeeder;
+use App\Models\VentaLinea;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 
@@ -497,15 +501,15 @@ test('la ficha muestra el documento con sus importes', function () {
         ->assertSee('2.700,00');
 });
 
-test('la ficha dice consumidor final con palabras', function () {
+test('la ficha dice sin identificar con palabras', function () {
     $venta = $this->service->crear(datosDeVenta([lineaDeVenta(productoConPrecios(), 1)]), admin());
 
-    // `cliente_id` en null SIGNIFICA consumidor final: no es un dato que falte, y la
+    // `cliente_id` en null SIGNIFICA sin identificar: no es un dato que falte, y la
     // pantalla no muestra una tarjeta vacía.
     $this->actingAs(usuarioCon('venta.ver'))
         ->get(route('ventas.show', $venta))
         ->assertOk()
-        ->assertSee('Consumidor final');
+        ->assertSee('Sin identificar');
 });
 
 /*
@@ -847,46 +851,405 @@ test('exportar el listado devuelve un PDF y no cambia nada', function () {
 });
 
 test('el listado exportado declara los filtros aplicados', function () {
-    $html = view('ventas.listado-pdf', [
-        'ventas'   => collect(),
-        'cantidad' => 0,
-        'total'    => 0.0,
-        'tope'     => 500,
-        'filtros'  => ['Estado' => 'Pagada', 'Desde' => '01/03/2026'],
-    ])->render();
+    $usuario  = usuarioCon('venta.ver');
+    $servicio = app(ImpresionService::class);
+    $listado  = new ListadoVentas();
+
+    $html = view('impresion.listado-pdf', $servicio->datosDelPdf(
+        $listado,
+        Venta::query()->orderByDesc('id'),
+        $servicio->opciones($listado, [], $usuario),
+        $usuario,
+        ['Estado' => 'Pagada', 'Desde' => '01/03/2026'],
+    ))->render();
 
     expect($html)->toContain('Estado')
         ->and($html)->toContain('Pagada')
         ->and($html)->toContain('01/03/2026')
-        ->and($html)->not->toContain('sin ningún filtro aplicado');
+        ->and($html)->not->toContain('Sin ningún filtro aplicado');
 });
 
 test('el listado sin filtros lo dice en lugar de no decir nada', function () {
-    $html = view('ventas.listado-pdf', [
-        'ventas'   => collect(),
-        'cantidad' => 0,
-        'total'    => 0.0,
-        'tope'     => 500,
-        'filtros'  => [],
-    ])->render();
+    $usuario  = usuarioCon('venta.ver');
+    $servicio = app(ImpresionService::class);
+    $listado  = new ListadoVentas();
 
-    expect($html)->toContain('sin ningún filtro aplicado');
+    $html = view('impresion.listado-pdf', $servicio->datosDelPdf(
+        $listado,
+        Venta::query()->orderByDesc('id'),
+        $servicio->opciones($listado, [], $usuario),
+        $usuario,
+        [],
+    ))->render();
+
+    expect($html)->toContain('Sin ningún filtro aplicado');
 });
 
 test('cuando hay mas ventas que el tope el documento lo dice y el total es de todas', function () {
-    $venta = ventaCobrada(productoConPrecios(contado: 1000), 3);
+    $producto = productoConPrecios(contado: 1000);
+    $primera  = ventaCobrada($producto, 1);
+    $segunda  = ventaCobrada($producto, 2);
+    $tercera  = ventaCobrada($producto, 3);
 
-    $html = view('ventas.listado-pdf', [
-        'ventas'   => collect([$venta->fresh(['cliente', 'usuario'])]),
-        'cantidad' => 742,
-        'total'    => 1234567.89,
-        'tope'     => 2,
-        'filtros'  => [],
-    ])->render();
+    $usuario  = usuarioCon('venta.ver');
+    $servicio = app(ImpresionService::class);
+    $listado  = new ListadoVentas();
+
+    $html = view('impresion.listado-pdf', $servicio->datosDelPdf(
+        $listado,
+        Venta::query()->orderByDesc('id'),
+        $servicio->opciones($listado, [], $usuario),
+        $usuario,
+        [],
+        tope: 2,
+    ))->render();
 
     // El resultado dice lo que pasó de verdad: que recortó, y que el total es de las
-    // 742 coincidencias y no de las 2 impresas.
-    expect($html)->toContain('742')
-        ->and($html)->toContain('1.234.567,89')
-        ->and($html)->toContain('no a las');
+    // tres coincidencias y no de las dos impresas, que son las más nuevas.
+    expect($html)->toContain('data-recorte')
+        ->and($html)->toContain($tercera->numeroFormateado())
+        ->and($html)->toContain($segunda->numeroFormateado())
+        ->and($html)->not->toContain($primera->numeroFormateado())
+        ->and($html)->toMatch('/Total:\s*3 ventas/')
+        ->and($html)->toContain(Importe::pesos(Venta::sum('total')));
+});
+/*
+|--------------------------------------------------------------------------
+| A quién se le vendió: «Sin identificar»
+|--------------------------------------------------------------------------
+|
+| Punto 13 del revisor, primera mitad. Se renombran dos cosas y hay una tercera que
+| NO se renombra, y los cuatro tests van juntos porque son una sola decisión: el
+| rótulo de la pantalla cambió, la categoría fiscal de ARCA no.
+|
+*/
+
+test('una venta sin cliente dice sin identificar', function () {
+    $venta = Venta::factory()->create(['cliente_id' => null]);
+
+    expect($venta->clienteTexto())->toBe('Sin identificar');
+});
+
+test('una venta con cliente dice su razon social', function () {
+    $cliente = Cliente::factory()->create(['razon_social' => 'Panadería Los Tilos']);
+    $venta   = Venta::factory()->create(['cliente_id' => $cliente->id]);
+
+    expect($venta->clienteTexto())->toBe('Panadería Los Tilos');
+});
+
+test('la ficha de la venta muestra sin identificar y no consumidor final', function () {
+    $venta = Venta::factory()->create(['cliente_id' => null]);
+
+    $this->actingAs(usuarioCon('venta.ver'))
+        ->get(route('ventas.show', $venta))
+        ->assertOk()
+        ->assertSee('Sin identificar')
+        ->assertDontSee('Consumidor final');
+});
+
+test('la condicion fiscal consumidor_final no se renombro', function () {
+    // La mitad que el plan dice NO tocar. `consumidor_final` es una de las cuatro
+    // categorías de ARCA y decide si va factura A o B en la Etapa 2; el test existe
+    // para que un «renombrar todo» futuro no se la lleve junto con el rótulo.
+    expect(Cliente::CONDICIONES_IVA)->toHaveKey('consumidor_final')
+        ->and(Cliente::CONDICIONES_IVA['consumidor_final'])->toBe('Consumidor final');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Quién supera el disponible: una definición, dos lenguajes
+|--------------------------------------------------------------------------
+|
+| El punto 2 del revisor pide avisar del faltante al cargar el presupuesto, y el
+| plan lo reparte en tres momentos que no bloquean más uno que sí —el cobro, que
+| es el de la Fase 6 y no se toca—. Antes de las pantallas hace falta que la
+| pregunta «¿qué renglón pide más de lo que hay?» tenga una sola respuesta.
+|
+| La tiene `Venta::faltantesDeStock()`, que lee el accesor `stock_disponible`, y
+| la repite en SQL `VentaLinea::scopeSuperanElDisponible()`, que reusa la constante
+| `Producto::DISPONIBLE` para que la resta siga viviendo en un solo lugar
+| (invariante 6). Son dos escrituras de la misma regla porque el listado no puede
+| contar en PHP sin un N+1, y lo único que las ata es el primer test de acá.
+|
+| Cotizar lo que todavía no llegó es legítimo, así que nada de esto impide nada.
+|
+*/
+
+/** Un presupuesto que pide más unidades de las que hay disponibles. */
+function presupuestoSinStock(int $cantidad = 5, int $stock = 2): Venta
+{
+    $producto = Producto::factory()->conStock($stock)->create([
+        'codigo'         => 'ESC-00001',
+        'nombre'         => 'Teclado escaso',
+        'precio_contado' => '1000.00',
+    ]);
+
+    return app(VentaService::class)->crear(
+        datosDeVenta([lineaDeVenta($producto, $cantidad)]),
+        admin(),
+    );
+}
+
+test('el conteo en SQL y el accesor en PHP dan el mismo numero', function () {
+    $venta = presupuestoSinStock(cantidad: 5, stock: 2);
+
+    $enSql = VentaLinea::query()->where('venta_id', $venta->id)->superanElDisponible()->count();
+    $enPhp = $venta->load('lineas.producto')->faltantesDeStock()->count();
+
+    expect($enSql)->toBe(1)->and($enPhp)->toBe(1);
+});
+
+test('un presupuesto con stock de sobra no tiene ningun faltante', function () {
+    $venta = presupuestoSinStock(cantidad: 2, stock: 10);
+
+    $enSql = VentaLinea::query()->where('venta_id', $venta->id)->superanElDisponible()->count();
+
+    expect($enSql)->toBe(0)
+        ->and($venta->load('lineas.producto')->faltantesDeStock())->toBeEmpty();
+});
+
+test('el disponible descuenta lo reservado y no sólo el stock', function () {
+    // El disponible es `stock - stock_reservado` en todos lados (invariante 6): con
+    // ocho en el estante y seis comprometidos, una venta de cuatro ya no entra.
+    $producto = Producto::factory()->conStock(8, 6)->create(['precio_contado' => '1000.00']);
+
+    $venta = app(VentaService::class)->crear(
+        datosDeVenta([lineaDeVenta($producto, 4)]),
+        admin(),
+    );
+
+    expect(VentaLinea::query()->where('venta_id', $venta->id)->superanElDisponible()->count())->toBe(1)
+        ->and($venta->load('lineas.producto')->faltantesDeStock())->toHaveCount(1);
+});
+
+test('la pantalla de cobro avisa del faltante con el conteo del modelo', function () {
+    $venta = presupuestoSinStock(cantidad: 5, stock: 2);
+
+    // El texto es el de la Fase 6 y no cambia: lo que cambió es de dónde sale el
+    // número. Cadena corta a propósito, que el formateador de Blade no parte.
+    $this->actingAs(usuarioCon('venta.cobrar'))
+        ->get(route('pagos.create', $venta))
+        ->assertOk()
+        ->assertSee('y hay 2 disponible(s)');
+});
+
+test('el aviso del cobro prefiere la baja del producto antes que el faltante', function () {
+    $venta    = presupuestoSinStock(cantidad: 5, stock: 2);
+    $producto = $venta->lineas->first()->producto;
+
+    $producto->update(['activo' => false]);
+
+    // Un renglón, un mensaje. Los dos problemas se arreglan en pantallas distintas
+    // —el catálogo y el depósito— y el de la baja hace fallar el cobro igual.
+    $this->actingAs(usuarioCon('venta.cobrar'))
+        ->get(route('pagos.create', $venta))
+        ->assertOk()
+        ->assertSee('dado de baja en el cat')
+        ->assertDontSee('y hay 2 disponible(s)');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Los tres momentos que avisan, y el que bloquea
+|--------------------------------------------------------------------------
+|
+| Al guardar, en la ficha y en el listado se avisa; en el cobro se bloquea, y eso
+| es de la Fase 6 y no se toca. Los tres primeros no impiden nada: cotizar algo que
+| todavía no llegó es un caso de negocio legítimo, y lo que el sistema tiene que
+| hacer no es prohibir, es no dejar llegar al cobro sin saberlo.
+|
+| Las dos insignias se prueban por un `id` puesto a propósito y no por su frase:
+| `assertSee` compara contra el HTML en bruto y el formateador de Blade parte las
+| líneas largas.
+|
+*/
+
+test('el alta de un presupuesto que supera el disponible avisa en azul y no en verde', function () {
+    $producto = Producto::factory()->conStock(2)->create(['precio_contado' => '1000.00']);
+
+    // Se emite igual. Lo que no puede pasar es que un verde afirme que quedó todo
+    // listo: lo que quedó es un presupuesto que hoy no se puede cobrar.
+    $this->actingAs(usuarioCon('venta.crear'))
+        ->post(route('ventas.store'), datosDeVenta([lineaDeVenta($producto, 5)]))
+        ->assertSessionMissing('exito')
+        ->assertSessionHas('aviso', fn (string $aviso) => str_contains($aviso, 'Un renglón supera el disponible'));
+
+    expect(Venta::latest('id')->first()->estado)->toBe('presupuesto');
+});
+
+test('el aviso del alta cuenta los renglones en plural', function () {
+    $uno = Producto::factory()->conStock(1)->create(['precio_contado' => '1000.00']);
+    $dos = Producto::factory()->conStock(1)->create(['precio_contado' => '2000.00']);
+
+    $this->actingAs(usuarioCon('venta.crear'))
+        ->post(route('ventas.store'), datosDeVenta([
+            lineaDeVenta($uno, 4),
+            lineaDeVenta($dos, 4),
+        ]))
+        ->assertSessionHas('aviso', fn (string $aviso) => str_contains($aviso, '2 renglones superan el disponible'));
+});
+
+test('la edicion que deja un renglon sin stock avisa en azul', function () {
+    $venta    = presupuestoSinStock(cantidad: 1, stock: 2);
+    $producto = $venta->lineas->first()->producto;
+
+    // El alta de este presupuesto no avisó nada: entraba en el disponible. Lo que
+    // avisa es la edición que lo saca de rango, y el mensaje de la edición conserva
+    // lo que decía sobre los precios congelados.
+    $this->actingAs(usuarioCon('venta.editar'))
+        ->put(route('ventas.update', $venta), datosDeVenta([lineaDeVenta($producto, 9)]))
+        ->assertSessionMissing('exito')
+        ->assertSessionHas('aviso', fn (string $aviso) => str_contains($aviso, 'conservan el precio')
+            && str_contains($aviso, 'Un renglón supera el disponible'));
+});
+
+test('la ficha lo dice con la insignia y marca el renglon', function () {
+    $venta = presupuestoSinStock(cantidad: 5, stock: 2);
+
+    $this->actingAs(usuarioCon('venta.ver'))
+        ->get(route('ventas.show', $venta))
+        ->assertOk()
+        ->assertSee('insigniaSinStock')
+        ->assertSee('Hay 2 disponible(s)');
+});
+
+test('la ficha de una venta cobrada no muestra la insignia aunque el stock ya no alcance', function () {
+    $producto = Producto::factory()->conStockYCosto(5, 500)->create(['precio_contado' => '1000.00']);
+    $venta    = ventaCobrada($producto, 5);
+
+    // El cobro dejó el disponible en cero, así que la comparación daría verdadero.
+    // Que no se muestre no es cosmético: esa mercadería ya salió del depósito, y
+    // avisar de un faltante ahí sería avisar de un problema que no existe.
+    expect($producto->fresh()->stock_disponible)->toBe(0);
+
+    $this->actingAs(usuarioCon('venta.ver'))
+        ->get(route('ventas.show', $venta))
+        ->assertOk()
+        ->assertDontSee('insigniaSinStock');
+});
+
+test('el listado marca el presupuesto sin stock y no la venta cobrada', function () {
+    $presupuesto = presupuestoSinStock(cantidad: 5, stock: 2);
+
+    $cobrado = Producto::factory()->conStockYCosto(5, 500)->create(['precio_contado' => '1000.00']);
+    ventaCobrada($cobrado, 5);
+
+    $respuesta = $this->actingAs(usuarioCon('venta.ver'))
+        ->get(route('ventas.index'))
+        ->assertOk()
+        ->assertSee('Sin stock suficiente');
+
+    $ventas = $respuesta->viewData('ventas');
+
+    // Las dos tienen un renglón que supera el disponible de hoy; sólo una es un
+    // presupuesto. El conteo lo trae la subconsulta para las dos y la pantalla
+    // decide a cuál le corresponde la insignia.
+    expect((int) $ventas->firstWhere('id', $presupuesto->id)->faltantes_count)->toBe(1)
+        ->and($ventas->filter(fn (Venta $venta) => $venta->esPresupuesto()))->toHaveCount(1);
+});
+
+test('el conteo del listado llega a la pantalla con el mismo numero que la ficha', function () {
+    $venta = presupuestoSinStock(cantidad: 5, stock: 2);
+
+    // El segundo nivel de A-24: que el scope cuente bien ya lo fija el test de la
+    // sección anterior; esto fija que el `withCount` esté cableado y que su alias
+    // llegue a la vista con ese nombre.
+    $contadoPorLaBase = (int) $this->actingAs(usuarioCon('venta.ver'))
+        ->get(route('ventas.index'))
+        ->viewData('ventas')
+        ->firstWhere('id', $venta->id)
+        ->faltantes_count;
+
+    expect($contadoPorLaBase)->toBe($venta->load('lineas.producto')->faltantesDeStock()->count());
+});
+
+/*
+|--------------------------------------------------------------------------
+| El gesto de cargar un renglón
+|--------------------------------------------------------------------------
+|
+| Un solo buscador arriba de la tabla, y el renglón nace con el producto puesto.
+| Lo que se puede probar desde el servidor es lo que el servidor rinde: que el
+| buscador esté, que el renglón lleve su producto en un campo oculto y su nombre
+| como texto, y que los ya cargados salgan en `data-buscable-excluir` desde la
+| primera carga y no cuando el JavaScript corra.
+|
+| El pendiente #30 deja de existir acá, y no por una validación nueva: no hay
+| selector que mantener, así que no hay dónde elegir dos veces lo mismo. El
+| `distinct` de `VentaRequest` se queda igual, porque una petición armada a mano
+| sigue siendo posible.
+|
+| El peso del HTML lo sigue fijando `PesoHtmlTest`, que no se toca: el `<select>`
+| por renglón desapareció, así que esta pantalla sólo puede haber adelgazado.
+|
+*/
+
+test('el formulario de alta abre con el buscador y sin ningun renglon', function () {
+    Producto::factory()->create();
+
+    $this->actingAs(usuarioCon('venta.crear', 'producto.ver', 'cliente.ver'))
+        ->get(route('ventas.create'))
+        ->assertOk()
+        ->assertSee('data-buscador-producto', false)
+        // Sin filas, no hay nada que excluir todavía.
+        ->assertSee('data-buscable-excluir=""', false)
+        // Ya no se abre con una fila vacía: el renglón nace con su producto.
+        ->assertDontSee('name="lineas[0][producto_id]"', false)
+        ->assertSee('Buscalo arriba por c');
+});
+
+test('el formulario de edicion rinde el producto como texto y lo excluye del buscador', function () {
+    $venta    = presupuestoSinStock(cantidad: 5, stock: 2);
+    $producto = $venta->lineas->first()->producto;
+
+    $this->actingAs(usuarioCon('venta.editar', 'producto.ver', 'cliente.ver'))
+        ->get(route('ventas.edit', $venta))
+        ->assertOk()
+        // El id en un campo oculto y el nombre como texto: el renglón se quita, no se
+        // cambia, así que no queda selector que mantener.
+        ->assertSee('name="lineas[0][producto_id]"', false)
+        ->assertSee('ESC-00001 — Teclado escaso')
+        ->assertSee('data-buscable-excluir="'.$producto->id.'"', false);
+});
+
+test('el renglon publica el precio de hoy y el disponible que conto el servidor', function () {
+    $producto = Producto::factory()->conStock(8, 6)->create(['precio_contado' => '1234.00']);
+
+    $venta = $this->service->crear(datosDeVenta([lineaDeVenta($producto, 1)]), admin());
+
+    // Es lo que reemplaza al objeto de la opción de Tom Select: con el producto en
+    // texto fijo ya no hay opción donde colgar el precio y el disponible, y el
+    // JavaScript los lee de la fila. El disponible es 8 − 6, no 8.
+    $this->actingAs(usuarioCon('venta.editar', 'producto.ver', 'cliente.ver'))
+        ->get(route('ventas.edit', $venta))
+        ->assertOk()
+        ->assertSee('data-precio-hoy="1234.00"', false)
+        ->assertSee('data-disponible="2"', false);
+});
+
+test('un error de validacion devuelve los renglones con su producto legible', function () {
+    $producto = Producto::factory()->conStock(10)->create([
+        'codigo'         => 'CBL-00009',
+        'nombre'         => 'Cable corto',
+        'precio_contado' => '1000.00',
+    ]);
+
+    $usuario = usuarioCon('venta.crear', 'producto.ver', 'cliente.ver');
+
+    $this->actingAs($usuario)
+        ->from(route('ventas.create'))
+        ->post(route('ventas.store'), datosDeVenta([
+            ['producto_id' => $producto->id, 'cantidad' => 0],
+        ]))
+        ->assertRedirect(route('ventas.create'))
+        ->assertSessionHasErrors('lineas.0.cantidad');
+
+    // La fila vuelve de `old()`, y con el producto en texto el servidor tiene que
+    // volver a resolver su rótulo: si no, el usuario vería un renglón sin nombre y
+    // sin forma de saber cuál era.
+    $this->actingAs($usuario)
+        ->get(route('ventas.create'))
+        ->assertOk()
+        ->assertSee('CBL-00009 — Cable corto')
+        ->assertSee('data-buscable-excluir="'.$producto->id.'"', false);
 });

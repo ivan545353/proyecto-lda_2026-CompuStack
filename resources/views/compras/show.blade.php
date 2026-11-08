@@ -301,11 +301,16 @@
 
     @if ($orden->movimientos->isNotEmpty())
         <div class="card border-0 shadow-sm">
-            <div class="card-body pb-0">
-                <h2 class="h5 mb-1">Lo que entró por esta orden</h2>
-                <p class="text-body-secondary small">
-                    Sale del kardex, con su fecha y su usuario.
-                </p>
+            <div class="card-body pb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h2 class="h5 mb-0">Lo que entró por esta orden</h2>
+                    <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                        data-bs-toggle="tooltip" data-bs-placement="top"
+                        data-bs-title="Movimientos del kardex con fecha, unidades y usuario responsable."
+                        aria-label="Información sobre movimientos de stock de la orden">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
+                </div>
             </div>
 
             <div class="table-responsive">
@@ -314,9 +319,10 @@
                     <thead class="table-light">
                         <tr>
                             <th scope="col">Cuándo</th>
+                            <th scope="col" class="d-none d-md-table-cell">Remito</th>
                             <th scope="col">Producto</th>
                             <th scope="col" class="text-end">Unidades</th>
-                            <th scope="col" class="text-end">Stock resultante</th>
+                            <th scope="col" class="text-end">Stock</th>
                             <th scope="col">Quién</th>
                         </tr>
                     </thead>
@@ -324,12 +330,34 @@
                         @foreach ($orden->movimientos->sortByDesc('created_at') as $movimiento)
                             <tr>
                                 <td class="text-nowrap">{{ $movimiento->created_at->format('d/m/Y H:i') }}</td>
+                                <td class="d-none d-md-table-cell text-nowrap">
+                                    @if ($movimiento->remito_numero !== null)
+                                        {{ $movimiento->remito_numero }}
+                                        <div class="small text-body-secondary">
+                                            del {{ $movimiento->remito_fecha->format('d/m/Y') }}
+                                        </div>
+                                    @else
+                                        <span class="text-body-secondary">No consta</span>
+                                    @endif
+                                </td>
                                 <td>
                                     {{ $movimiento->producto->nombre }}
                                     <div class="small text-body-secondary">{{ $movimiento->producto->codigo }}</div>
                                 </td>
-                                <td class="text-end">+{{ $movimiento->cantidad }}</td>
-                                <td class="text-end">{{ $movimiento->stock_resultante }}</td>
+                                <td
+                                    class="text-end text-nowrap fw-semibold {{ $movimiento->esIngreso() ? 'text-success' : 'text-danger' }}">
+                                    +{{ $movimiento->cantidad }}</td>
+                                <td class="text-end text-nowrap">
+                                    <span aria-hidden="true">
+                                        <span class="text-body-secondary">{{ $movimiento->stock_anterior }}</span>
+                                        →
+                                        <span class="fw-semibold">{{ $movimiento->stock_resultante }}</span>
+                                    </span>
+                                    <span class="visually-hidden">
+                                        De {{ $movimiento->stock_anterior }} a {{ $movimiento->stock_resultante }}
+                                        unidades
+                                    </span>
+                                </td>
                                 <td>
                                     @if ($movimiento->usuario)
                                         {{ $movimiento->usuario->nombre }} {{ $movimiento->usuario->apellido }}

@@ -74,3 +74,43 @@
         display: inline;
     }
 }
+
+// Buscador remoto: el resultado en dos renglones, y el pie del desplegable
+.ts-opcion-remota {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: .25rem .75rem;
+}
+
+.ts-detalle {
+    color: var(--bs-secondary-color);
+    font-size: .875em;
+}
+
+// "Buscando…" y "Escribí al menos N caracteres": el desplegable dice en qué
+// estado está, en lugar de quedar vacío sin explicar por qué
+.ts-pista {
+    padding: .5rem .75rem;
+    color: var(--bs-secondary-color);
+    font-size: .875em;
+}
+
+// El aviso de recorte y el de error. El color no comunica solo: los dos dicen
+// con palabras qué pasó, y el de error lleva además su ícono
+.ts-pie {
+    padding: .5rem .75rem;
+    border-top: 1px solid var(--bs-border-color);
+    color: var(--bs-secondary-color);
+    font-size: .875em;
+
+    &[hidden] {
+        display: none;
+    }
+
+    &.ts-pie-error {
+        color: var(--bs-danger-text-emphasis);
+        background-color: var(--bs-danger-bg-subtle);
+    }
+}

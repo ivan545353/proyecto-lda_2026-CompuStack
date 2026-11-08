@@ -1,21 +1,6 @@
 {{--
     El documento de la venta: presupuesto si todavía no se cobró, comprobante si sí.
 
-    **No es un comprobante fiscal** y el pie lo dice con palabras: no lo gobierna AFIP,
-    no lleva CAE ni numeración autorizada, y su número es el `id` formateado (A-18). La
-    factura con CAE y QR vive en `comprobantes`, en la Etapa 2.
-
-    **Sólo imprime datos congelados**, que es lo que permite no archivar el archivo: las
-    líneas con su precio, los importes de la venta, el cliente, el vendedor y la fecha
-    de emisión. Nunca el estado, ni los pagos, ni `cantidad_devuelta` — igual que el PDF
-    del pedido imprime `cantidad_pedida` y nunca `cantidad_recibida`. Así, regenerarlo
-    dentro de un año da el mismo papel.
-
-    No discrimina IVA: discriminar es lo que hace una Factura A, y éste no es ese
-    documento. La alícuota queda congelada en la línea para cuando la Etapa 2 emita.
-
-    Dompdf no interpreta flexbox ni grid, así que la maquetación va con tablas, y la
-    hoja de estilos va embebida.
 --}}
 @use('App\Models\Cliente')
 @use('App\Support\Importe')
@@ -273,7 +258,7 @@
 
     <div class="pie">
         {{ $venta->numeroFormateado() }} · {{ config('empresa.nombre') }} ·
-        Este documento no es una factura ni un comprobante fiscal: no lleva CAE ni numeración autorizada por AFIP.
+        Este documento no es una factura ni un comprobante fiscal: no lleva CAE ni numeración autorizada por ARCA.
     </div>
 </body>
 

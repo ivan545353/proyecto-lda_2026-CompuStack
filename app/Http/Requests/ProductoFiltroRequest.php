@@ -14,8 +14,9 @@ use Illuminate\Validation\Rule;
  *   ?q=             texto, código o nombre contiene
  *   ?categoria_id=  id, la categoría y todas sus subcategorías
  *   ?marca_id=      id
+ *   ?proveedor_id=  id, los productos que se le compran a ese proveedor
  *   ?estado=        activos | inactivos
- *   ?stock=         disponible | agotado | critico
+ *   ?stock=         disponible | agotado | critico | sin_proveedor
  *
  * Es el caso original  ItemController mandaba `categoriaId` y
  * `limit`, e ItemDao esperaba `codigo`, `nombre`, `categoria`, `stock`,
@@ -34,8 +35,9 @@ class ProductoFiltroRequest extends FormRequest
             'q'            => ['nullable', 'string', 'max:100'],
             'categoria_id' => ['nullable', 'integer', 'min:1'],
             'marca_id'     => ['nullable', 'integer', 'min:1'],
+            'proveedor_id' => ['nullable', 'integer', 'min:1'],
             'estado'       => ['nullable', Rule::in(['activos', 'inactivos'])],
-            'stock'        => ['nullable', Rule::in(['disponible', 'agotado', 'critico'])],
+            'stock'        => ['nullable', Rule::in(['disponible', 'agotado', 'critico', 'sin_proveedor'])],
             'page'         => ['nullable', 'integer', 'min:1'],
         ];
     }

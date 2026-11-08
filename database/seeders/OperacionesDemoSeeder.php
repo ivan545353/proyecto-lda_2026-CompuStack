@@ -23,19 +23,6 @@ use Illuminate\Support\Facades\Artisan;
 /**
  * Operaciones de demostración: compras, stock, ventas, cobros y devoluciones.
  *
- * **Todo pasa por los servicios, nada se escribe a mano**, y es la decisión que
- * sostiene al seeder entero: una venta `pagada` escrita directo no tiene pagos ni
- * movimiento de kardex, y una orden `recibida` escrita directo no movió stock ni
- * recalculó el costo promedio. Serían filas que el sistema no puede producir, y la
- * demostración mostraría pantallas con datos imposibles. Es el mismo motivo por el que
- * `VentaFactory::pagada()` avisa que no sirve para probar stock ni plata.
- *
- * **El reloj se mueve con `Carbon::setTestNow()`** para repartir las operaciones en los
- * últimos dos meses y medio. Sin eso, todo tendría la fecha de la siembra: el gráfico
- * del panel sería un solo punto, el filtro de período no tendría nada que filtrar y el
- * kardex no contaría ninguna historia. Las operaciones se escriben en el mismo orden en
- * que ocurrieron, así que el `stock_resultante` de cada asiento es coherente con su
- * fecha. El `finally` devuelve el reloj a su lugar pase lo que pase.
  */
 class OperacionesDemoSeeder extends Seeder
 {
@@ -436,7 +423,7 @@ class OperacionesDemoSeeder extends Seeder
     {
         $this->en($diasAtras, 17);
 
-        app(VentaService::class)->entregar($venta->fresh());
+        app(VentaService::class)->entregar($venta->fresh(), $venta->usuario);
     }
 
     private function resumen(): void

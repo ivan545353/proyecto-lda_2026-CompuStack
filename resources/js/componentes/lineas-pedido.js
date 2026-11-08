@@ -3,15 +3,6 @@ import { iniciarSelectsBuscables } from './selects-buscables';
 /**
  * El armador de pedido: líneas con su proveedor, agrupadas por proveedor.
  *
- * Mejora progresiva. Sin este archivo el formulario sigue funcionando con las
- * líneas que el servidor renderizó, el selector de proveedor completo y la
- * validación del servidor haciendo exactamente el mismo trabajo. Lo que se pierde
- * es agregar filas, filtrar proveedores por producto, la sugerencia de costo y los
- * subtotales por grupo.
- *
- * Los índices del arreglo no se renumeran nunca: PHP recibe `lineas[0]` y
- * `lineas[7]` como dos elementos, y un contador que sólo crece evita toda la clase
- * de errores que produce reindexar al quitar una fila del medio.
  */
 export function iniciarArmadorDePedido(raiz = document) {
     const armador = raiz.querySelector('[data-armador]');
@@ -28,9 +19,12 @@ export function iniciarArmadorDePedido(raiz = document) {
 
     if (!tabla || !plantillaLinea || !plantillaGrupo || !sinGrupo) return;
 
-    const mapa = JSON.parse(
-        document.getElementById('proveedoresPorProducto')?.textContent ?? '{}',
-    );
+    // La plantilla de la URL, con __ID__ donde va el producto.
+    const urlProveedores = armador.dataset.proveedoresUrl ?? '';
+
+    // Lo que ya se preguntó. Cambiar la cantidad de una fila no vuelve a pedir los
+    // proveedores de su producto, y volver a elegir el mismo producto tampoco.
+    const cacheProveedores = new Map();
 
     // Los nombres salen de las opciones que el servidor puso en la plantilla, que
     // trae todos los proveedores activos. Así el JS no necesita su propia lista.
@@ -62,8 +56,46 @@ export function iniciarArmadorDePedido(raiz = document) {
     };
 
     const filas = () => [...tabla.querySelectorAll('tr[data-linea]')];
-    const proveedoresDe = (productoId) => mapa[productoId] ?? [];
+    /**
+     * A quién se le puede pedir ese producto.
+     */
+    const proveedoresDe = async (productoId) => {
+        if (productoId === '') return [];
+        if (cacheProveedores.has(productoId)) return cacheProveedores.get(productoId);
 
+        try {
+            const respuesta = await fetch(urlProveedores.replace('__ID__', productoId), {
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!respuesta.ok) throw new Error(String(respuesta.status));
+
+            const cuerpo = await respuesta.json();
+
+            cacheProveedores.set(productoId, cuerpo.resultados ?? []);
+
+            return cacheProveedores.get(productoId);
+        } catch {
+            return null;
+        }
+    };
+
+    /** «Austral — $ 15.000,00 (el elegido)», con el costo sólo si el servidor lo mandó. */
+    const etiquetaDe = (proveedor) => {
+        // Sin `precio.ver_costo` la clave no viene, y decir «sin costo cargado»
+        // afirmaría algo que el servidor no contestó.
+        const costo = 'costo' in proveedor
+            ? ` — ${proveedor.costo === null ? 'sin costo cargado' : pesos.format(Number(proveedor.costo))}`
+            : '';
+
+        return proveedor.preferido
+            ? `${proveedor.nombre}${costo} (el elegido)`
+            : `${proveedor.nombre}${costo}`;
+    };
     // ------------------------------------------------------------------
     // Grupos por proveedor
     // ------------------------------------------------------------------
@@ -105,34 +137,37 @@ export function iniciarArmadorDePedido(raiz = document) {
     // Proveedores de la línea y sugerencia de costo
     // ------------------------------------------------------------------
 
-    const llenarProveedores = (fila) => {
+    const llenarProveedores = async (fila) => {
         const select = fila.querySelector('[data-proveedor]');
         if (!select) return;
 
         const productoId = fila.querySelector('[data-producto]')?.value ?? '';
         const elegido = select.value;
-        const opciones = proveedoresDe(productoId);
+
+        if (productoId === '') {
+            select.innerHTML = '';
+            select.appendChild(new Option('Elegí primero el producto', ''));
+
+            return;
+        }
+
+        const opciones = await proveedoresDe(productoId);
+
+        // El usuario pudo cambiar el producto mientras se esperaba la respuesta.
+        if ((fila.querySelector('[data-producto]')?.value ?? '') !== productoId) return;
 
         select.innerHTML = '';
 
-        if (productoId === '') {
-            select.appendChild(new Option('Elegí primero el producto', ''));
+        if (opciones === null) {
+            select.appendChild(new Option('No se pudieron cargar los proveedores', ''));
+
             return;
         }
 
         select.appendChild(new Option('Elegí el proveedor', ''));
 
         opciones.forEach((proveedor) => {
-            const costo = proveedor.costo === null
-                ? 'sin costo cargado'
-                : pesos.format(Number(proveedor.costo));
-
-            const etiqueta = `${proveedor.nombre} — ${costo}`;
-
-            select.appendChild(new Option(
-                proveedor.preferido ? `${etiqueta} (el elegido)` : etiqueta,
-                proveedor.id,
-            ));
+            select.appendChild(new Option(etiquetaDe(proveedor), proveedor.id));
         });
 
         // Se conserva lo que el usuario había elegido si ese proveedor también provee
@@ -145,17 +180,17 @@ export function iniciarArmadorDePedido(raiz = document) {
             : (opciones[0] ? String(opciones[0].id) : '');
     };
 
-    const sugerirCosto = (fila) => {
+    const sugerirCosto = async (fila) => {
         const campo = fila.querySelector('[data-costo-unitario]');
         if (!campo) return;
 
         const productoId = fila.querySelector('[data-producto]')?.value ?? '';
+        const opciones = await proveedoresDe(productoId);
         const proveedorId = fila.querySelector('[data-proveedor]')?.value ?? '';
 
-        const vinculo = proveedoresDe(productoId)
-            .find((proveedor) => String(proveedor.id) === proveedorId);
+        const vinculo = (opciones ?? []).find((proveedor) => String(proveedor.id) === proveedorId);
 
-        const sugerido = vinculo && vinculo.costo !== null
+        const sugerido = vinculo && vinculo.costo !== undefined && vinculo.costo !== null
             ? decimal.format(Number(vinculo.costo))
             : '';
 
@@ -292,13 +327,13 @@ export function iniciarArmadorDePedido(raiz = document) {
 
     tabla.addEventListener('input', refrescar);
 
-    tabla.addEventListener('change', (evento) => {
+    tabla.addEventListener('change', async (evento) => {
         const fila = evento.target.closest('tr[data-linea]');
         if (!fila) return;
 
         if (evento.target.matches('[data-producto]')) {
-            llenarProveedores(fila);
-            sugerirCosto(fila);
+            await llenarProveedores(fila);
+            await sugerirCosto(fila);
             moverAlGrupo(fila);
             limpiarGrupos();
             refrescar();
@@ -307,7 +342,7 @@ export function iniciarArmadorDePedido(raiz = document) {
         }
 
         if (evento.target.matches('[data-proveedor]')) {
-            sugerirCosto(fila);
+            await sugerirCosto(fila);
             moverAlGrupo(fila);
             limpiarGrupos();
             refrescar();
@@ -323,13 +358,14 @@ export function iniciarArmadorDePedido(raiz = document) {
     });
 
     // Las filas que vienen del servidor son las que el usuario mandó antes de un
-    // error de validación. Se les filtra el selector y se las agrupa, pero el costo
-    // NO se sugiere: no hay forma de saber si lo escribió el usuario, y no tocarlo
-    // es el lado seguro.
-    filas().forEach((fila) => {
+    // error de validación. 
+    Promise.all(filas().map(async (fila) => {
         fila.dataset.costoSugerido = '';
-        llenarProveedores(fila);
+        await llenarProveedores(fila);
         moverAlGrupo(fila);
+    })).then(() => {
+        limpiarGrupos();
+        refrescar();
     });
 
     if (filas().length === 0) agregar();

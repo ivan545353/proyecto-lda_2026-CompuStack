@@ -12,23 +12,82 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
-// Las métricas del panel. Cierra A-26: cada número es una consulta de agregación y
-// nunca viaja una fila completa al servidor de aplicación.
-//
-// Dos vocabularios que la pantalla no debe mezclar en el mismo recuadro:
-//   «Facturado» es SUM(ventas.total) por ventas.created_at y NO descuenta devoluciones.
-//   «Cobrado» es SUM(pagos.monto) por pagos.fecha y SÍ las descuenta, porque el
-//   contra-asiento es una fila negativa que entra en la misma suma.
+// Las métricas del panel. Cada número del período se cuenta otra vez con las fechas
+// corridas al período anterior de igual largo
+
 class PanelService
 {
-    private const TOPE_RANKING = 5;
-
-    // Lo propio: lo que vendí y lo que cobré, dos preguntas distintas en dos columnas
-    // de dos tablas (M-19). El Cajero no vende, así que sin el segundo bloque su panel
-    // sería todo ceros.
     public function paraVendedor(User $usuario, CarbonInterface $desde, CarbonInterface $hasta): array
     {
-        $vendido = Venta::query()
+        [$antesDesde, $antesHasta] = $this->periodoAnterior($desde, $hasta);
+
+        return [
+            'vendi' => $this->vendidoPor($usuario, $desde, $hasta),
+            'cobre' => $this->cobradoPor($usuario, $desde, $hasta),
+
+            'presupuestosAbiertos' => Venta::query()
+                ->where('usuario_id', $usuario->id)
+                ->where('estado', 'presupuesto')
+                ->count(),
+
+            'anterior' => [
+                'desde' => $antesDesde,
+                'hasta' => $antesHasta,
+                'vendi' => $this->vendidoPor($usuario, $antesDesde, $antesHasta),
+                'cobre' => $this->cobradoPor($usuario, $antesDesde, $antesHasta),
+            ],
+        ];
+    }
+
+    public function paraAdministrativo(CarbonInterface $desde, CarbonInterface $hasta): array
+    {
+        [$antesDesde, $antesHasta] = $this->periodoAnterior($desde, $hasta);
+
+        $resumen = $this->resumenDeVentas($desde, $hasta);
+
+        return [
+            'cobrado'    => $this->cobrado($desde, $hasta),
+            'facturado'  => $resumen['facturado'],
+            'cantidad'   => $resumen['cantidad'],
+            'ticket'     => $resumen['ticket'],
+            'descuentos' => $resumen['descuentos'],
+
+            'margenBruto'       => $this->margenBruto($desde, $hasta),
+            'porMetodo'         => $this->cobradoPorMetodo($desde, $hasta),
+            'porDia'            => $this->facturadoPorDia($desde, $hasta),
+            // Instantáneas: no son del período, y no hay contra qué compararlas, porque el
+            // sistema no guarda cuántas había antes.
+            'stockCritico'           => Producto::query()->paraReponer()->count(),
+            'comprasAbiertas'        => OrdenCompra::query()->abiertas()->count(),
+            'borradoresDeReposicion' => OrdenCompra::query()
+                ->conEstado('borrador')
+                ->deOrigen('reposicion')
+                ->count(),
+
+            'anterior' => [
+                'desde'       => $antesDesde,
+                'hasta'       => $antesHasta,
+                'cobrado'     => $this->cobrado($antesDesde, $antesHasta),
+                'facturado'   => $this->resumenDeVentas($antesDesde, $antesHasta)['facturado'],
+                'margenBruto' => $this->margenBruto($antesDesde, $antesHasta),
+            ],
+        ];
+    }
+
+    // Del mismo largo que el elegido y pegado a él: del 1 al 8 se compara con los ocho días previos.
+    public function periodoAnterior(CarbonInterface $desde, CarbonInterface $hasta): array
+    {
+        $dias = (int) round($desde->copy()->startOfDay()->diffInDays($hasta->copy()->startOfDay())) + 1;
+
+        return [
+            $desde->copy()->subDays($dias)->startOfDay(),
+            $desde->copy()->subDay()->endOfDay(),
+        ];
+    }
+
+    private function vendidoPor(User $usuario, CarbonInterface $desde, CarbonInterface $hasta): array
+    {
+        $fila = Venta::query()
             ->where('usuario_id', $usuario->id)
             ->whereIn('estado', Venta::ESTADOS_VENDIDOS)
             ->whereBetween('created_at', [$desde, $hasta])
@@ -36,7 +95,16 @@ class PanelService
             ->toBase()
             ->first();
 
-        $cobrado = Pago::query()
+        return [
+            'cantidad'  => (int) $fila->cantidad,
+            'facturado' => round((float) $fila->facturado, 2),
+            'ticket'    => round((float) $fila->ticket, 2),
+        ];
+    }
+
+    private function cobradoPor(User $usuario, CarbonInterface $desde, CarbonInterface $hasta): array
+    {
+        $fila = Pago::query()
             ->where('usuario_id', $usuario->id)
             ->whereBetween('fecha', [$desde, $hasta])
             ->selectRaw('COUNT(*) as movimientos, COALESCE(SUM(monto), 0) as neto')
@@ -44,27 +112,19 @@ class PanelService
             ->first();
 
         return [
-            'vendi' => [
-                'cantidad'  => (int) $vendido->cantidad,
-                'facturado' => round((float) $vendido->facturado, 2),
-                'ticket'    => round((float) $vendido->ticket, 2),
-            ],
-            'cobre' => [
-                'movimientos' => (int) $cobrado->movimientos,
-                'neto'        => round((float) $cobrado->neto, 2),
-            ],
-            // Instantánea, no del período: un presupuesto abierto espera respuesta hoy
-            // sin importar cuándo se emitió.
-            'presupuestosAbiertos' => Venta::query()
-                ->where('usuario_id', $usuario->id)
-                ->where('estado', 'presupuesto')
-                ->count(),
+            'movimientos' => (int) $fila->movimientos,
+            'neto'        => round((float) $fila->neto, 2),
         ];
     }
 
-    public function paraAdministrativo(CarbonInterface $desde, CarbonInterface $hasta): array
+    private function cobrado(CarbonInterface $desde, CarbonInterface $hasta): float
     {
-        $resumen = Venta::query()
+        return round((float) Pago::query()->whereBetween('fecha', [$desde, $hasta])->sum('monto'), 2);
+    }
+
+    private function resumenDeVentas(CarbonInterface $desde, CarbonInterface $hasta): array
+    {
+        $fila = Venta::query()
             ->whereIn('estado', Venta::ESTADOS_VENDIDOS)
             ->whereBetween('created_at', [$desde, $hasta])
             ->selectRaw(
@@ -77,21 +137,10 @@ class PanelService
             ->first();
 
         return [
-            'cobrado'    => round((float) Pago::query()->whereBetween('fecha', [$desde, $hasta])->sum('monto'), 2),
-            'facturado'  => round((float) $resumen->facturado, 2),
-            'cantidad'   => (int) $resumen->cantidad,
-            'ticket'     => round((float) $resumen->ticket, 2),
-            'descuentos' => round((float) $resumen->descuentos, 2),
-
-            'margenBruto'       => $this->margenBruto($desde, $hasta),
-            'porMetodo'         => $this->cobradoPorMetodo($desde, $hasta),
-            'porDia'            => $this->facturadoPorDia($desde, $hasta),
-            'rankingVendedores' => $this->rankingVendedores($desde, $hasta),
-            'masVendidos'       => $this->masVendidos($desde, $hasta),
-
-            // Instantáneas: no son del período.
-            'stockCritico'    => Producto::query()->where('activo', true)->stockCritico()->count(),
-            'comprasAbiertas' => OrdenCompra::query()->abiertas()->count(),
+            'cantidad'   => (int) $fila->cantidad,
+            'facturado'  => round((float) $fila->facturado, 2),
+            'ticket'     => round((float) $fila->ticket, 2),
+            'descuentos' => round((float) $fila->descuentos, 2),
         ];
     }
 
@@ -106,9 +155,6 @@ class PanelService
     // Margen BRUTO: sale de los importes congelados en la línea, que no conocen
     // `ventas.descuento` porque vive en la cabecera. La pantalla lo rotula como bruto
     // y muestra los descuentos otorgados al lado.
-    //
-    // `cantidad - cantidad_devuelta` nunca da negativo: lo garantiza la validación de
-    // la devolución, y las dos columnas son unsigned.
     private function margenBruto(CarbonInterface $desde, CarbonInterface $hasta): float
     {
         $fila = $this->lineasVendidas($desde, $hasta)
@@ -148,49 +194,4 @@ class PanelService
             ->get();
     }
 
-    // El join deja afuera las ventas sin vendedor, que son las online de la Etapa 2.
-    private function rankingVendedores(CarbonInterface $desde, CarbonInterface $hasta): Collection
-    {
-        return Venta::query()
-            ->join('users', 'users.id', '=', 'ventas.usuario_id')
-            ->whereIn('ventas.estado', Venta::ESTADOS_VENDIDOS)
-            ->whereBetween('ventas.created_at', [$desde, $hasta])
-            ->selectRaw(
-                'ventas.usuario_id,
-                 users.nombre,
-                 users.apellido,
-                 COUNT(*) as cantidad,
-                 COALESCE(SUM(ventas.total), 0) as facturado'
-            )
-            ->groupBy('ventas.usuario_id', 'users.nombre', 'users.apellido')
-            ->orderByDesc('facturado')
-            ->limit(self::TOPE_RANKING)
-            ->toBase()
-            ->get();
-    }
-
-    // Por unidades efectivamente vendidas. El HAVING saca los que volvieron enteros:
-    // un producto con cero unidades netas no es uno de los más vendidos.
-    //
-    // No hay «menos vendidos»: los que no vendieron nada no aparecen en una agregación
-    // sobre `venta_lineas`, así que es la pregunta inversa y necesita otra consulta.
-    private function masVendidos(CarbonInterface $desde, CarbonInterface $hasta): Collection
-    {
-        return $this->lineasVendidas($desde, $hasta)
-            ->join('productos', 'productos.id', '=', 'venta_lineas.producto_id')
-            ->selectRaw(
-                'venta_lineas.producto_id,
-                 productos.codigo,
-                 productos.nombre,
-                 SUM(venta_lineas.cantidad - venta_lineas.cantidad_devuelta) as unidades,
-                 COALESCE(SUM((venta_lineas.cantidad - venta_lineas.cantidad_devuelta)
-                     * venta_lineas.precio_unitario), 0) as importe'
-            )
-            ->groupBy('venta_lineas.producto_id', 'productos.codigo', 'productos.nombre')
-            ->havingRaw('SUM(venta_lineas.cantidad - venta_lineas.cantidad_devuelta) > 0')
-            ->orderByDesc('unidades')
-            ->limit(self::TOPE_RANKING)
-            ->toBase()
-            ->get();
-    }
 }

@@ -2,48 +2,49 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ImprimeListados;
 use App\Http\Requests\ProveedorFiltroRequest;
 use App\Http\Requests\ProveedorRequest;
+use App\Impresion\ListadoProveedores;
 use App\Models\Proveedor;
 use App\Services\ProveedorService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Response;
 use Illuminate\View\View;
-
+use Symfony\Component\HttpFoundation\StreamedResponse;
 /**
  * CRUD de proveedores. Módulo nuevo: el sistema original no tenía proveedores.
  *
- * El controlador traduce entre HTTP y el servicio y no hace nada más. No valida
- * (ProveedorRequest), no decide reglas (ProveedorService) y no arma consultas de
- * negocio: encadena los scopes que el modelo expone.
  *
  * Métodos:
- *   index()              listado filtrado y paginado
+ *   imprimir()           el mismo listado filtrado, en PDF o en CSV
  *   create() / store()   alta
  *   edit()  / update()   edición
  *   destroy()            baja física o lógica, según esté referenciado
  */
 class ProveedorController extends Controller
 {
+    use ImprimeListados;
     public function __construct(private ProveedorService $service)
     {
     }
 
     public function index(ProveedorFiltroRequest $request): View
     {
-        $proveedores = Proveedor::query()
-            // Cuenta en la base (A-26). El panel original traía las tablas
-            // enteras al navegador para contarlas con .filter().
+        $proveedores = $this->filtradas($request)
             ->withCount('productos','ordenesCompra')
-            ->buscar($request->query('q'))
-            ->conEstado($request->query('estado'))
-            ->conCanal($request->query('canal'))
-            ->orderBy('razon_social')
-            // Paginación obligatoria (A-25).
             ->paginate(15)
             // Sin esto, pasar a la página 2 pierde los filtros.
             ->withQueryString();
 
         return view('proveedores.index', compact('proveedores'));
+    }
+
+
+    public function imprimir(ProveedorFiltroRequest $request, ListadoProveedores $listado): Response|StreamedResponse|RedirectResponse
+    {
+        return $this->imprimirListado($request, $listado, $this->filtradas($request), 'proveedores.index');
     }
 
     public function create(): View
@@ -106,5 +107,16 @@ class ProveedorController extends Controller
         return redirect()->route('proveedores.index')->with('exito', $seBorro
             ? "Proveedor «{$nombre}» eliminado."
             : "«{$nombre}» tiene productos u órdenes de compra registradas: se desactivó en lugar de eliminarse. Deja de ofrecerse al cargar productos nuevos y su historial queda intacto.");
+    }
+
+    
+    /** Los filtros del listado, en un solo lugar: lo que la pantalla muestra es lo que se imprime. */
+    private function filtradas(ProveedorFiltroRequest $request): Builder
+    {
+        return Proveedor::query()
+            ->buscar($request->query('q'))
+            ->conEstado($request->query('estado'))
+            ->conCanal($request->query('canal'))
+            ->orderBy('razon_social');
     }
 }

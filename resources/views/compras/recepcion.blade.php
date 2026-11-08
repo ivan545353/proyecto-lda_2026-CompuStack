@@ -26,13 +26,17 @@
     @include('partials.errores')
 
     <div class="card border-0 shadow-sm mb-4">
-        <div class="card-body pb-0">
-            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-                <p class="text-body-secondary small mb-3">
-                    Los campos arrancan vacíos a propósito: lo que se carga acá mueve stock, así que
-                    conviene escribir lo que se contó y no confirmar lo que se esperaba. Si llegó todo,
-                    el botón lo completa de una.
-                </p>
+        <div class="card-body pb-2">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span class="text-body-secondary small d-inline-flex align-items-center gap-1">
+                    <i class="bi bi-box-seam me-1" aria-hidden="true"></i> Ingresá las unidades contadas físicamente
+                    <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                        data-bs-toggle="tooltip" data-bs-placement="top"
+                        data-bs-title="Los campos arrancan vacíos para registrar lo efectivamente contado. Si llegó todo el pedido, usá el botón para completarlo automáticamente."
+                        aria-label="Ayuda sobre recepción">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
+                </span>
 
                 <button type="button" class="btn btn-sm btn-outline-dark" data-recibir-todo>
                     <i class="bi bi-check2-all" aria-hidden="true"></i> Llegó todo lo pendiente
@@ -107,6 +111,36 @@
                 </table>
             </div>
 
+            <div class="card-body pb-0">
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label for="remito_numero" class="form-label">Número del remito del proveedor</label>
+                        <input type="text" class="form-control @error('remito_numero') is-invalid @enderror"
+                            id="remito_numero" name="remito_numero" value="{{ old('remito_numero') }}" maxlength="30"
+                            autocomplete="off"
+                            aria-describedby="ayudaRemitoNumero @error('remito_numero') errorRemitoNumero @enderror">
+                        <div id="ayudaRemitoNumero" class="form-text">
+                            Si vino con la mercadería. Ej: 0001-00012345.
+                        </div>
+                        @error('remito_numero')
+                            <div id="errorRemitoNumero" class="invalid-feedback">{{ $message }}</div>
+                        @enderror
+                    </div>
+
+                    <div class="col-12 col-md-4">
+                        <label for="remito_fecha" class="form-label">Fecha del remito</label>
+                        <input type="date" class="form-control @error('remito_fecha') is-invalid @enderror"
+                            id="remito_fecha" name="remito_fecha" value="{{ old('remito_fecha') }}"
+                            max="{{ now()->toDateString() }}"
+                            aria-describedby="ayudaRemitoFecha @error('remito_fecha') errorRemitoFecha @enderror">
+                        <div id="ayudaRemitoFecha" class="form-text">La que figura en el remito, no la de hoy.</div>
+                        @error('remito_fecha')
+                            <div id="errorRemitoFecha" class="invalid-feedback">{{ $message }}</div>
+                        @enderror
+                    </div>
+                </div>
+            </div>
+
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 border-top pt-3 mb-3">
                     {{-- Igual que el aviso de la pantalla de ajuste: ver la consecuencia
@@ -118,20 +152,21 @@
                     </p>
                 </div>
 
-                <div class="d-grid d-sm-flex gap-2">
-                    <button type="submit" class="btn btn-acento">
+                <div class="d-grid d-sm-flex justify-content-sm-end gap-2">
+                    <a href="{{ route('compras.show', $orden) }}" class="btn btn-outline-secondary">Cancelar</a>
+                    <button type="submit" class="btn btn-acento px-4">
                         <i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> Registrar la recepción
                     </button>
-
-                    <a href="{{ route('compras.show', $orden) }}" class="btn btn-outline-secondary">Cancelar</a>
                 </div>
             </div>
         </form>
     </div>
 
-    <p class="text-body-secondary small">
-        Si el proveedor mandó <strong>más</strong> de lo pedido, recibí lo pedido y cargá la diferencia
-        como ajuste de inventario: así la orden sigue diciendo lo que se acordó. Si no va a entregar el
-        resto, en la ficha de la orden está «Cerrar con lo que llegó».
-    </p>
+    <div class="alert alert-light border small text-body-secondary d-flex align-items-center gap-2">
+        <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
+        <div>
+            Si el proveedor mandó de más, recibí lo pedido y cargá la diferencia como ajuste de inventario. Si no va a
+            entregar el resto, podés usar <strong>«Cerrar con lo que llegó»</strong> en la orden.
+        </div>
+    </div>
 @endsection

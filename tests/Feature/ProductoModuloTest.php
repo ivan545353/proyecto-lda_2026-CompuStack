@@ -26,7 +26,8 @@ function datosProducto(array $cambios = []): array
         'codigo'              => 'SSD-1TB',
         'nombre'              => 'Disco SSD 1TB',
         'categoria_id'        => Categoria::factory()->create()->id,
-        'precio_lista'        => '95000',
+        'precio_contado'      => '95000',
+        'precio_manual'       => 1,
         'alicuota_iva'        => '21.00',
         'stock_minimo'        => 0,
         'cantidad_reposicion' => 0,
@@ -128,6 +129,28 @@ test('los parametros marca_id, estado y stock llegan a sus filtros', function ()
     }
 });
 
+test('el parametro proveedor_id llega al filtro', function () {
+    $proveedor = Proveedor::factory()->create();
+
+    Producto::factory()->conProveedor($proveedor)->create();
+    Producto::factory()->create();
+
+    // El nivel que A-24 necesitaba: el scope puede funcionar y el cableado no.
+    $this->actingAs(usuarioCon('producto.ver'))
+        ->get(route('productos.index', ['proveedor_id' => $proveedor->id]))
+        ->assertViewHas('productos', fn ($p) => $p->total() === 1);
+});
+
+test('el parametro stock=sin_proveedor llega al filtro', function () {
+    Producto::factory()->conStock(0)->create(['stock_minimo' => 5]);
+    Producto::factory()->conStock(0)->conProveedor(Proveedor::factory()->create())
+        ->create(['stock_minimo' => 5]);
+
+    $this->actingAs(usuarioCon('producto.ver'))
+        ->get(route('productos.index', ['stock' => 'sin_proveedor']))
+        ->assertViewHas('productos', fn ($p) => $p->total() === 1);
+});
+
 test('un filtro que no es valido vuelve al listado limpio con aviso', function () {
     $this->actingAs(usuarioCon('producto.ver'))
         ->get(route('productos.index', ['stock' => 'cualquiera']))
@@ -165,42 +188,42 @@ dataset('precios bien escritos', [
 
 test('interpreta el precio como lo escribe el usuario', function (string $escrito, string $guardado) {
     $this->actingAs(usuarioCon('producto.crear'))
-        ->post(route('productos.store'), datosProducto(['precio_lista' => $escrito]))
+        ->post(route('productos.store'), datosProducto(['precio_contado' => $escrito]))
         ->assertSessionHasNoErrors();
 
-    expect(Producto::first()->precio_lista)->toBe($guardado);
+    expect(Producto::first()->precio_contado)->toBe($guardado);
 })->with('precios bien escritos');
 
 test('rechaza un precio ambiguo en vez de adivinar', function () {
     $this->actingAs(usuarioCon('producto.crear'))
-        ->post(route('productos.store'), datosProducto(['precio_lista' => '1,500.50']))
-        ->assertSessionHasErrors('precio_lista');
+        ->post(route('productos.store'), datosProducto(['precio_contado' => '1,500.50']))
+        ->assertSessionHasErrors('precio_contado');
 
     expect(Producto::count())->toBe(0);
 });
 
 test('rechaza un precio con tres decimales en vez de redondearlo', function () {
     $this->actingAs(usuarioCon('producto.crear'))
-        ->post(route('productos.store'), datosProducto(['precio_lista' => '1500.505']))
-        ->assertSessionHasErrors('precio_lista');
+        ->post(route('productos.store'), datosProducto(['precio_contado' => '1500.505']))
+        ->assertSessionHasErrors('precio_contado');
 });
 
-test('sin precio de contado se usa el de lista, y no puede superarlo', function () {
-    $usuario = usuarioCon('producto.crear');
+test('el precio de lista ya no se carga a mano', function () {
+    // Prohibido y no ignorado: un formulario viejo que todavía lo mande recibe
+    // un mensaje, en vez de guardar un precio de lista que nadie eligió.
+    $this->actingAs(usuarioCon('producto.crear'))
+        ->post(route('productos.store'), datosProducto(['precio_lista' => '120000']))
+        ->assertSessionHasErrors('precio_lista');
 
-    $this->actingAs($usuario)
-        ->post(route('productos.store'), datosProducto(['precio_lista' => '1.000']))
-        ->assertSessionHasNoErrors();
+    expect(Producto::count())->toBe(0);
+});
 
-    expect(Producto::first()->precio_contado)->toBe('1000.00');
-
-    $this->actingAs($usuario)
-        ->post(route('productos.store'), datosProducto([
-            'codigo'         => 'OTRO-1',
-            'precio_lista'   => '1.000',
-            'precio_contado' => '1.200',
-        ]))
-        ->assertSessionHasErrors('precio_contado');
+test('un producto nuevo no puede nacer calculando su precio solo', function () {
+    // No tiene costo —esa columna sólo la mueve StockService al recibir
+    // mercadería—, así que el motor no tendría con qué calcularlo.
+    $this->actingAs(usuarioCon('producto.crear'))
+        ->post(route('productos.store'), datosProducto(['precio_manual' => 0, 'precio_contado' => null]))
+        ->assertSessionHasErrors('precio_manual');
 });
 
 /*
@@ -214,15 +237,15 @@ test('guardar un producto existente sin cambiar nada funciona', function () {
     // [0, 10.5, 21] compara textos, así que "21.00" no coincidiría con "21".
     // Sin la normalización, ningún producto existente se podría volver a
     // guardar: pasaría todas las pruebas de alta y fallaría al editar.
-    $producto = Producto::factory()->create(['alicuota_iva' => '10.50', 'precio_lista' => '1500.50']);
+    $producto = Producto::factory()->create(['alicuota_iva' => '10.50', 'precio_contado' => '1500.50']);
 
     $this->actingAs(usuarioCon('producto.editar'))
         ->put(route('productos.update', $producto), datosProducto([
-            'codigo'       => $producto->codigo,
-            'nombre'       => $producto->nombre,
-            'categoria_id' => $producto->categoria_id,
-            'precio_lista' => '1.500,50',        // como lo muestra el formulario
-            'alicuota_iva' => '10.50',
+            'codigo'         => $producto->codigo,
+            'nombre'         => $producto->nombre,
+            'categoria_id'   => $producto->categoria_id,
+            'precio_contado' => '1.500,50',        // como lo muestra el formulario
+            'alicuota_iva'   => '10.50',
         ]))
         ->assertSessionHasNoErrors();
 
@@ -285,9 +308,9 @@ test('ante un error se conserva lo que el usuario habia escrito', function () {
     // M-31 en la interfaz: equivocarse en un campo no borra los demás.
     $this->actingAs(usuarioCon('producto.crear'))
         ->from(route('productos.create'))
-        ->post(route('productos.store'), datosProducto(['nombre' => '', 'precio_lista' => '1.500,50']))
+        ->post(route('productos.store'), datosProducto(['nombre' => '', 'precio_contado' => '1.500,50']))
         ->assertSessionHasErrors('nombre')
-        ->assertSessionHasInput('precio_lista', '1.500,50');
+        ->assertSessionHasInput('precio_contado', '1.500,50');
 });
 
 /*

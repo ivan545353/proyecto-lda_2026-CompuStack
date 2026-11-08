@@ -54,10 +54,6 @@
                 <label for="estado" class="form-label">Estado</label>
                 <select class="form-select" id="estado" name="estado">
                     <option value="">Todos</option>
-                    {{-- Sólo los estados que la Etapa 1 alcanza. Los cinco que faltan
-                         están declarados en el ENUM y ninguna pantalla los dispara:
-                         ofrecerlos acá sería ofrecer filtros cuyo único resultado
-                         posible es vacío. --}}
                     @foreach (App\Models\Venta::ESTADOS_EN_USO as $valor)
                         <option value="{{ $valor }}" @selected(request('estado') === $valor)>
                             {{ App\Models\Venta::ESTADOS[$valor] }}
@@ -129,12 +125,7 @@
                         </a>
                     @endif
 
-                    {{-- Arrastra los filtros de la pantalla, sin `page`: el PDF no
-                         pagina, así que el número de página no significa nada ahí. --}}
-                    <a href="{{ route('ventas.exportar', request()->except('page')) }}"
-                        class="btn btn-sm btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1 flex-fill flex-sm-grow-0">
-                        <i class="bi bi-file-earmark-arrow-down" aria-hidden="true"></i> Exportar
-                    </a>
+                    <x-imprimir ruta="ventas.exportar" :listado="new \App\Impresion\ListadoVentas()" class="flex-fill flex-sm-grow-0" />
 
                     <button type="submit"
                         class="btn btn-sm btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1 flex-fill flex-sm-grow-0">
@@ -185,6 +176,12 @@
 
                             <td>
                                 <span class="badge {{ $venta->estadoClase() }}">{{ $venta->estadoTexto() }}</span>
+                                @if ($venta->esPresupuesto() && (int) $venta->faltantes_count > 0)
+                                    <span class="badge text-bg-warning d-inline-block mt-1">
+                                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                                        Sin stock suficiente
+                                    </span>
+                                @endif
                             </td>
 
                             <td class="text-center d-none d-lg-table-cell">{{ $venta->lineas_count }}</td>

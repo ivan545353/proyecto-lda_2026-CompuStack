@@ -57,6 +57,9 @@
                         <i class="bi bi-eraser" aria-hidden="true"></i> Limpiar
                     </a>
                 @endif
+
+
+                <x-imprimir ruta="clientes.imprimir" :listado="new \App\Impresion\ListadoClientes()" :chico="false" class="ms-auto" />
             </div>
         </div>
     </form>

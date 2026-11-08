@@ -304,3 +304,116 @@ test('los cuatro metodos bloquean la fila del producto', function () {
         expect(strtolower($consultas))->toContain('for update');
     }
 });
+
+/*
+|--------------------------------------------------------------------------
+| El stock anterior, derivado del asiento
+|--------------------------------------------------------------------------
+|
+| Punto 8 del revisor: el kardex mostraba el saldo que quedó y no el que había.
+| Se resolvió con un accesor y sin migración, y lo que lo hace posible es que el
+| servicio escriba `cantidad` con signo junto con `stock_resultante`. El test afirma
+| la identidad sobre asientos creados por el servicio, que es el único que las
+| escribe: con filas puestas a mano probaría la resta y no el sistema.
+|
+*/
+
+test('el stock anterior de cada asiento es el resultante del asiento previo', function () {
+    $producto = Producto::factory()->create();
+    $usuario  = admin();
+
+    // Tres ajustes: una entrada, otra entrada y una salida. El tercero es el que
+    // importa: con `cantidad` negativa, la resta tiene que seguir dando el saldo
+    // anterior y no la suma.
+    $this->service->ajustar($producto, 12, 'Conteo inicial de inventario.', $usuario);
+    $this->service->ajustar($producto->fresh(), 15, 'Llegó mercadería sin orden.', $usuario);
+    $this->service->ajustar($producto->fresh(), 9, 'Faltante detectado en góndola.', $usuario);
+
+    $asientos = $producto->movimientos()->orderBy('id')->get();
+
+    // El primero arranca en cero: antes de ese asiento el producto no tenía nada.
+    expect($asientos->pluck('stock_anterior')->all())->toBe([0, 12, 15]);
+    expect($asientos->pluck('stock_resultante')->all())->toBe([12, 15, 9]);
+    expect($asientos->pluck('cantidad')->all())->toBe([12, 3, -6]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| La puerta al costo, sin movimiento de stock
+|--------------------------------------------------------------------------
+|
+| El ajuste masivo del tramo D sube el costo de un conjunto de productos para que
+| el motor recalcule el precio solo. `costo_promedio` está fuera de `$fillable` y
+| esta clase es la única que lo escribe, así que la operación entra acá como un
+| método más y no como una excepción al invariante.
+|
+| Lo que estos tests fijan es justamente lo que lo distingue de los otros cuatro:
+| cambia el costo, no toca el stock y NO escribe en el kardex. Un asiento con
+| cantidad cero en un libro de movimientos físicos sería una fila que no registra
+| ningún movimiento.
+|
+*/
+
+test('fijar el costo cambia el costo y no deja asiento en el kardex', function () {
+    $producto = Producto::factory()->conStockYCosto(10, 1000)->create();
+
+    $this->service->fijarCosto($producto, 1150);
+
+    expect($producto->fresh()->costo_promedio)->toBe('1150.00')
+        ->and($producto->fresh()->stock)->toBe(10)
+        ->and(MovimientoStock::where('producto_id', $producto->id)->count())->toBe(0);
+});
+
+test('el costo se redondea a dos decimales antes de guardarse', function () {
+    // La columna es decimal(12,2) y el ajuste multiplica por un porcentaje: el
+    // resultado se redondea en la frontera que se persiste, como ya hacía el
+    // promedio ponderado.
+    $producto = Producto::factory()->conStockYCosto(10, 1000)->create();
+
+    expect($this->service->fijarCosto($producto, 1234.567))->toBe('1234.57');
+});
+
+test('fijar el costo rechaza un costo negativo', function () {
+    $producto = Producto::factory()->conStockYCosto(10, 1000)->create();
+
+    expect(fn () => $this->service->fijarCosto($producto, -1))
+        ->toThrow(ReglaDeNegocioException::class);
+
+    expect($producto->fresh()->costo_promedio)->toBe('1000.00');
+});
+
+test('fijar el costo en cero se permite, porque es un costo que el sistema ya conoce', function () {
+    // Es el valor con el que nace un producto, y el motor ya sabe qué hacer con él:
+    // `PrecioService::recalcular()` devuelve SIN_COSTO en lugar de calcular cero.
+    $producto = Producto::factory()->conStockYCosto(10, 1000)->create();
+
+    expect($this->service->fijarCosto($producto, 0))->toBe('0.00');
+});
+
+test('fijar el costo bloquea la fila del producto', function () {
+    // La quinta hoja de la puerta pide el bloqueo como las otras cuatro (M-15): una
+    // recepción simultánea calcula el promedio ponderado sobre este mismo número.
+    $producto = Producto::factory()->conStockYCosto(10, 1000)->create();
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $this->service->fijarCosto($producto, 1200);
+
+    $consultas = collect(DB::getQueryLog())->pluck('query')->implode(' | ');
+    DB::disableQueryLog();
+
+    expect(strtolower($consultas))->toContain('for update');
+});
+
+test('fijar el costo no deja el producto en memoria con la columna sucia', function () {
+    // Quien llama recalcula el precio con el costo que el método devuelve. Si el
+    // método tocara el objeto, el `save()` del precio arrastraría una columna que
+    // está fuera de `$fillable` a propósito.
+    $producto = Producto::factory()->conStockYCosto(10, 1000)->create();
+
+    $this->service->fijarCosto($producto, 1150);
+
+    expect($producto->isDirty())->toBeFalse()
+        ->and($producto->costo_promedio)->toBe('1000.00');
+});

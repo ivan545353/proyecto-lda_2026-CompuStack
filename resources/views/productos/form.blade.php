@@ -5,9 +5,7 @@
 
 @php($esEdicion = $producto->exists)
 @php($imagenes = $producto->imagenes ?? [])
-{{-- Si el contado es igual al de lista, el campo se muestra vacío: así sigue
-     al precio de lista si este cambia, en vez de quedar clavado en el viejo. --}}
-@php($contadoGuardado = $producto->precio_contado === $producto->precio_lista ? null : $producto->precio_contado)
+
 
 @section('title', $esEdicion ? 'Editar producto' : 'Nuevo producto')
 
@@ -109,11 +107,10 @@
                 <div class="col-12">
                     <div class="form-text mb-0">
                         @if ($esEdicion)
-                            A quién se le compra este producto y a qué precio se administra en
-                            <a href="{{ route('producto-proveedores.index', $producto) }}">sus proveedores</a>.
+                            Administrá costos y proveedores asociados desde <a
+                                href="{{ route('producto-proveedores.index', $producto) }}">sus proveedores</a>.
                         @else
-                            Los proveedores de este producto se cargan después de crearlo, desde el
-                            listado del catálogo.
+                            Podés asociarle proveedores luego de crearlo.
                         @endif
                     </div>
                 </div>
@@ -122,55 +119,125 @@
 
         {{-- Precios --}}
         <fieldset class="card card-body border-0 shadow-sm mb-4">
-            <legend class="h5 mb-3">Precios</legend>
+            <legend class="h5 mb-3 d-flex align-items-center gap-2">
+                <span>Precios</span>
+                <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                    data-bs-toggle="tooltip" data-bs-placement="top"
+                    data-bs-title="El precio sale del costo neto por la ganancia y los factores, más los impuestos. El de lista es el de contado con el recargo de cuotas adentro, y no se carga a mano."
+                    aria-label="Información sobre los precios">
+                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                </button>
+            </legend>
+
+            {{-- Advertencia operativa: si no se lee, el alta falla. --}}
+            @unless ($esEdicion)
+                <div class="alert alert-light border d-flex align-items-start gap-2 small py-2" role="note">
+                    <i class="bi bi-exclamation-triangle text-warning flex-shrink-0 mt-1" aria-hidden="true"></i>
+                    <span>
+                        Un producto nuevo todavía no tiene costo, así que su precio se carga a mano.
+                        Cuando reciba mercadería vas a poder pasarlo al cálculo automático.
+                    </span>
+                </div>
+            @endunless
 
             <div class="row g-3">
+                {{-- Gobierna a los demás campos, así que va primero. --}}
+                <div class="col-12">
+                    <div class="form-check">
+                        <input class="form-check-input @error('precio_manual') is-invalid @enderror" type="checkbox"
+                            value="1" id="precio_manual" name="precio_manual" @checked(old('precio_manual', $producto->precio_manual))
+                            @disabled(!$esEdicion)
+                            aria-describedby="ayudaManual @error('precio_manual') errorManual @enderror">
+
+                        <label class="form-check-label" for="precio_manual">Fijar el precio a mano</label>
+
+                        {{-- Un control deshabilitado no se envía, y el servidor exige
+                             la marca en el alta: el valor viaja igual, por acá. --}}
+                        @unless ($esEdicion)
+                            <input type="hidden" name="precio_manual" value="1">
+                        @endunless
+
+                        <div id="ayudaManual" class="form-text">
+                            Sin la marca, el precio lo calcula el motor y el ajuste masivo lo mueve.
+                        </div>
+
+                        @error('precio_manual')
+                            <div id="errorManual" class="invalid-feedback d-block">{{ $message }}</div>
+                        @enderror
+                    </div>
+                </div>
+
                 <div class="col-12 col-md-4">
-                    <label for="precio_lista" class="form-label">Precio de lista <span aria-hidden="true">*</span></label>
+                    <label for="precio_contado" class="form-label">
+                        Precio de contado <span aria-hidden="true">*</span>
+                    </label>
+
                     {{-- Texto y no type="number": un campo numérico del navegador
                          reinterpreta "1.500,50" según el idioma del sistema. --}}
                     <div class="input-group has-validation">
                         <span class="input-group-text" aria-hidden="true">$</span>
                         <input type="text" inputmode="decimal" autocomplete="off"
-                            class="form-control @error('precio_lista') is-invalid @enderror" id="precio_lista"
-                            name="precio_lista"
-                            value="{{ Importe::paraFormulario(old('precio_lista', $producto->precio_lista)) }}" required
-                            aria-describedby="ayudaLista @error('precio_lista') errorLista @enderror">
-                        @error('precio_lista')
-                            <div id="errorLista" class="invalid-feedback">{{ $message }}</div>
-                        @enderror
-                    </div>
-                    <div id="ayudaLista" class="form-text">Con tarjeta o en cuotas. Por ejemplo: 1.500,50</div>
-                </div>
-
-                <div class="col-12 col-md-4">
-                    <label for="precio_contado" class="form-label">Precio de contado</label>
-                    <div class="input-group has-validation">
-                        <span class="input-group-text" aria-hidden="true">$</span>
-                        <input type="text" inputmode="decimal" autocomplete="off"
                             class="form-control @error('precio_contado') is-invalid @enderror" id="precio_contado"
                             name="precio_contado"
-                            value="{{ Importe::paraFormulario(old('precio_contado', $contadoGuardado)) }}"
+                            value="{{ Importe::paraFormulario(old('precio_contado', $producto->precio_contado)) }}"
+                            @disabled($esEdicion && !old('precio_manual', $producto->precio_manual))
                             aria-describedby="ayudaContado @error('precio_contado') errorContado @enderror">
+
                         @error('precio_contado')
                             <div id="errorContado" class="invalid-feedback">{{ $message }}</div>
                         @enderror
                     </div>
-                    <div id="ayudaContado" class="form-text">
-                        Efectivo, transferencia o QR. Si lo dejás vacío, se usa el precio de lista.
-                    </div>
+
+                    <div id="ayudaContado" class="form-text">Efectivo, transferencia o QR.</div>
                 </div>
 
                 <div class="col-12 col-md-4">
+                    <span class="form-label d-block">Precio de lista</span>
+
+                    <p class="form-control-plaintext fw-semibold mb-0">
+                        {{ $esEdicion ? Importe::pesos($producto->precio_lista) : '—' }}
+                    </p>
+
+                    <div class="form-text">
+                        Tarjeta y cuotas. Sale del recargo que fija
+                        @can('precio.ver')
+                            <a href="{{ route('precios.index') }}">Precios</a>.
+                        @else
+                            la pantalla de Precios.
+                        @endcan
+                    </div>
+                </div>
+
+                <div class="col-6 col-md-2">
+                    <label for="ganancia" class="form-label">Ganancia</label>
+
+                    <input type="text" inputmode="decimal" autocomplete="off"
+                        class="form-control @error('ganancia') is-invalid @enderror" id="ganancia" name="ganancia"
+                        value="{{ old('ganancia', Importe::numero($producto->ganancia)) }}"
+                        placeholder="{{ $calculo ? Importe::numero($calculo['ganancia']) : '' }}"
+                        aria-describedby="ayudaGananciaProd @error('ganancia') errorGananciaProd @enderror">
+
+                    <div id="ayudaGananciaProd" class="form-text">Vacía: hereda de la categoría.</div>
+
+                    @error('ganancia')
+                        <div id="errorGananciaProd" class="invalid-feedback">{{ $message }}</div>
+                    @enderror
+                </div>
+
+                <div class="col-6 col-md-2">
                     <label for="alicuota_iva" class="form-label">IVA <span aria-hidden="true">*</span></label>
+
+                    {{-- Las opciones salen del catálogo de impuestos, que es con lo
+                         que valida el Request: comparan el mismo texto. --}}
                     <select class="form-select @error('alicuota_iva') is-invalid @enderror" id="alicuota_iva"
                         name="alicuota_iva" required aria-describedby="@error('alicuota_iva') errorIva @enderror">
-                        {{-- Las opciones salen de la misma constante con la que valida
-                             el Request: comparan exactamente el mismo texto. --}}
-                        @foreach (Producto::ALICUOTAS_IVA as $valor => $texto)
-                            <option value="{{ $valor }}" @selected((string) old('alicuota_iva', $producto->alicuota_iva) === $valor)>{{ $texto }}</option>
+                        @foreach ($alicuotas as $valor => $texto)
+                            <option value="{{ $valor }}" @selected((string) old('alicuota_iva', $producto->alicuota_iva) === (string) $valor)>
+                                {{ $texto }}
+                            </option>
                         @endforeach
                     </select>
+
                     @error('alicuota_iva')
                         <div id="errorIva" class="invalid-feedback">{{ $message }}</div>
                     @enderror
@@ -180,7 +247,15 @@
 
         {{-- Stock y reposición --}}
         <fieldset class="card card-body border-0 shadow-sm mb-4">
-            <legend class="h5 mb-3">Stock y reposición</legend>
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <legend class="h5 mb-0">Stock y reposición</legend>
+                <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                    data-bs-toggle="tooltip" data-bs-placement="top"
+                    data-bs-title="{{ $esEdicion ? 'El stock y costo se actualizan mediante compras o ajustes.' : 'El producto se crea sin stock inicial; ingresa mediante compras o ajustes.' }}"
+                    aria-label="Información sobre stock y costo">
+                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                </button>
+            </div>
 
             @if ($esEdicion)
                 {{-- De sólo lectura: el stock y el costo se mueven con compras y
@@ -188,15 +263,18 @@
                 <dl class="row mb-3">
                     <dt class="col-6 col-md-3 fw-normal text-body-secondary">Stock disponible</dt>
                     <dd class="col-6 col-md-3 fw-semibold">{{ $producto->stock_disponible }} u.</dd>
-                    <dt class="col-6 col-md-3 fw-normal text-body-secondary">Costo promedio</dt>
-                    <dd class="col-6 col-md-3 fw-semibold">{{ Importe::pesos($producto->costo_promedio) }}</dd>
+
+                    @can('precio.ver_costo')
+                        <dt class="col-6 col-md-3 fw-normal text-body-secondary">Costo promedio</dt>
+                        <dd class="col-6 col-md-3 fw-semibold">
+                            {{ Importe::pesos($producto->costo_promedio) }}
+                            <span class="text-body-secondary fw-normal small">neto, sin IVA</span>
+                        </dd>
+                    @endcan
                 </dl>
+
                 <p class="form-text mt-n2 mb-3">
                     El stock y el costo se actualizan al recibir compras o al registrar ajustes de stock.
-                </p>
-            @else
-                <p class="form-text mt-0 mb-3">
-                    El producto se crea sin stock. El stock entra al recibir una compra o al registrar un ajuste.
                 </p>
             @endif
 
@@ -245,12 +323,186 @@
             </div>
         </div>
 
-        <div class="d-grid d-sm-flex gap-2">
-            <button type="submit" class="btn btn-acento">
+        <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
+            <a href="{{ route('productos.index') }}" class="btn btn-outline-secondary">Cancelar</a>
+            <button type="submit" class="btn btn-acento px-4">
                 <i class="bi bi-check-lg" aria-hidden="true"></i>
                 {{ $esEdicion ? 'Guardar cambios' : 'Crear producto' }}
             </button>
-            <a href="{{ route('productos.index') }}" class="btn btn-outline-secondary">Cancelar</a>
         </div>
     </form>
+
+    {{-- ---------------------------------------------------------------- --}}
+    {{-- Cómo sale su precio                                              --}}
+    {{-- ---------------------------------------------------------------- --}}
+
+    @if ($esEdicion)
+        <section class="card border-0 shadow-sm mb-4">
+            <div
+                class="card-header bg-white border-0 pt-3 d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <h2 class="h5 mb-0">Cómo sale su precio</h2>
+                    <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                        data-bs-toggle="tooltip" data-bs-placement="top"
+                        data-bs-title="El precio que tendría hoy según el costo, la ganancia heredada y los factores vigentes. Recalcular lo escribe en el producto y deja su fila en el historial."
+                        aria-label="Información sobre el cálculo del precio">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
+                </div>
+
+                @can('precio.recalcular')
+                    <form method="POST" action="{{ route('productos.recalcular', $producto) }}">
+                        @csrf
+                        <button class="btn btn-sm btn-outline-dark text-nowrap"
+                            aria-label="Recalcular el precio de {{ $producto->nombre }}">
+                            <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Recalcular
+                        </button>
+                    </form>
+                @endcan
+            </div>
+
+            <div class="card-body pt-2">
+                @if ($producto->precio_manual)
+                    <div class="alert alert-light border d-flex align-items-start gap-2 small py-2" role="note">
+                        <i class="bi bi-pin-angle text-body-secondary flex-shrink-0 mt-1" aria-hidden="true"></i>
+                        <span>
+                            Este producto tiene el precio fijado a mano: ni «Recalcular» ni el ajuste
+                            masivo lo cambian. Lo de abajo es lo que saldría si lo dejaras calcular.
+                        </span>
+                    </div>
+                @endif
+
+                @can('precio.ver_costo')
+                    @if ((float) $producto->costo_promedio <= 0)
+                        <p class="text-body-secondary mb-0">
+                            Todavía no tiene costo cargado, así que no hay precio que calcular. El costo
+                            entra al recibir una compra.
+                        </p>
+                    @else
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <caption class="visually-hidden">Del costo neto al precio de contado</caption>
+                                <tbody>
+                                    <tr>
+                                        <th scope="row" class="fw-normal">Costo neto</th>
+                                        <td class="text-end">{{ Importe::pesos($calculo['costo_neto']) }}</td>
+                                    </tr>
+
+                                    <tr>
+                                        <th scope="row" class="fw-normal">
+                                            Ganancia
+                                            <span class="text-body-secondary">
+                                                × {{ Importe::numero($calculo['ganancia']) }}
+                                                @if ($producto->ganancia === null)
+                                                    (heredada)
+                                                @endif
+                                            </span>
+                                        </th>
+                                        <td class="text-end text-body-secondary">
+                                            {{ Importe::pesos(round($calculo['costo_neto'] * $calculo['ganancia'], 2)) }}
+                                        </td>
+                                    </tr>
+
+                                    @foreach ($calculo['factores'] as $factor)
+                                        <tr>
+                                            <th scope="row" class="fw-normal">
+                                                {{ $factor['nombre'] }}
+                                                <span class="text-body-secondary">
+                                                    {{ $factor['modo'] === 'recupero' ? '÷' : '×' }}
+                                                    {{ Importe::numero(
+                                                        $factor['modo'] === 'recupero' ? 1 - $factor['porcentaje'] / 100 : 1 + $factor['porcentaje'] / 100,
+                                                        4,
+                                                    ) }}
+                                                </span>
+                                            </th>
+                                            <td class="text-end text-body-secondary">
+                                                + {{ Importe::pesos($factor['importe']) }}
+                                            </td>
+                                        </tr>
+                                    @endforeach
+
+                                    <tr class="border-top">
+                                        <th scope="row" class="fw-normal">Neto de venta</th>
+                                        <td class="text-end">{{ Importe::pesos($calculo['contado']['neto']) }}</td>
+                                    </tr>
+
+                                    @foreach ($calculo['contado']['impuestos'] as $impuesto)
+                                        <tr>
+                                            <th scope="row" class="fw-normal">
+                                                {{ $impuesto['nombre'] }}
+                                                <span class="text-body-secondary">
+                                                    {{ Importe::numero($impuesto['alicuota'], 2) }} %
+                                                </span>
+                                            </th>
+                                            <td class="text-end">{{ Importe::pesos($impuesto['importe']) }}</td>
+                                        </tr>
+                                    @endforeach
+
+                                    <tr class="border-top">
+                                        <th scope="row" class="h6 mb-0">Precio calculado</th>
+                                        <td class="text-end h6 mb-0">{{ Importe::pesos($calculo['contado']['final']) }}</td>
+                                    </tr>
+
+                                    {{-- La comparación es lo que hace útil al panel: dice si el
+                                         producto está al día o quedó atrás. --}}
+                                    @if ((float) $producto->precio_contado !== $calculo['contado']['final'])
+                                        <tr>
+                                            <th scope="row" class="fw-normal text-body-secondary">Hoy está en</th>
+                                            <td class="text-end text-body-secondary">
+                                                {{ Importe::pesos($producto->precio_contado) }}
+                                            </td>
+                                        </tr>
+                                    @endif
+
+                                    <tr>
+                                        <th scope="row" class="fw-normal">Margen actual sobre la venta</th>
+                                        <td class="text-end">
+                                            {{ $producto->margen() === null ? '—' : Importe::numero($producto->margen(), 2) . ' %' }}
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                @endcan
+            </div>
+
+            {{-- El historial no muestra costos, así que no pide `precio.ver_costo`. --}}
+            @if ($historial->isNotEmpty())
+                <div class="card-header bg-white border-0 border-top pt-3">
+                    <h3 class="h6 mb-0">Últimos cambios de precio</h3>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <caption class="visually-hidden">Historial de precios del producto</caption>
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col">Cuándo</th>
+                                <th scope="col" class="text-end">De</th>
+                                <th scope="col" class="text-end">A</th>
+                                <th scope="col" class="d-none d-md-table-cell">Motivo</th>
+                                <th scope="col" class="d-none d-md-table-cell">Quién</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($historial as $cambio)
+                                <tr>
+                                    <td class="small">{{ $cambio->created_at?->format('d/m/Y H:i') }}</td>
+                                    <td class="text-end">{{ Importe::pesos($cambio->precio_contado_anterior) }}</td>
+                                    <td class="text-end">{{ Importe::pesos($cambio->precio_contado_nuevo) }}</td>
+                                    <td class="d-none d-md-table-cell small text-body-secondary">
+                                        {{ \App\Models\HistorialPrecio::MOTIVOS[$cambio->motivo] }}
+                                    </td>
+                                    <td class="d-none d-md-table-cell small text-body-secondary">
+                                        {{ $cambio->usuario?->nombre ?? 'El sistema' }}
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </section>
+    @endif
 @endsection

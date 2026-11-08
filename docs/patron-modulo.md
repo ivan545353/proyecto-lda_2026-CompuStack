@@ -96,6 +96,32 @@ negocio: encadena los scopes del modelo.
 - Componentes disponibles: `<x-opciones-categoria>`, `<x-gestor-imagenes>`,
   `data-buscable` en un select para agregarle búsqueda.
 
+**Divulgación progresiva.** La pantalla tiene que poder leerse de un vistazo; la
+explicación sigue estando, pero no ocupando lugar todo el tiempo. Se fijó al rehacer el
+módulo Precios de la Fase 7.5, cuando quedó claro que una pantalla con una definición
+debajo de cada campo se vuelve ilegible justamente para quien la usa todos los días.
+
+- **Una sola advertencia visible por pantalla**, con ícono de alerta, y sólo si es
+  operativa: lo que, si no se lee, hace que algo salga mal.
+- **La explicación conceptual va plegada**, detrás de un `collapse` con un rótulo que
+  sea la pregunta del usuario («¿Cómo se calcula el precio?»), no un párrafo permanente.
+- **La definición de una sección va en un tooltip** sobre un `(i)` al lado del `<h2>`,
+  con `data-bs-toggle="tooltip"` y su `aria-label`.
+- **El `form-text` de un campo es una línea**: qué es el campo, no la teoría. Un ejemplo
+  concreto antes que una explicación: «Ej: 100 redondea para terminar en cero».
+- **Un dato calculado va en un badge pegado al input**, no en prosa adentro de la ayuda.
+- **El botón de guardar va separado y a la derecha** (`mt-4 pt-3 border-top` y
+  `justify-content-sm-end`): es la acción de cierre de esa tarjeta, no un campo más.
+
+**Lo que nunca se pliega ni se vuelve tooltip:** los mensajes de error, los textos
+enlazados por `aria-describedby`, los que distinguen el vacío por filtro del vacío por
+falta de datos, y las advertencias que cambian lo que el usuario está por hacer. Un
+tooltip no se abre en un celular y no siempre lo anuncia un lector de pantalla, así que
+lo que *tiene* que leerse se queda a la vista. El rótulo «sin IVA» del campo de costo es
+el ejemplo: si se lee tarde, el precio sale un 21 % de más.
+
+Los tooltips se inicializan una sola vez para toda la aplicación, en `app.js`.
+
 ### 8. Tests — `tests/Feature/`
 
 Dos niveles, y hacen falta los dos:
