@@ -412,6 +412,22 @@ la §1.3 se nombran por su letra.
 | HL-15 | El test de la frontera da 403 | Redirige al login | «Nunca 200, siempre al login» | D |
 | HL-16 | Las fechas son de Buenos Aires | `config/app.php` fija `'timezone' => 'UTC'` a mano; el `APP_TIMEZONE` del `.env.example` no se lee. La web muestra UTC: una venta de las 22:00 figura al día siguiente, también en `facturadoPorDia()` | La API manda ISO 8601 con `Z`, y la app convierte. La web no se toca: pendiente #82 | A |
 
+### 3.3 Detectados al construir
+
+| # | Se suponía | El código dice | Qué cambia | Tramo |
+| --- | --- | --- | --- | --- |
+| HL-17 | El renderer de `api/*` es un `render()` más | `StockInsuficienteException` y `TransicionInvalidaException` **extienden** `ReglaDeNegocioException` | El renderer de `api/*` va antes del web y mira primero las hijas | A |
+| HL-18 | `expectsJson()` decide si responder JSON | Una ruta inexistente de `api/*` **no corre middlewares de grupo** | Decide `$request->is('api/*')` | A |
+| HL-19 | `sin_sesion` y `sesion_invalida` salen de excepciones distintas | `auth:sanctum` lanza la **misma** `AuthenticationException` sin credencial y con una vencida o revocada | Se distingue por el encabezado `Authorization` (cualquier valor cuenta como intento, no sólo `Bearer`). `RespuestaDeError::desde()` recibe también el `Request` | A |
+| HL-20 | «5 por minuto por correo e IP, como el login web» | El login web limita con `throttle:5,1` **por IP**, no por correo e IP | `tienda-acceso`: 5 por correo e IP y 30 por IP sola. La web no se toca | A, D |
+| HL-21 | El login de la API es «como el login web» (§6.4) | El web da mensajes distintos para cuenta deshabilitada y sin acceso | La API da el mismo 422 con el mismo mensaje en los tres casos | D |
+| HL-22 | `UsuarioService` sólo desactiva | `eliminar()` **borra la fila** si no hay historial, y la rama que desactiva **no pasa por `actualizar()`**; `personal_access_tokens` no tiene FK | Las dos ramas de `eliminar()` y `actualizar()` revocan, en la misma transacción | A |
+| HL-23 | Revocar es una operación más | Borrar la fila de una credencial parece chocar con la regla 1 | No choca: una credencial es un permiso de acceso, no un hecho. El porqué va en `modelo-datos.md` | A |
+| HL-24 | Los `render()` ven la excepción tal como se lanzó | Laravel la **prepara antes**: `ModelNotFoundException` llega como `NotFoundHttpException`, `AuthorizationException` como `AccessDeniedHttpException`, y `abort(403)` como una `HttpException` genérica | El renderer acepta las tres formas y mira también el estado HTTP | A |
+| HL-25 | `sanctum.expiration` fija la fecha de vencimiento | Sanctum 4 **no la escribe**: `expires_at` queda en null y sólo se consulta al validar | `CredencialService::emitir()` escribe la fecha; de ahí sale el `vence` | A |
+| HL-26 | `install:api` deja la API lista | El `guard` de Sanctum viene en `['web']`: una sesión abierta en el panel **autenticaría** contra `api/*` | `'guard' => []`: sólo la credencial `Bearer` | A |
+| HL-27 | `SANCTUM_EXPIRATION=` vacío en `.env.example` da el valor por omisión | `env()` devuelve `''`, y Sanctum lo lee como «no vence nunca» | `(int) env('SANCTUM_EXPIRATION') ?: 10080` | A |
+
 ---
 
 ## 4. Alcance
@@ -1589,8 +1605,15 @@ que las usa.
 
 ### 12.2 Las que quedan
 
-**Ninguna.** Si durante un tramo aparece algo que puede ir para dos lados, se plantea y se
-decide antes de escribir código, y se agrega acá con su número.
+**Una, de números y no de diseño.** Si durante un tramo aparece algo que puede ir para dos
+lados, se plantea y se decide antes de escribir código, y se agrega acá con su número.
+
+- **Q-1. Valores de partida de `config/tienda.php`.** El plan fija las claves pero no estos
+  números, y el tramo A los dejó marcados `// a revisar`: `novedades.dias` (30),
+  `novedades.tope` (10), `disponibilidad.ultimas_unidades` (3), `pagos.intento_minutos` (20),
+  `envio.costo` (`0.00`), `carrito.cantidad_maxima` (10) y `descripcion_breve.palabras` (25).
+  Los de novedades y disponibilidad se confirman en el tramo C con el catálogo de
+  demostración (§14.3); `envio.costo` hay que decidirlo antes del tramo F, que lo suma al total.
 
 ---
 
@@ -1637,9 +1660,9 @@ El plan está cerrado. Esto es lo que falta para arrancar y para terminar la eta
 - [ ] Conseguir el **logo de CompuStack** en buena resolución (SVG, o PNG de al menos
       1024 × 1024 con fondo transparente): el repositorio no tiene ninguno, y el ícono de la
       app sale de ahí (D-18). Confirmar el tono de blanco crema.
-- [ ] Revisar las decisiones por omisión **D-12 a D-17**: si alguna no cierra, se cambia
-      ahora y no en el medio de un tramo.
-- [ ] Registrar en `pendientes-usabilidad.md` el **#81** (la pantalla de roles ofrece el
+- [x] Revisar las decisiones por omisión **D-12 a D-17**: sin objeciones al empezar el tramo A,
+      se siguió el plan.
+- [x] Registrar en `pendientes-usabilidad.md` el **#81** (la pantalla de roles ofrece el
       módulo `tienda` a roles de gestión) y el **#82** (la web muestra las horas en UTC,
       HL-16).
 - [ ] Crear el repositorio de la app y anotar su dirección en el README del backend.
@@ -1674,7 +1697,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 
 | Tramo | Backend | App | Documentos | Estado |
 | --- | --- | --- | --- | --- |
-| A — Contrato y capa de API | [ ] | — | [ ] `api.md` r1, `modelo-datos`, `trazabilidad` | Pendiente |
+| A — Contrato y capa de API | [x] | — | [x] `api.md` r1, `modelo-datos`, `trazabilidad` | Cerrado |
 | B — Cimientos de la app | — | [ ] | [ ] `README`, `ARQUITECTURA` | Pendiente |
 | C — Catálogo y detalle | [ ] | [ ] | [ ] | Pendiente |
 | D — Cuenta y precios | [ ] | [ ] | [ ] | Pendiente |

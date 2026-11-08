@@ -5,28 +5,16 @@ namespace App\Support;
 /**
  * Conversión entre cómo escribe un importe el usuario y cómo lo guarda la base.
  *
- * La regla `numeric` espera "1500.50", y en Argentina se escribe "1.500,50".
- * Interpretarlo mal es caro: leer "1.500" como 1.5 guarda un producto de mil
- * quinientos pesos a un peso con cincuenta, sin ningún error. Es la versión
- * más costosa del hallazgo M-31: aceptar algo distinto de lo que el usuario
- * quiso decir.
- *
- * Por eso normalizar() sólo acepta formas con una única lectura posible. El
- * punto seguido de TRES dígitos es separador de miles; seguido de UNO o DOS,
- * es decimal. Como un precio nunca tiene tres decimales, las dos lecturas no
- * se superponen. Lo que no encaja se devuelve sin tocar, y la regla de
- * validación lo rechaza con su mensaje: nunca se adivina.
- *
  * Métodos:
  *   normalizar()      lo que escribió el usuario → "1500.50"
  *   paraFormulario()  "1500.50" → "1.500,50", para mostrar en un campo
+ *   json()            1500.5 → "1500.50", la forma de un importe en la API
  */
 final class Importe
 {
     public static function normalizar(mixed $valor): mixed
     {
-        // null (campo vacío) o un número que ya viene como número, por
-        // ejemplo desde la API de la Etapa 3: no hay nada que interpretar.
+        // null (campo vacío) o un número que ya viene como número
         if (! is_string($valor)) {
             return $valor;
         }
@@ -53,9 +41,6 @@ final class Importe
     /**
      * Para el value de un campo. Si lo que llega no es un número (lo que el
      * usuario escribió y no validó), se muestra tal cual para que lo corrija.
-     *
-     * number_format trabaja con float, pero acá sólo se muestra: el valor que
-     * se guarda nunca pasa por esta función.
      */
     public static function paraFormulario(mixed $valor): string
     {
@@ -88,6 +73,19 @@ final class Importe
         $texto = number_format((float) $valor, $decimales, ',', '.');
 
         return str_contains($texto, ',') ? rtrim(rtrim($texto, '0'), ',') : $texto;
+    }
+
+    /**
+     * Un importe tal como viaja en la API: cadena, dos decimales, punto, sin miles.
+     *
+     * Cadena y no número porque un número JSON es `double` en Dart, y `decimal(12,2)`
+     * (A-17) no tiene que pasar por punto flotante en el camino. La app sólo formatea.
+     * Como paraFormulario(), trabaja con float sólo para mostrar: no es el valor que
+     * se guarda ni el que se calcula.
+     */
+    public static function json(int|float|string $valor): string
+    {
+        return number_format((float) $valor, 2, '.', '');
     }
 
     /** "1500.5" → "$ 1.500,50", para mostrar un importe en pantalla. */

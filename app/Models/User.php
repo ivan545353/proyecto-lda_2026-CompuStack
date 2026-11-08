@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Laravel\Sanctum\HasApiTokens;
 /**
  * Usuario del sistema: credenciales, nombre para mostrar y rol.
  *
@@ -19,10 +20,6 @@ use Illuminate\Support\Facades\Cache;
  * persona viven en las tablas satélite: los fiscales en `clientes`, los
  * laborales en `empleados`. Meterlos todos acá dejaría columnas siempre nulas
  * para la mitad del padrón.
- *
- * $hidden sobre `password` cierra el hallazgo C-1: en el sistema original el
- * DTO de escritura y el de lectura eran el mismo objeto, y /user/list devolvía
- * el hash bcrypt de todos los personal.
  *
  * Relaciones:
  *   rol()       BelongsTo   el rol que determina sus permisos
@@ -48,7 +45,7 @@ use Illuminate\Support\Facades\Cache;
  */
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
     protected $table = 'users';
 
@@ -84,15 +81,6 @@ class User extends Authenticatable
 
     /**
      * Las ventas que hizo esta persona, como vendedor.
-     *
-     * No es lo mismo que haber cobrado: el cajero queda en `pagos.usuario_id`, y
-     * tener las dos cosas separadas es lo que permite que el panel distinga quién
-     * vendió de quién cobró. Un empleado dado de baja conserva su historial y sigue
-     * apareciendo en los reportes del período en que trabajó, que es la razón por la
-     * que `fecha_baja` no es lo mismo que `activo`.
-     *
-     * La usa el `withCount` del listado de personal, para no ofrecer un botón de
-     * eliminar sobre alguien con historial (pendiente #2).
      */
     public function ventas(): HasMany
     {
@@ -101,15 +89,6 @@ class User extends Authenticatable
 
     /**
      * Los cobros que registró esta persona, como cajero.
-     *
-     * Es la otra mitad de `ventas()`, y las dos existen separadas porque son dos
-     * preguntas distintas: en el mostrador el vendedor arma el presupuesto y el
-     * cajero cobra, y el panel de la Fase 7 tiene que poder rankear las dos cosas sin
-     * confundirlas. `UsuarioService::HISTORIAL` ya cuenta la tabla `pagos` para
-     * decidir si una cuenta se borra o se desactiva (M-16), pero lo hace por nombre
-     * de tabla; esta relación es lo que le faltaba al `withCount` del listado de
-     * personal para no ofrecer un botón de eliminar que el servicio va a rechazar
-     * (pendiente #2). Ese `withCount` lo cierra el último paso de esta mitad.
      */
     public function pagos(): HasMany
     {
@@ -162,28 +141,10 @@ class User extends Authenticatable
 
      // ------------------------------------------------------------------
     // Filtros del listado
-    //
-    // Un scope por parámetro de la URL, con el mismo nombre declarado acá y
-    // en PersonalFiltroRequest. Es la corrección de fondo de A-24: el
-    // UserController original mandaba `nombres` y el UserDao leía `perfil_id`
-    // y `estado`, así que el filtro por nombre se ignoraba en silencio. No
-    // había ningún lugar donde constara cuál era el correcto.
-    //
-    // Las columnas van calificadas con `users.` aunque hoy no haya ningún
-    // join: el día que lo haya, una columna ambigua rompe la consulta.
     // ------------------------------------------------------------------
 
     /**
      * Busca por nombre, apellido, correo o legajo.
-     *
-     * El legajo vive en `empleados`, no acá, así que entra por `orWhereHas`.
-     * Se incluye porque es como el administrativo identifica al personal en
-     * papel; excluirlo obligaría a recordar el apellido de alguien cuyo
-     * legajo tenés delante.
-     *
-     * El OR va agrupado en un closure. Sin el grupo, encadenar otro filtro
-     * después produce `(a AND b) OR c` en lugar de `a AND (b OR c)`: el
-     * listado devolvería filas que no cumplen el otro filtro.
      */
     public function scopeBuscar(Builder $query, ?string $texto): Builder
     {
@@ -208,10 +169,6 @@ class User extends Authenticatable
 
     /**
      * Separa el personal de las cuentas de la tienda.
-     *
-     * Consulta `roles.ambito`, nunca el nombre del rol. El frontend original
-     * decidía con `perfil === 'Administrador'` escrito a mano (M-33), y
-     * renombrar un perfil rompía la pantalla sin dar error.
      */
     public function scopeDeAmbito(Builder $query, ?string $ambito): Builder
     {
@@ -236,14 +193,6 @@ class User extends Authenticatable
 
     /**
      * Vínculo laboral, que NO es lo mismo que el acceso.
-     *
-     * `users.activo` dice si puede entrar; `empleados.fecha_baja` dice si
-     * sigue trabajando. Un empleado dado de baja conserva su historial de
-     * ventas y sigue apareciendo en los reportes del período en que trabajó,
-     * así que la baja laboral nunca borra ni desactiva por su cuenta.
-     *
-     * Sólo aplica a quien tiene fila en `empleados`: las cuentas de tienda
-     * quedan fuera de las dos opciones, que es lo correcto.
      */
     public function scopeConSituacion(Builder $query, ?string $situacion): Builder
     {

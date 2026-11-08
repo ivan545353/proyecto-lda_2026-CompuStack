@@ -130,6 +130,32 @@ con ninguna no tiene nada que ofrecer. Toda operación bloquea la fila del
 dejen dos marcadas, y para que el alta de la primera también se serialice,
 cuando todavía no hay ninguna fila de dirección que bloquear.
 
+### `personal_access_tokens`
+
+*(Etapa 2, tramo A. La crea Sanctum; la usa `App\Services\CredencialService`, que es la única clase que lo sabe.)*
+
+| Campo                        | Tipo               | Nota                                                           |
+| ---------------------------- | ------------------ | -------------------------------------------------------------- |
+| id                           | bigint PK          |                                                                |
+| tokenable_type, tokenable_id | varchar + bigint   | la cuenta dueña (`App\Models\User`); índice compuesto          |
+| name                         | text               | `app-tienda`                                                   |
+| token                        | varchar(64) UNIQUE | **hash** de la credencial: la credencial en claro no se guarda |
+| abilities                    | text null          | `["*"]`; no se usa para permisos (eso es `rol_permiso`)        |
+| last_used_at                 | timestamp null     |                                                                |
+| expires_at                   | timestamp null     | siempre se escribe: emisión + `SANCTUM_EXPIRATION`             |
+
+**Por qué una fila por credencial.** Es lo que hace posible *revocar*: en el sistema original el
+perfil viajaba dentro del JWT y desactivar a alguien no lo desconectaba hasta que el token vencía
+(A-5). Acá, desactivar o dar de baja una cuenta borra sus filas (`UsuarioService`, en la misma
+transacción), y cada pedido además revalida que la cuenta esté activa.
+
+**Revocar borra la fila.** No choca con la regla de no borrar hechos del negocio: una credencial no
+es un hecho del negocio sino un permiso de acceso, y un permiso revocado no tiene historia que
+conservar. Lo que se guarda como historia (quién vendió, quién cobró) sigue en `ventas` y `pagos`.
+
+**No tiene clave foránea** (es polimórfica), así que no se borra sola con la cuenta: por eso
+`UsuarioService::eliminar()` las revoca antes de borrar la fila de `users`.
+
 ---
 
 ## 2. Catálogo
@@ -1044,7 +1070,7 @@ congelados por renglón, lotes de ajuste y entregas).
 | --------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------ |
 | `users`, `roles`, `permisos`, `rol_permiso`                                       | `carritos`, `carrito_lineas`                                          | `comprobantes`, `comprobante_lineas` |
 | `clientes`, `empleados`, `direcciones`                                            | La tabla de intentos de pago                                          | `envios`                             |
-| `categorias`, `marcas`, `productos`, `producto_proveedor`                         | Los tokens de sesión de la API                                        | `vales` y `ventas.vale_id`           |
+| `categorias`, `marcas`, `productos`, `producto_proveedor`                         | `personal_access_tokens` (credenciales de la API; tramo A)            | `vales` y `ventas.vale_id`           |
 | `movimientos_stock`                                                               | Columnas de entrega y de idempotencia en `ventas` (las decide su plan) | `banners`                            |
 | `proveedores`, `ordenes_compra`, `orden_compra_lineas`                            |                                                                       | `carritos.session_token`             |
 | `ventas`, `venta_lineas`, `pagos`                                                 |                                                                       |                                      |

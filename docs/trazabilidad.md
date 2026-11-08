@@ -872,3 +872,39 @@ corto con la decisión que lo condicionó. La consigna de la Etapa 2 recomienda 
 relacione los componentes originales con los nuevos componentes»: es ésta. La matriz de
 seguimiento —funcionalidad × pantalla de la app × endpoint × acceso × estado— es una
 herramienta propia y vive en el plan de la Etapa 2.
+
+
+### Tramo A — Contrato y capa de API
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `laravel/sanctum` 4.3 y `personal_access_tokens` | Una fila por credencial: es lo que permite revocar (A-5) | Nuevo |
+| `config/sanctum.php` | Vence a los 7 días; `guard` vacío, para que la sesión del panel no autentique contra `api/*` | Nuevo |
+| `config/tienda.php` | Todas las claves de la Etapa 2 desde el principio: paginado, reservas, pagos, carrito, novedades | Nuevo |
+| `CredencialService` | Emite y revoca; es la única clase que sabe que es Sanctum | Nuevo |
+| `ForzarJson` | Ninguna respuesta de `api/*` es HTML ni redirección | Nuevo |
+| `SesionOpcional` | Sin credencial, visitante; con una inválida, 401 y no un visitante silencioso | Nuevo |
+| `VerificarCuentaTienda` | La mitad API de `VerificarUsuarioActivo`: cuenta activa y de tienda, en cada pedido | Nuevo |
+| grupos `tienda.sesion_opcional` y `tienda.protegida` | La lista de middlewares de cada tipo de ruta vive en un lugar; rutas y tests nombran el grupo | Nuevo |
+| `RespuestaDeError` y su renderer en `bootstrap/app.php` | Toda excepción de `api/*` sale con `{ mensaje, codigo, errores }`; el 500 sin traza | Nuevo |
+| `RateLimiter::for('tienda-acceso')` | 5 por minuto por correo e IP, y 30 por IP sola | Nuevo |
+| `Paginado::respuesta()` | La envoltura única de los listados | Nuevo |
+| `Importe::json()` | El dinero viaja como cadena con dos decimales | Nuevo |
+| `Imagenes::url()` y `producto-sin-imagen.svg` | URL con el host del pedido; nunca `null` (HL-13) | Nuevo |
+| `TextosTienda` | Un solo diccionario con lo que se le dice al cliente | Nuevo |
+| `UsuarioService::actualizar()` y `eliminar()` | Desactivar o dar de baja una cuenta revoca sus credenciales | Modificado |
+| `User` | `HasApiTokens` | Modificado |
+| `routes/api.php` | `v1` con sus tres grupos, vacíos | Nuevo |
+| `docs/api.md` | Revisión 1: convenciones y registro de cambios | Nuevo |
+| `tests/Feature/Api/` y `ImporteJsonTest` | El contrato, la credencial y las piezas puras | Nuevo |
+
+> **El renderer decide por la URL y no por lo que el cliente pide.** Una ruta inexistente de
+> `api/*` no corre ningún middleware de grupo, así que `ForzarJson` no la alcanza y
+> `expectsJson()` daría falso: devolvería la página HTML de 404 a una app que no la puede leer.
+> Por eso el renderer mira `$request->is('api/*')`. Va registrado antes que el de la web, porque
+> `StockInsuficienteException` y `TransicionInvalidaException` extienden `ReglaDeNegocioException`
+> y, sin esto, una regla de negocio de la API volvería como una redirección.
+>
+> **Revocar una credencial borra su fila.** No choca con la regla de no borrar hechos del
+> negocio: una credencial es un permiso de acceso, no un hecho. La historia que importa (quién
+> vendió, quién cobró) está en `ventas` y `pagos`.
