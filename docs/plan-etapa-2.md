@@ -427,6 +427,14 @@ la §1.3 se nombran por su letra.
 | HL-25 | `sanctum.expiration` fija la fecha de vencimiento | Sanctum 4 **no la escribe**: `expires_at` queda en null y sólo se consulta al validar | `CredencialService::emitir()` escribe la fecha; de ahí sale el `vence` | A |
 | HL-26 | `install:api` deja la API lista | El `guard` de Sanctum viene en `['web']`: una sesión abierta en el panel **autenticaría** contra `api/*` | `'guard' => []`: sólo la credencial `Bearer` | A |
 | HL-27 | `SANCTUM_EXPIRATION=` vacío en `.env.example` da el valor por omisión | `env()` devuelve `''`, y Sanctum lo lee como «no vence nunca» | `(int) env('SANCTUM_EXPIRATION') ?: 10080` | A |
+| HL-28 | `FThemes.zinc.light` y `.dark` existen en `forui` | La 0.27.7 **quitó `FThemes` y todos los esquemas menos Neutral**; además su `ThemeData` es el de `material_ui`, no el de Flutter | Zinc se genera con `dart run forui theme create -p cabbbc` en `lib/config/tema/` (`forui_cli` fijado, sólo desarrollo); `MaterialApp` recibe un `ThemeData` mínimo (brillo y fondo) | B |
+| HL-29 | El release sólo necesita que `src/debug` no tenga política de red | `flutter create` pone `INTERNET` **sólo en `debug` y `profile`**: el release no habría llegado a la red | `INTERNET` en `src/main`. Además AGP 9 rechaza directorios generados en `sourceSets`: el XML de red de `debug` lo genera Gradle con la API de variantes (`10.0.2.2` más `compustack.ipLan` de `local.properties`) | B |
+| HL-30 | La compilación en Windows anda tal cual | Con la caché de pub en `C:` y el proyecto en `D:`, la compilación incremental de Kotlin falla («Could not close incremental caches») | `kotlin.incremental=false` en `android/gradle.properties` | B |
+| HL-31 | Un 401 siempre borra la credencial | Un 401 **tardío** de un pedido viejo borraría la de una sesión recién abierta | `AuthInterceptor` sólo la borra si sigue siendo la que viajó en ese pedido | B |
+| HL-32 | La prueba de conexión de Ajustes es un pedido más | Iría con la credencial a una dirección que todavía no es de confianza | Los pedidos marcados `sinCredencial` no la llevan, y un 401 de la prueba no cierra la sesión | B |
+| HL-33 | `ref.read(proveedor.future)` alcanza para esperar un `StreamProvider` | **Riverpod 3 pausa un provider sin oyentes**: no completa nunca | `iniciarContenedor` deja un oyente permanente de la dirección | B |
+| HL-34 | Leer el `Dio` perezosamente evita el círculo `Dio → dirección → ajustes → prueba → Dio` | Riverpod lo detecta **en debug** aunque la lectura sea perezosa: `CircularDependencyError` al tocar «Probar conexión» | La prueba va en `ConexionRepository`, aparte de `AjustesRepository`; `proveedores_test.dart` prueba el cableado real | B |
+| HL-35 | El ícono se genera con *Image Asset* de Android Studio | No hay forma de abrirlo desde la sesión | `tool/generar_icono.py` (Pillow) hace lo mismo: adaptativo, redondo, heredado y monocromático | B |
 
 ---
 
@@ -1636,7 +1644,7 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 | Registro | Registro | `POST /registro` | Pública, con límite | D | Pendiente |
 | Inicio y cierre de sesión | Inicio de sesión, Cuenta | `POST` y `DELETE /sesion` | Pública / protegida | D | Pendiente |
 | Datos básicos | Cuenta | `GET /perfil` | Protegida | D | Pendiente |
-| Sesión vencida | Todas | Cualquier protegida (401) | — | B, D | Pendiente |
+| Sesión vencida | Todas | Cualquier protegida (401) | — | B, D | B hecho (mecanismo: 401, `SessionRepository`, guarda, estado); D pendiente |
 | Carrito | Carrito, Ficha | `/carrito`, `/carrito/lineas` | `tienda.comprar` | E | Pendiente |
 | Vaciar | Carrito | `DELETE /carrito` | `tienda.comprar` | E | Pendiente |
 | Checkout y reserva | Confirmación (paso 1) | `POST /carrito/checkout` | `tienda.comprar` | E | Pendiente |
@@ -1647,7 +1655,7 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 | Resultado del pago | Resultado, Detalle | `GET /pedidos/{id}/pagos/{intento}` | `tienda.ver_pedidos` | G | Pendiente |
 | Mis pedidos | Mis pedidos | `GET /pedidos` | `tienda.ver_pedidos` | H | Pendiente |
 | Detalle del pedido | Detalle | `GET /pedidos/{id}` | `tienda.ver_pedidos` | H | Pendiente |
-| Dirección del servidor | Ajustes | — | — | B | Pendiente |
+| Dirección del servidor | Ajustes (Cuenta → Servidor) | `GET /categorias` (sólo como prueba) | — | B | Hecho |
 
 ---
 
@@ -1657,15 +1665,18 @@ El plan está cerrado. Esto es lo que falta para arrancar y para terminar la eta
 
 ### 14.1 Antes del tramo A
 
-- [ ] Conseguir el **logo de CompuStack** en buena resolución (SVG, o PNG de al menos
+- [x] Conseguir el **logo de CompuStack** en buena resolución (SVG, o PNG de al menos
       1024 × 1024 con fondo transparente): el repositorio no tiene ninguno, y el ícono de la
-      app sale de ahí (D-18). Confirmar el tono de blanco crema.
+      app sale de ahí (D-18). Hecho: `assets/marca/logo.svg` en la app; el ícono adaptativo es
+      un vector armado con sus trazados.
+- [x] Confirmar el tono de **blanco crema** del ícono: se mantiene `#FAF7F0`.
 - [x] Revisar las decisiones por omisión **D-12 a D-17**: sin objeciones al empezar el tramo A,
       se siguió el plan.
 - [x] Registrar en `pendientes-usabilidad.md` el **#81** (la pantalla de roles ofrece el
       módulo `tienda` a roles de gestión) y el **#82** (la web muestra las horas en UTC,
       HL-16).
-- [ ] Crear el repositorio de la app y anotar su dirección en el README del backend.
+- [x] Crear el repositorio de la app y anotar su dirección en el README del backend
+      (`github.com/ivan545353/compustack-app`).
 
 ### 14.2 Preparativos que no son código
 
@@ -1698,7 +1709,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | Tramo | Backend | App | Documentos | Estado |
 | --- | --- | --- | --- | --- |
 | A — Contrato y capa de API | [x] | — | [x] `api.md` r1, `modelo-datos`, `trazabilidad` | Cerrado |
-| B — Cimientos de la app | — | [ ] | [ ] `README`, `ARQUITECTURA` | Pendiente |
+| B — Cimientos de la app | — | [x] | [x] `README`, `ARQUITECTURA`, `trazabilidad` §15 | Cerrado |
 | C — Catálogo y detalle | [ ] | [ ] | [ ] | Pendiente |
 | D — Cuenta y precios | [ ] | [ ] | [ ] | Pendiente |
 | E — Carrito y reserva | [ ] | [ ] | [ ] | Pendiente |

@@ -86,6 +86,10 @@ facturación electrónica AFIP, envíos con Zipnova, vales y banners.
 **Etapa 3.** API REST sobre los mismos servicios, e integración con la
 aplicación Flutter.
 
+**App móvil de la tienda.** Vive en otro repositorio:
+[`ivan545353/compustack-app`](https://github.com/ivan545353/compustack-app) (Flutter, Android,
+`ar.compustack.tienda`). Consume la API de este backend; el contrato compartido es `docs/api.md`.
+
 El esquema de la Etapa 1 ya declara las columnas y los valores de `ENUM` que las
 etapas siguientes necesitan, aunque queden sin usar: agregar una columna nullable
 es barato, modificar un `ENUM` reescribe la tabla entera.

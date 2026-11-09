@@ -908,3 +908,39 @@ herramienta propia y vive en el plan de la Etapa 2.
 > **Revocar una credencial borra su fila.** No choca con la regla de no borrar hechos del
 > negocio: una credencial es un permiso de acceso, no un hecho. La historia que importa (quién
 > vendió, quién cobró) está en `ventas` y `pagos`.
+
+
+### Tramo B — Cimientos de la app
+
+La app es un componente nuevo con **repositorio propio** (`compustack-app`, Flutter, Android). Esta
+tabla relaciona sus piezas con la capa del sistema original a la que sirven. El detalle de la
+arquitectura está en su `ARQUITECTURA.md`.
+
+| Componente (en `compustack-app`) | Qué resuelve | Estado |
+| --- | --- | --- |
+| Proyecto `ar.compustack.tienda` | La tienda como app móvil: otro cliente del mismo sistema | Nuevo |
+| MVVM con repositorios (`ui/`, `data/`, `core/`) | Vista sin lógica, modelo de vista sin HTTP, repositorios que no se conocen | Nuevo |
+| `crearClienteHttp` y sus tres interceptores | Un solo `Dio`: credencial pegada, registro enmascarado (NF-14), errores traducidos | Nuevo |
+| `Falla` y `ErrorInterceptor` | El formato de error de `docs/api.md` §3 llega a la app como una clase sellada; manda el `codigo`, no el estado HTTP | Nuevo |
+| `TokenStorage` y `SessionRepository` | La credencial en el almacén seguro; la app sólo pregunta si hay sesión | Nuevo |
+| `pesos()` | El dinero llega como cadena (`"60500.00"`) y se muestra `$ 60.500,00` sin pasar por `double` | Nuevo |
+| `AjustesRepository`, `ConexionRepository`, `ConexionService` y pantalla de ajustes | La dirección del servidor nunca está en el código; se guarda, se prueba y se cambia | Nuevo |
+| `go_router` con guarda y `StatefulShellRoute` | Cuatro destinos; una ruta con sesión requerida manda a `/login?desde=` | Nuevo |
+| `ui/comun/` (seis estados, `VistaAsincronica`, `BotonAccion`, `Precio`, `InsigniaDisponibilidad`, `TarjetaProducto`) | Los seis estados de pantalla y el botón que se bloquea, antes de la primera pantalla | Nuevo |
+| Tema Zinc de `forui` | Claro y oscuro según el sistema | Nuevo |
+| `android/app/src/debug/` y `generarRedDebug` | Tráfico en claro sólo en depuración; el release no lo admite por construcción (HL-11) | Nuevo |
+| `test/arquitectura_test.dart` | Las reglas 22, 24 y 25 comprobadas leyendo los `import` | Nuevo |
+
+> **Manda el `codigo` del error, no el estado HTTP.** El 409 lo comparten `stock_insuficiente`,
+> `carrito_cambio`, `checkout_vencido`, `transicion_invalida` y `regla_de_negocio`, y cada uno pide
+> otra reacción. El estado HTTP sólo desempata cuando el código no se conoce.
+>
+> **La prueba de conexión no depende de `GET /api/v1/categorias`.** Ese endpoint es del tramo C y hoy
+> responde 404 `no_encontrado`; cualquier respuesta con la forma del contrato prueba que el servidor
+> está. La prueba va sin credencial: la dirección que se prueba todavía no es de confianza.
+>
+> **Un 401 sólo borra la credencial que viajó en ese pedido.** Si no, un 401 tardío de un pedido
+> viejo cerraría una sesión recién abierta.
+>
+> **`forui` 0.27 no trae el tema Zinc**: sólo Neutral. Zinc se generó con el CLI de `forui`
+> (`-p cabbbc`) y vive en `lib/config/tema/`.
