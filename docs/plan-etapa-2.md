@@ -441,6 +441,16 @@ la §1.3 se nombran por su letra.
 | HL-39 | «Árbol de categorías» se devuelve entero | La regla 15 y `api.md` §2 dicen que **todo listado pagina, sin excepción** | Se pagina por raíz y cada raíz trae su rama completa; `total` cuenta raíces. Con 5 raíces todo llega en la primera página | C |
 | HL-40 | Un `JsonResource` devuelve `{ "datos": … }` | Laravel lo envuelve en **`data`** por omisión | `Recurso::respuesta()` arma la envoltura del contrato, gemela de `Paginado`, sin tocar la configuración global | C |
 | HL-41 | `whereNumber('producto')` alcanza para tipar el id de la ruta con `int` | Un número más largo que el mayor entero de PHP **pasa la ruta pero no cabe en un `int`**: `TypeError`, 500. Lo encontró un test | El controlador y el modelo reciben el id como texto; la base responde que no hay fila y es 404 | C |
+| HL-42 | Un provider con `AsyncValue` que falla muestra su error | **Riverpod 3 reintenta solo, con espera creciente**: la pantalla de error tarda en aparecer y un test con una falla se cuelga | `retry: sinReintento` en el contenedor y en cada provider; la acción «Reintentar» es del usuario | C |
+| HL-43 | Si una acción asigna `state` a mano, el `build` pendiente ya no importa | **Riverpod aplica igual el resultado del `build`** y pisaba la lista nueva con un marcador vacío | `CatalogoViewModel._resultadoDelSucesor`: el `build` espera al sucesor y devuelve su resultado | C |
+| HL-44 | Poner `AsyncLoading` en `state` borra la lista mientras llega la nueva | **Conserva el valor anterior** (`copyWithPrevious` es interno): los filtros siguen a la vista | Se aprovecha; se prueba | C |
+| HL-45 | Una ruta apilada con `push` cambia `currentConfiguration.uri` | No lo cambia: en el test se miraba la ubicación equivocada | Los tests miran la pantalla o `currentConfiguration.last.matchedLocation` | C |
+| HL-46 | Un teléfono real alcanza al servidor con `10.0.2.2` o `127.0.0.1` | `10.0.2.2` sólo existe en el emulador (en un teléfono: `connectionTimeout`) y `127.0.0.1` es el propio teléfono | `adb reverse tcp:8000 tcp:8000` por USB, o la IP de la PC por Wi-Fi; documentado en el `README` de la app | C |
+| HL-47 | La barra inferior de `forui` respeta los botones del sistema | Con Android 17 (borde a borde) **trae `safeAreaBottom: false`** y reserva sólo 2/3: los botones la tapaban | `safeAreaBottom: true`; `Pantalla` y `PantallaProvisoria` reservan el borde fuera de la cáscara | C |
+| HL-48 | El `FScaffold` de cada pantalla maneja bien el teclado | **El teclado se descuenta dos veces** (el de la cáscara y el de la pantalla de adentro): quedaba un hueco que tapaba la Búsqueda | La cáscara entrega a su cuerpo un `MediaQuery` con el borde de abajo en cero (`_SinBordeInferior`) | C |
+| HL-49 | `FSheet` pinta el contenido de la hoja | **Sólo tiñe lo de atrás**: el menú y los filtros se veían transparentes. Con `useSafeArea` el fondo además quedaba con franjas | `FondoHoja` pone fondo, borde y esquinas, y resuelve el área segura por dentro | C |
+| HL-50 | «Atrás» del dispositivo siempre vuelve | **En Carrito y Perfil cerraba la app**, y el login al que manda la guarda (que *reemplaza* la ruta) quedaba solo en la pila | `PopScope` en la cáscara (vuelve a Inicio) y en el login (a Inicio si no hay nada atrás); 8 tests con el «atrás» real | C |
+| HL-51 | Una grilla de tarjetas se ve pareja sola, y un `Wrap` de insignias sobre la foto alcanza | `SliverMasonryGrid` respeta la altura de cada una (el nombre ocupa 1 o 2 renglones), y el `Wrap` sin ancho **se salía de la tarjeta** (a 276 px en una de 130) | El nombre reserva dos renglones con altura fija; la disponibilidad va en uno; las marcas se apilan acotadas y con color propio | C |
 
 ---
 
@@ -1513,10 +1523,55 @@ se recorrió entero sin tocar código.
 
 ---
 
+### Tramo J — Contenido que invita a comprar (opcional)
+
+**Objetivo.** Que Inicio y la ficha del producto dejen de ser «una lista y un dato» y tengan
+con qué atraer al cliente. **No es requisito de la consigna ni de aprobación**: se hace sólo si
+sobra tiempo después de I, y se puede cortar en cualquier punto sin que nada de la etapa
+dependa de él. Si entra, el guion de la defensa (tramo I) se ensaya de nuevo con las pantallas
+ya enriquecidas.
+
+**Regla de este tramo.** Sólo contenido **real**, que sale del catálogo o de los ajustes de la
+tienda: nada de reseñas, «quedan 2», descuentos ni urgencia inventados. El visitante sigue sin
+ver precios (regla 21): ninguna pieza nueva los muestra por fuera de `Precio`. Cada pieza
+respeta los seis estados y lo de CLAUDE.md «Interfaz» (29 a 34).
+
+**Tareas, por orden de provecho y de menor costo. Todas con el contrato actual (sólo app):**
+- **Inicio.**
+  - Atajos a las categorías raíz, con su ícono, arriba de los carruseles (el mismo árbol de
+    `GET /categorias` que el menú).
+  - Un carrusel «Novedades» y otro «Destacados» con tarjetas más grandes, y el título de cada
+    sección con «Ver todo».
+  - Un bloque de confianza, con lo que la tienda de verdad ofrece: retiro en el local, y
+    envío sólo si `tienda.envio.habilitado`. Texto del servidor o de los ajustes, no escrito
+    a mano en la vista.
+- **Ficha.**
+  - «Productos de la misma categoría», con `GET /productos?categoria_id=` sin el producto
+    actual.
+  - La descripción en secciones plegables, y la disponibilidad con más peso visual.
+  - El botón principal («Agregar al carrito») fijo abajo desde E; hasta entonces, el aviso de
+    precio. El carrito y la compra siguen siendo de E y F.
+- **Detalles que dan sensación de cuidado:** transiciones y entradas encadenadas
+  (`flutter_animate`), vacíos con `lottie`, fotos que se ven antes de cargar completas (esqueleto
+  con la forma real). Ya están en las librerías fijadas.
+
+**Si hace falta contrato (backend primero, sólo si se decide):** las especificaciones técnicas
+de la ficha (tabla de atributos), las marcas para filtrar, y un producto «relacionado»
+elegido por la tienda y no sólo por categoría. Cada uno es un cambio de `docs/api.md` con su
+test en Pest **antes** de tocar la app, y se declara en la defensa como ampliación.
+
+**Criterio de terminado.** Las pantallas de Inicio y de la ficha se recorren con datos del
+seeder sin huecos ni piezas vacías, ningún dato es inventado, `flutter analyze` sin
+advertencias y `flutter test` en verde.
+
+**Cierra.** Nada de la matriz: es una mejora declarada, no un requisito.
+
+---
+
 ## 8. Orden y dependencias
 
 ```
-A ──► C ──► D ──► E ──► F ──► G ──► H ──► I
+A ──► C ──► D ──► E ──► F ──► G ──► H ──► I ──► J (opcional)
 B ──┘                     └──────────► H
 ```
 
@@ -1531,6 +1586,7 @@ B ──┘                     └──────────► H
 | **F antes que G y H** | No hay pago sin pedido, ni consulta sin algo que consultar |
 | **G antes que H**, en parte | El detalle muestra el estado del pago. El listado de H puede empezar después de F |
 | **De cada funcionalidad, primero el backend** | Con sus tests en Pest; la app consume algo que ya está fijado |
+| **J, al final y opcional** | Es contenido sobre pantallas que ya funcionan: nada depende de él, y se corta cuando se acabe el tiempo |
 | **I es transversal** | El contrato, la trazabilidad y la matriz se llenan desde A; I los cierra y ensaya |
 
 ---
@@ -1541,6 +1597,7 @@ B ──┘                     └──────────► H
 
 | Orden | Qué | Cómo queda | Qué se declara |
 | --- | --- | --- | --- |
+| 0 | El tramo J completo (contenido que invita a comprar) | Inicio y la ficha quedan como las dejaron C y D | Nada: es opcional |
 | 1 | El refinamiento: `Hero`, animaciones encadenadas, vacíos con `lottie` | Las pantallas funcionan con transiciones simples | Nada: no es requisito |
 | 2 | El envío a domicilio | `tienda.envio.habilitado = false`: sólo retiro, costo cero | «La tienda trabaja con retiro en el local», en el contrato y en la defensa |
 
@@ -1642,14 +1699,14 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 
 | Funcionalidad | Pantalla de la app | Endpoint | Acceso | Tramo | Estado |
 | --- | --- | --- | --- | --- | --- |
-| Catálogo paginado | Catálogo | `GET /productos` | Sesión opcional | C | Servidor hecho; app pendiente |
-| Filtro por categoría | Catálogo (hoja de filtros) | `GET /categorias`, `GET /productos?categoria_id` | Pública | C | Servidor hecho; app pendiente |
-| Búsqueda | Búsqueda | `GET /productos?q` | Pública | C | Servidor hecho; app pendiente |
-| Orden por nombre y fecha | Catálogo | `GET /productos?orden` | Pública | C | Servidor hecho; app pendiente |
+| Catálogo paginado | Catálogo | `GET /productos` | Sesión opcional | C | Hecho |
+| Filtro por categoría | Catálogo (hoja de filtros) | `GET /categorias`, `GET /productos?categoria_id` | Pública | C | Hecho |
+| Búsqueda | Búsqueda | `GET /productos?q` | Pública | C | Hecho |
+| Orden por nombre y fecha | Catálogo | `GET /productos?orden` | Pública | C | Hecho |
 | Orden por precio | Catálogo | `GET /productos?orden=precio_*` | `tienda.ver_precios` | D | Pendiente |
-| Novedades y destacados | Inicio | `GET /productos?seccion` | Pública | C | Servidor hecho; app pendiente |
+| Novedades y destacados | Inicio | `GET /productos?seccion` | Pública | C | Hecho |
 | Destacado administrado | — (web: formulario del producto) | — | `producto.editar` | C | Hecho |
-| Ficha | Ficha | `GET /productos/{id}` | Sesión opcional | C | Servidor hecho; app pendiente |
+| Ficha | Ficha | `GET /productos/{id}` | Sesión opcional | C | Hecho |
 | Precios | Catálogo, Ficha | `GET /productos`, `/productos/{id}` | `tienda.ver_precios` | D | Pendiente |
 | Registro | Registro | `POST /registro` | Pública, con límite | D | Pendiente |
 | Inicio y cierre de sesión | Inicio de sesión, Cuenta | `POST` y `DELETE /sesion` | Pública / protegida | D | Pendiente |
@@ -1720,13 +1777,14 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | --- | --- | --- | --- | --- |
 | A — Contrato y capa de API | [x] | — | [x] `api.md` r1, `modelo-datos`, `trazabilidad` | Cerrado |
 | B — Cimientos de la app | — | [x] | [x] `README`, `ARQUITECTURA`, `trazabilidad` §15 | Cerrado |
-| C — Catálogo y detalle | [x] | [ ] | [x] `api.md` r2, `modelo-datos`, `trazabilidad` §15, `pendientes` #83 y #84 (backend); al cerrar la app se suman los de ella | En curso |
+| C — Catálogo y detalle | [x] | [x] | [x] `api.md` r2, `modelo-datos`, `trazabilidad` §15 (los dos lados), `pendientes` #83 y #84, `README` y `ARQUITECTURA` de la app | Cerrado |
 | D — Cuenta y precios | [ ] | [ ] | [ ] | Pendiente |
 | E — Carrito y reserva | [ ] | [ ] | [ ] | Pendiente |
 | F — Confirmación del pedido | [ ] | [ ] | [ ] | Pendiente |
 | G — Pagos | [ ] | [ ] | [ ] | Pendiente |
 | H — Consulta de compras | [ ] | [ ] | [ ] | Pendiente |
 | I — Pruebas, documentación y demostración | [ ] | [ ] | [ ] | Pendiente |
+| J — Contenido que invita a comprar (opcional) | — | [ ] | [ ] | Opcional, al final |
 
 ### 14.5 Al cerrar la etapa
 

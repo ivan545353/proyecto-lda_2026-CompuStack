@@ -946,10 +946,11 @@ arquitectura está en su `ARQUITECTURA.md`.
 > (`-p cabbbc`) y vive en `lib/config/tema/`.
 
 
-### Tramo C — Catálogo y detalle (backend)
+### Tramo C — Catálogo y detalle
 
-El lado de la app (`compustack-app`) se agrega a esta misma sección cuando el tramo cierre con sus
-dos lados.
+Servidor (`compustack`) y app (`compustack-app`). La app pasó de 145 a **442 tests** (297 nuevos).
+
+**Servidor**
 
 | Componente | Qué resuelve | Estado |
 | --- | --- | --- |
@@ -990,3 +991,28 @@ dos lados.
 >
 > **`GET /categorias` existe desde este tramo**: la prueba de conexión de Ajustes (tramo B) ya recibe 200
 > en lugar del 404 que aceptaba.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Criterios`, `Pagina<T>`, `Categoria` y `CategoriaResumen`, `Marca`, `Producto`, `ProductoFicha`, `DisponibilidadConverter` y `build.yaml` | Los modelos `freezed` del contrato (`snake_case`), probados contra el JSON de `api.md` §7.1. `Criterios.resueltos` copia lo que el servidor aplica por omisión | Nuevo |
+| `ApiService` y `CatalogoRepository` | Atrapan `DioException` y lanzan `e.falla`; el repositorio descarta la respuesta cuyos `criterios` no coinciden con los pedidos (1.12) | Nuevo |
+| `Cancelacion` y `Cancelado` | Un pedido viejo se cancela y su resultado no pisa al nuevo | Nuevo |
+| `CatalogoViewModel`, `InicioViewModel`, `BusquedaViewModel`, `FichaViewModel` y `sinReintento` | Criterios inmutables; al cambiar uno se descarta lo cargado y se cancela el pedido anterior; la página siguiente se pide una sola vez; 300 ms de espera en la búsqueda; reintento automático de Riverpod apagado | Nuevo |
+| `CascaraDestinos`, `MenuCategorias`, `PanelLateral`, `HojaInferior` y `FondoHoja` | Barra Inicio · Menú · Carrito · Perfil sobre los botones del sistema; menú de categorías por niveles en un panel con fondo; filtros en una hoja con fondo | Modificado y nuevo |
+| `EncabezadoBusqueda` y `PantallaConBusqueda` | El encabezado es sólo la barra de búsqueda (regla 31), como botón en Inicio y Catálogo y como campo en Búsqueda | Nuevo |
+| `TarjetaProducto`, `ImagenProducto`, `EtiquetasProducto`, `InsigniaDisponibilidad` y `ListadoProductos` | Tarjeta de altura pareja con foto (`cached_network_image`, `memCacheWidth`), marcas con color y texto, y la grilla con sus seis estados que comparten Catálogo y Búsqueda | Nuevo y modificado |
+| `InicioVista`, `CatalogoVista`, `BusquedaVista`, `FichaVista`, `GaleriaProducto`, `AvisoPrecio` y `NoEncontradoVista` | Las pantallas del tramo: dos carruseles, catálogo con filtros, búsqueda en vivo, ficha con galería y `Hero`, y una sola pantalla de «No encontrado» | Nuevo |
+| Router: `/catalogo`, `/buscar`, `/producto/:id`, `errorBuilder` y los `PopScope` | Rutas hijas de Inicio; un id inválido ni se pide; «atrás» vuelve a Inicio desde Carrito y Perfil y desde el login de la guarda | Modificado |
+| Splash nativo y `SplashMarca` | El único logo de la app, con fondo crema claro y oscuro | Nuevo |
+| Reglas 29 a 34 de `CLAUDE.md` y `ARQUITECTURA.md` | Las pautas de interfaz (Nielsen, KISS, pocos pasos, encabezado y barra) que rigen desde este tramo | Nuevo |
+
+> **La ficha no muestra precio todavía.** El contrato no manda `precios` hasta el tramo D: la ficha y
+> las tarjetas dicen «Iniciá sesión» (regla 21), incluso con sesión. El tramo D cambia `AvisoPrecio` por `Precio`.
+>
+> **El encabezado es sólo la barra de búsqueda y el único logo es el del splash** (reglas 31 y 32).
+> Notificaciones no está en la barra: las push son de la Etapa 4.
+>
+> **Se probó en un teléfono real** (Android 17, edge-to-edge): de ahí salieron seis correcciones de
+> interfaz (HL-47 a HL-51 y la dirección del servidor, HL-46) que los tests con falsos no podían ver.
