@@ -59,9 +59,12 @@ return [
         'cantidad_maxima' => 10,   // a revisar: por renglón
     ],
 
-    // La descripción breve se deriva de la completa (D-12).
+    // La descripción breve se deriva de la completa (D-12): las primeras palabras, y nunca más de
+    // `caracteres`. 25 palabras en español ocupan unos 140 a 200 caracteres, así que el tope no toca
+    // un texto normal; sólo corta el que no tiene espacios (pendiente #83).
     'descripcion_breve' => [
-        'palabras' => 25,   // a revisar
+        'palabras'   => 25,    // a revisar
+        'caracteres' => 250,
     ],
 
 ];

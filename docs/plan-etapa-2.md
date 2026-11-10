@@ -435,6 +435,12 @@ la §1.3 se nombran por su letra.
 | HL-33 | `ref.read(proveedor.future)` alcanza para esperar un `StreamProvider` | **Riverpod 3 pausa un provider sin oyentes**: no completa nunca | `iniciarContenedor` deja un oyente permanente de la dirección | B |
 | HL-34 | Leer el `Dio` perezosamente evita el círculo `Dio → dirección → ajustes → prueba → Dio` | Riverpod lo detecta **en debug** aunque la lectura sea perezosa: `CircularDependencyError` al tocar «Probar conexión» | La prueba va en `ConexionRepository`, aparte de `AjustesRepository`; `proveedores_test.dart` prueba el cableado real | B |
 | HL-35 | El ícono se genera con *Image Asset* de Android Studio | No hay forma de abrirlo desde la sesión | `tool/generar_icono.py` (Pillow) hace lo mismo: adaptativo, redondo, heredado y monocromático | B |
+| HL-36 | La casilla «destacado» es una ampliación de la web que sólo agrega un control | `destacado` está en la tabla y en `$fillable`, pero **`ProductoService::atributos()` y `ProductoRequest` no lo conocen**: la web nunca pudo escribirlo | Se agrega a las dos, enumerado (regla 19). El servicio lo escribe sólo si la clave viene, para que un llamador que no lo conoce no apague un destacado | C |
+| HL-37 | La casilla va bajo `@can('producto.editar')` y con eso alcanza | El formulario es **uno solo** para el alta (`producto.crear`) y la edición (`producto.editar`): quien sólo crea no ve la casilla, pero podría mandar `destacado=1` armando el pedido | `ProductoRequest` descarta `destacado` si el usuario no tiene `producto.editar`: la vista oculta y el servidor hace cumplir | C |
+| HL-38 | El seeder de demostración ya da un catálogo con qué probar novedades | `CatalogoDemoSeeder` deja el texto de relleno «Producto de demostración: …» y **todo `created_at` en el mismo instante**; `CatalogoVolumenSeeder` hace lo mismo con 20.000 filas, sin fotos | `TiendaDemoSeeder` repara los 11 de la demo. Novedades = ventana **y** tope, porque la ventana sola da «todos» con el seeder de volumen | C |
+| HL-39 | «Árbol de categorías» se devuelve entero | La regla 15 y `api.md` §2 dicen que **todo listado pagina, sin excepción** | Se pagina por raíz y cada raíz trae su rama completa; `total` cuenta raíces. Con 5 raíces todo llega en la primera página | C |
+| HL-40 | Un `JsonResource` devuelve `{ "datos": … }` | Laravel lo envuelve en **`data`** por omisión | `Recurso::respuesta()` arma la envoltura del contrato, gemela de `Paginado`, sin tocar la configuración global | C |
+| HL-41 | `whereNumber('producto')` alcanza para tipar el id de la ruta con `int` | Un número más largo que el mayor entero de PHP **pasa la ruta pero no cabe en un `int`**: `TypeError`, 500. Lo encontró un test | El controlador y el modelo reciben el id como texto; la base responde que no hay fila y es 404 | C |
 
 ---
 
@@ -1620,8 +1626,12 @@ lados, se plantea y se decide antes de escribir código, y se agrega acá con su
   números, y el tramo A los dejó marcados `// a revisar`: `novedades.dias` (30),
   `novedades.tope` (10), `disponibilidad.ultimas_unidades` (3), `pagos.intento_minutos` (20),
   `envio.costo` (`0.00`), `carrito.cantidad_maxima` (10) y `descripcion_breve.palabras` (25).
-  Los de novedades y disponibilidad se confirman en el tramo C con el catálogo de
-  demostración (§14.3); `envio.costo` hay que decidirlo antes del tramo F, que lo suma al total.
+  **Confirmados en el tramo C** (backend), medidos con los 20.012 productos de la base: `novedades.dias`
+  30 y `novedades.tope` 10 (el tope es el que acota: todo el catálogo se creó en dos fechas),
+  `disponibilidad.ultimas_unidades` 3 (188 productos, menos del 1 %, caen en «últimas unidades») y
+  `descripcion_breve.palabras` 25, a los que el tramo suma `descripcion_breve.caracteres` 250 (pendiente
+  #83). Quedan `envio.costo`, que hay que decidirlo antes del tramo F, que lo suma al total,
+  `pagos.intento_minutos` y `carrito.cantidad_maxima`.
 
 ---
 
@@ -1632,14 +1642,14 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 
 | Funcionalidad | Pantalla de la app | Endpoint | Acceso | Tramo | Estado |
 | --- | --- | --- | --- | --- | --- |
-| Catálogo paginado | Catálogo | `GET /productos` | Sesión opcional | C | Pendiente |
-| Filtro por categoría | Catálogo (hoja de filtros) | `GET /categorias`, `GET /productos?categoria_id` | Pública | C | Pendiente |
-| Búsqueda | Búsqueda | `GET /productos?q` | Pública | C | Pendiente |
-| Orden por nombre y fecha | Catálogo | `GET /productos?orden` | Pública | C | Pendiente |
+| Catálogo paginado | Catálogo | `GET /productos` | Sesión opcional | C | Servidor hecho; app pendiente |
+| Filtro por categoría | Catálogo (hoja de filtros) | `GET /categorias`, `GET /productos?categoria_id` | Pública | C | Servidor hecho; app pendiente |
+| Búsqueda | Búsqueda | `GET /productos?q` | Pública | C | Servidor hecho; app pendiente |
+| Orden por nombre y fecha | Catálogo | `GET /productos?orden` | Pública | C | Servidor hecho; app pendiente |
 | Orden por precio | Catálogo | `GET /productos?orden=precio_*` | `tienda.ver_precios` | D | Pendiente |
-| Novedades y destacados | Inicio | `GET /productos?seccion` | Pública | C | Pendiente |
-| Destacado administrado | — (web: formulario del producto) | — | `producto.editar` | C | Pendiente |
-| Ficha | Ficha | `GET /productos/{id}` | Sesión opcional | C | Pendiente |
+| Novedades y destacados | Inicio | `GET /productos?seccion` | Pública | C | Servidor hecho; app pendiente |
+| Destacado administrado | — (web: formulario del producto) | — | `producto.editar` | C | Hecho |
+| Ficha | Ficha | `GET /productos/{id}` | Sesión opcional | C | Servidor hecho; app pendiente |
 | Precios | Catálogo, Ficha | `GET /productos`, `/productos/{id}` | `tienda.ver_precios` | D | Pendiente |
 | Registro | Registro | `POST /registro` | Pública, con límite | D | Pendiente |
 | Inicio y cierre de sesión | Inicio de sesión, Cuenta | `POST` y `DELETE /sesion` | Pública / protegida | D | Pendiente |
@@ -1710,7 +1720,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | --- | --- | --- | --- | --- |
 | A — Contrato y capa de API | [x] | — | [x] `api.md` r1, `modelo-datos`, `trazabilidad` | Cerrado |
 | B — Cimientos de la app | — | [x] | [x] `README`, `ARQUITECTURA`, `trazabilidad` §15 | Cerrado |
-| C — Catálogo y detalle | [ ] | [ ] | [ ] | Pendiente |
+| C — Catálogo y detalle | [x] | [ ] | [x] `api.md` r2, `modelo-datos`, `trazabilidad` §15, `pendientes` #83 y #84 (backend); al cerrar la app se suman los de ella | En curso |
 | D — Cuenta y precios | [ ] | [ ] | [ ] | Pendiente |
 | E — Carrito y reserva | [ ] | [ ] | [ ] | Pendiente |
 | F — Confirmación del pedido | [ ] | [ ] | [ ] | Pendiente |

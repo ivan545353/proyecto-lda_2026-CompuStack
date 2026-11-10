@@ -196,7 +196,7 @@ Tabla mínima, existe sólo para filtrar en la tienda.
 | stock_minimo           | int                | dispara la orden de compra                                           |
 | cantidad_reposicion    | int                | cuánto pedir cuando se dispara                                       |
 | peso_gramos            | int null           | si es null, usa el de la categoría                                   |
-| destacado              | boolean            | destaque manual (requerimiento 54)                                   |
+| destacado              | boolean            | destaque manual (requerimiento 54); se tilda en el formulario con `producto.editar` |
 | activo                 | boolean            | baja lógica                                                          |
 | **ganancia**           | decimal(6,3) null  | multiplicador propio; null = hereda de la categoría                  |
 | **precio_manual**      | boolean            | lo saca del recálculo: una promoción, una liquidación                |
@@ -281,6 +281,32 @@ ninguna unidad, así que su fila de kardex tendría cantidad cero y el mismo sal
 anterior: un asiento que no registra ningún movimiento, en un libro donde cada fila
 registra uno. El rastro de ese cambio va donde corresponde, que es `historial_precios`
 con su `costo_anterior` y su lote.
+
+**Lo que la tienda muestra de un producto se deriva, no se guarda (Etapa 2, tramo C).** Hay tres
+datos que la API publica y que no tienen columna:
+
+- **La novedad.** No hay `es_novedad`: es novedad el producto de la tienda creado dentro de
+  `novedades.dias` (30) y entre los `novedades.tope` (10) más recientes de ésos, con desempate por
+  `created_at` y `id`. Una columna se desactualizaría sola con el paso de los días, y un `created_at`
+  ya existe. La ventana sola no alcanza —el catálogo de volumen se cargó en dos días, así que todos
+  serían «nuevos»—, por eso además hay tope. `Producto::idsNovedades()` es la única definición y la
+  usan la sección y la marca de cada fila.
+- **La descripción breve.** Las primeras `descripcion_breve.palabras` (25) palabras de
+  `descripcion`, con «…» si se cortó (D-12), y nunca más de `descripcion_breve.caracteres` (250): un
+  texto sin espacios sería una sola «palabra». Una columna `descripcion_breve` pediría un campo más en el
+  formulario del producto —una tercera ampliación de la web— y dos textos que mantener a la par.
+- **La disponibilidad.** Tres niveles (`disponible`, `ultimas_unidades`, `sin_stock`) calculados sobre
+  `stock − stock_reservado` con el umbral `disponibilidad.ultimas_unidades` (3). El número nunca sale
+  del servidor.
+
+Y una regla de **visibilidad**: la tienda sólo muestra un producto activo cuya categoría sea activa *y*
+tenga todos sus ancestros activos. `CategoriaService` puede desactivar un padre sin tocar a sus hijas,
+así que `activo = 1` en la hija no alcanza; `Categoria::idsVisiblesEnTienda()` lo resuelve con una
+consulta sobre una tabla chica (69 filas hoy), una vez por pedido.
+
+**`imagenes` es una lista ordenada de rutas relativas al disco `public`** (`productos/xxx.jpg`):
+el orden es el de la galería y la primera es la imagen principal. Vacía o `null` significa «sin foto», y
+la API responde entonces con la imagen por omisión, nunca con `null`.
 
 ### `movimientos_stock`
 `id, producto_id FK, tipo, cantidad (con signo), stock_resultante, origen_type, origen_id, usuario_id FK null, motivo, remito_numero null, remito_fecha null, created_at`

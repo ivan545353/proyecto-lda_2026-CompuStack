@@ -15,7 +15,8 @@ use Illuminate\Validation\Rules\Exists;
  *
  * Métodos:
  *   authorize()             true; el permiso lo exige la ruta
- *   prepareForValidation()  precios en formato argentino, alícuota y código
+ *   prepareForValidation()  precios en formato argentino, alícuota, código y casillas
+ *                           (`destacado` sólo lo conserva quien puede editar)
  *   rules()                 reglas
  *   referenciaActiva()      exists, y activo sólo si el valor cambia
  *   limiteDeImagenes()      entre las que quedan y las nuevas, no más de 5
@@ -53,6 +54,9 @@ class ProductoRequest extends FormRequest
             'stock_minimo'        => $this->input('stock_minimo') ?? 0,
             'cantidad_reposicion' => $this->input('cantidad_reposicion') ?? 0,
             'activo'              => $this->boolean('activo'),
+            // Destacar es una acción de edición (C-2): quien sólo puede crear no lo logra ni con
+            // un pedido armado a mano, así que la casilla escondida de la vista no es la única defensa.
+            'destacado'           => $this->user()?->can('producto.editar') === true && $this->boolean('destacado'),
             'precio_manual'       => $this->boolean('precio_manual'),
             // El orden llega como JSON en un solo campo (ver ordenDeImagenes).
             // Si no se puede leer, queda en false y lo rechaza la regla array:
@@ -99,7 +103,8 @@ class ProductoRequest extends FormRequest
                 Rule::when($this->integer('stock_minimo') > 0, ['gt:0']),
             ],
 
-            'activo' => ['required', 'boolean'],
+            'activo'    => ['required', 'boolean'],
+            'destacado' => ['required', 'boolean'],
 
             'imagenes'   => ['nullable', 'array', 'max:'.Producto::MAX_IMAGENES, $this->limiteSinOrden(...)],
             'imagenes.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:1024'],
@@ -266,6 +271,7 @@ class ProductoRequest extends FormRequest
             'stock_minimo'        => 'stock mínimo',
             'cantidad_reposicion' => 'cantidad a reponer',
             'activo'              => 'estado',
+            'destacado'           => 'destacado',
             'imagenes'            => 'imágenes',
             'orden' => 'orden de las imágenes',
         ];

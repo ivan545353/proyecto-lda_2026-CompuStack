@@ -944,3 +944,49 @@ arquitectura está en su `ARQUITECTURA.md`.
 >
 > **`forui` 0.27 no trae el tema Zinc**: sólo Neutral. Zinc se generó con el CLI de `forui`
 > (`-p cabbbc`) y vive en `lib/config/tema/`.
+
+
+### Tramo C — Catálogo y detalle (backend)
+
+El lado de la app (`compustack-app`) se agrega a esta misma sección cuando el tramo cierre con sus
+dos lados.
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Categoria::idsVisiblesEnTienda()` | Las categorías activas **con todos sus ancestros activos**: una hija activa bajo un padre inactivo no se muestra. Una consulta por pedido | Nuevo |
+| `Categoria::arbolEnTienda()` | El árbol visible, paginado por raíz, con las mismas consultas aunque crezca | Nuevo |
+| `Producto`: `scopeEnTienda`, `scopeNovedades`, `scopeDestacados`, `scopeOrdenTienda`, `ORDENES_TIENDA` | Qué se ve y en qué orden (siempre desempata por `id`); una sola lista de órdenes para validar y ordenar | Modificado |
+| `Producto::idsNovedades()` y `esNovedad()` | La única definición de novedad: ventana y tope. La sección y la marca de cada fila no se pueden contradecir | Nuevo |
+| `Producto::descripcionBreve()` y `disponibilidad()` | Derivadas, sin columna (D-12): las primeras palabras del texto (y nunca más de 250 caracteres) y tres niveles sin el número | Nuevo |
+| `Producto::paginaEnTienda()` y `fichaEnTienda()` | Arman la consulta con los datos leídos una sola vez; el controlador no sabe de scopes | Nuevo |
+| `PaginadoRequest` y `CatalogoRequest` | `pagina`, `por_pagina`, `q`, `categoria_id`, `orden`, `seccion`; rechazan, no corrigen; los mensajes no dependen de `APP_LOCALE`; `criterios()` normaliza lo que vuelve en la respuesta | Nuevo |
+| `CategoriaResource`, `ProductoListadoResource`, `ProductoFichaResource` | Cada clave enumerada: lo que no está escrito no viaja | Nuevo |
+| `Api\V1\CategoriaController` y `ProductoController` | Sólo traducen: validan, llaman al modelo, devuelven | Nuevo |
+| `Recurso::respuesta()` | La envoltura `{ "datos": … }` de un recurso, gemela de `Paginado`: la de Laravel usa `data` | Nuevo |
+| `routes/api.php` | `categorias` en el grupo público; `productos` y `productos/{id}` (`whereNumber`) en sesión opcional | Modificado |
+| Casilla «destacado» (`productos/form.blade.php`, `ProductoRequest`, `ProductoService`) | La web puede por fin escribir `destacado`; sólo con `producto.editar`, en la vista y en el servidor | Modificado |
+| `TiendaDemoSeeder`, `DatabaseSeeder` y `database/seeders/imagenes/` | Descripciones reales, altas repartidas, destacados y fotos de los 11 productos de la demo; idempotente, no pisa lo editado | Nuevo |
+| `docs/api.md` | Revisión 2: los tres endpoints, el criterio de novedad y su porqué | Modificado |
+| `tests/Feature/Api/Catalogo{Modulo,Filtros,Escala}Test`, `TiendaDemoSeederTest` y `ProductoModuloTest` | 217 tests nuevos: modelo (45), endpoints (116), escala y peso (16), seeder (29) y casilla (11, dentro de `ProductoModuloTest`) | Nuevo |
+
+> **Novedad = ventana + tope, y por qué los dos.** Con el catálogo de volumen (20.012 productos creados
+> en dos días) la ventana sola da «todos»; el tope solo, en un negocio quieto, daría «novedad» a lo de
+> hace un año. Combinar la sección con una categoría filtra *dentro* del tope.
+>
+> **Destacar es una acción de edición y el servidor la hace cumplir.** El formulario es uno solo para
+> el alta (`producto.crear`) y la edición (`producto.editar`). Esconder la casilla no alcanza: quien sólo
+> crea podría mandar `destacado=1` a mano, así que `ProductoRequest` descarta el campo si el usuario no
+> tiene `producto.editar`.
+>
+> **El árbol de categorías se pagina por raíz** porque «un listado pagina siempre» no admite
+> excepciones (regla 15); cada raíz trae su rama entera, así que el árbol no se corta a la mitad.
+>
+> **La galería nunca viene vacía**: sin fotos trae la imagen por omisión. La app no tiene un caso
+> especial de «no hay imágenes».
+>
+> **Medido con los 20.012 productos reales:** 5 consultas por página sea cual sea su tamaño, de 7 a
+> 40 ms con la base caliente (unos 70 en una página muy profunda); 19 KB una página de 50. El test de escala quita el `with('categoria')` y
+> falla (54 consultas contra 9): detecta el N+1 que dice vigilar.
+>
+> **`GET /categorias` existe desde este tramo**: la prueba de conexión de Ajustes (tramo B) ya recibe 200
+> en lugar del 404 que aceptaba.

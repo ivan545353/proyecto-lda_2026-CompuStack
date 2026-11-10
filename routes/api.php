@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\V1\CategoriaController;
+use App\Http\Controllers\Api\V1\ProductoController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -30,12 +32,15 @@ Route::prefix('v1')->group(function () {
 
     // Pública.
     Route::group([], function () {
-        //
+        // El árbol no depende de quién mira: no lee la credencial (plan §6.8).
+        Route::get('categorias', [CategoriaController::class, 'index']);
     });
 
     // Sesión opcional.
     Route::middleware('tienda.sesion_opcional')->group(function () {
-        //
+        Route::get('productos', [ProductoController::class, 'index']);
+        // Sin binding implícito: el modelo encontraría un producto inactivo.
+        Route::get('productos/{producto}', [ProductoController::class, 'show'])->whereNumber('producto');
     });
 
     // Protegida.

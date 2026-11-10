@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * Producto del catálogo.
@@ -218,6 +219,69 @@ class Producto extends Model
         return $this->stock - $this->stock_reservado;
     }
 
+    /** Qué ve la tienda del stock: un nivel, nunca el número (claves de TextosTienda::DISPONIBILIDAD). */
+    public function disponibilidad(): string
+    {
+        $disponible = $this->stock_disponible;
+
+        return match (true) {
+            $disponible <= 0                                           => 'sin_stock',
+            $disponible <= config('tienda.disponibilidad.ultimas_unidades') => 'ultimas_unidades',
+            default                                                    => 'disponible',
+        };
+    }
+
+    /**
+     * Las primeras `descripcion_breve.palabras` palabras de la descripción (D-12), con «…» si se cortó.
+     *
+     * Además, nunca más de `descripcion_breve.caracteres`: un texto de 5.000 caracteres sin espacios
+     * es una sola «palabra» y viajaría entero en cada fila del listado (pendiente #83).
+     */
+    public function descripcionBreve(): string
+    {
+        $palabras = preg_split('/\s+/u', trim((string) $this->descripcion), -1, PREG_SPLIT_NO_EMPTY);
+        $limite   = (int) config('tienda.descripcion_breve.palabras');
+        $maximo   = (int) config('tienda.descripcion_breve.caracteres');
+
+        $breve  = implode(' ', array_slice($palabras, 0, $limite));
+        $cortada = count($palabras) > $limite;
+
+        // mb_*: cortar en bytes partiría una «ñ» o una tilde por la mitad.
+        if (mb_strlen($breve) > $maximo) {
+            $breve   = rtrim(mb_substr($breve, 0, $maximo));
+            $cortada = true;
+        }
+
+        return $cortada ? $breve.'…' : $breve;
+    }
+
+    /**
+     * Los ids de las novedades: los `novedades.tope` más recientes de la tienda, creados dentro
+     * de `novedades.dias`. Es la única definición: la sección y la marca `es_novedad` la comparten.
+     *
+     * Con el catálogo de volumen todos nacen el mismo día: la ventana sola daría todos, y el
+     * tope solo, los que sean. Por eso van los dos, y el desempate por id vuelve estable la lista.
+     *
+     * @return array<int, int>
+     */
+    public static function idsNovedades(?array $categoriasVisibles = null): array
+    {
+        return static::query()
+            ->enTienda($categoriasVisibles)
+            ->where('productos.created_at', '>=', now()->subDays((int) config('tienda.novedades.dias')))
+            ->orderByDesc('productos.created_at')
+            ->orderByDesc('productos.id')
+            ->limit((int) config('tienda.novedades.tope'))
+            ->pluck('productos.id')
+            ->all();
+    }
+
+    /** Si es novedad. En un listado se le pasan los ids ya leídos: una consulta por pedido, no por fila. */
+    public function esNovedad(?array $idsNovedades = null): bool
+    {
+        return in_array($this->id, $idsNovedades ?? self::idsNovedades(), true);
+    }
+
     /**
      * El margen sobre la venta del precio de contado, en porcentaje.
      */
@@ -396,6 +460,102 @@ class Producto extends Model
         );
     }
 
+
+    // ------------------------------------------------------------------
+    // Tienda (API pública)
+    // ------------------------------------------------------------------
+
+    /** Los órdenes que admite el catálogo; `CatalogoRequest` valida contra esta lista. */
+    public const ORDENES_TIENDA = ['nombre', 'recientes'];
+
+    /**
+     * Lo que la tienda puede mostrar: activo y en una categoría visible.
+     *
+     * @param  array<int, int>|null  $categoriasVisibles  ya calculadas por quien arma el pedido; sin ellas se leen
+     */
+    public function scopeEnTienda(Builder $query, ?array $categoriasVisibles = null): Builder
+    {
+        return $query
+            ->where('productos.activo', true)
+            ->whereIn('productos.categoria_id', $categoriasVisibles ?? Categoria::idsVisiblesEnTienda());
+    }
+
+    /**
+     * Las novedades (ver `idsNovedades`). MariaDB no admite LIMIT dentro de un IN: los ids se leen antes.
+     *
+     * @param  array<int, int>|null  $ids  ya leídos por quien arma el pedido; sin ellos se leen
+     */
+    public function scopeNovedades(Builder $query, ?array $ids = null): Builder
+    {
+        return $query->whereIn('productos.id', $ids ?? self::idsNovedades());
+    }
+
+    public function scopeDestacados(Builder $query): Builder
+    {
+        return $query->where('productos.destacado', true);
+    }
+
+    /** Siempre desempata por id: sin eso una página puede repetir o saltear filas. */
+    public function scopeOrdenTienda(Builder $query, string $orden): Builder
+    {
+        return match ($orden) {
+            'nombre'    => $query->orderBy('productos.nombre')->orderBy('productos.id'),
+            'recientes' => $query->orderByDesc('productos.created_at')->orderByDesc('productos.id'),
+            default     => throw new \InvalidArgumentException("Orden de tienda desconocido: {$orden}"),
+        };
+    }
+
+    /**
+     * Una página del catálogo público con los criterios ya normalizados (`CatalogoRequest::criterios()`).
+     *
+     * Las categorías visibles y los ids de novedad se leen una vez y se reparten: la consulta
+     * principal y la marca `es_novedad` de cada fila salen de los mismos números, y una página
+     * de 50 productos no cuesta 50 consultas más.
+     *
+     * @param  array{categoria_id: ?int, q: ?string, orden: string, seccion: ?string}  $criterios
+     */
+    public static function paginaEnTienda(array $criterios, int $pagina, int $porPagina): LengthAwarePaginator
+    {
+        $visibles  = Categoria::idsVisiblesEnTienda();
+        $novedades = static::idsNovedades($visibles);
+
+        $paginador = static::query()
+            ->enTienda($visibles)
+            ->when($criterios['seccion'] === 'novedades', fn (Builder $q) => $q->novedades($novedades))
+            ->when($criterios['seccion'] === 'destacados', fn (Builder $q) => $q->destacados())
+            ->buscar($criterios['q'])
+            ->deCategoria($criterios['categoria_id'])
+            ->ordenTienda($criterios['orden'])
+            ->with('categoria:id,nombre')
+            ->paginate($porPagina, ['*'], 'page', $pagina);
+
+        $paginador->getCollection()->each(
+            fn (Producto $producto) => $producto->setAttribute('es_novedad', in_array($producto->id, $novedades, true))
+        );
+
+        return $paginador;
+    }
+
+    /**
+     * La ficha pública de un producto. Inexistente, inactivo o en una categoría oculta es lo
+     * mismo para quien mira: no existe (ModelNotFoundException → 404).
+     */
+    public static function fichaEnTienda(string $id): Producto
+    {
+        // La ruta sólo deja pasar dígitos, pero un número más grande que cualquier id no cabe en un
+        // int: llega como texto y la base responde que no hay fila, en vez de un TypeError.
+        $visibles  = Categoria::idsVisiblesEnTienda();
+        $novedades = static::idsNovedades($visibles);
+
+        $producto = static::query()
+            ->enTienda($visibles)
+            ->with(['categoria:id,nombre', 'marca:id,nombre'])
+            ->findOrFail($id);
+
+        $producto->setAttribute('es_novedad', in_array($producto->id, $novedades, true));
+
+        return $producto;
+    }
 
     public function scopeStockCritico(Builder $query): Builder
     {

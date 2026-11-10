@@ -315,6 +315,136 @@ test('ante un error se conserva lo que el usuario habia escrito', function () {
 
 /*
 |--------------------------------------------------------------------------
+| Destacado (tramo C): la casilla que alimenta la sección «Destacados» de la tienda
+|--------------------------------------------------------------------------
+|
+| Destacar es una acción de edición (C-2): se ve y se guarda sólo con producto.editar.
+|
+*/
+
+/** El cuerpo de la edición de un producto existente, con lo que el test quiera cambiar. */
+function datosParaEditar(Producto $producto, array $cambios = []): array
+{
+    return datosProducto([
+        'codigo'       => $producto->codigo,
+        'nombre'       => $producto->nombre,
+        'categoria_id' => $producto->categoria_id,
+        ...$cambios,
+    ]);
+}
+
+test('la edición marca un producto como destacado', function () {
+    $producto = Producto::factory()->create(['destacado' => false]);
+
+    $this->actingAs(usuarioCon('producto.editar'))
+        ->put(route('productos.update', $producto), datosParaEditar($producto, ['destacado' => 1]))
+        ->assertSessionHasNoErrors();
+
+    expect($producto->fresh()->destacado)->toBeTrue();
+});
+
+test('la edición quita el destacado cuando la casilla llega destildada', function () {
+    $producto = Producto::factory()->create(['destacado' => true]);
+
+    // Un checkbox destildado no se envía: la ausencia de la clave es «no».
+    $this->actingAs(usuarioCon('producto.editar'))
+        ->put(route('productos.update', $producto), datosParaEditar($producto))
+        ->assertSessionHasNoErrors();
+
+    expect($producto->fresh()->destacado)->toBeFalse();
+});
+
+test('el alta de quien puede crear y editar guarda el destacado', function () {
+    $this->actingAs(usuarioCon('producto.crear', 'producto.editar'))
+        ->post(route('productos.store'), datosProducto(['destacado' => 1]))
+        ->assertSessionHasNoErrors();
+
+    expect(Producto::first()->destacado)->toBeTrue();
+});
+
+test('el alta sin la casilla deja el producto sin destacar', function () {
+    $this->actingAs(usuarioCon('producto.crear', 'producto.editar'))
+        ->post(route('productos.store'), datosProducto());
+
+    expect(Producto::first()->destacado)->toBeFalse();
+});
+
+test('quien sólo puede crear no logra destacar ni con un pedido armado a mano', function () {
+    $this->actingAs(usuarioCon('producto.crear'))
+        ->post(route('productos.store'), datosProducto(['destacado' => 1]))
+        ->assertSessionHasNoErrors();
+
+    expect(Producto::count())->toBe(1)
+        ->and(Producto::first()->destacado)->toBeFalse();
+});
+
+test('editar otros campos no toca el destacado si la casilla llega tildada', function () {
+    $producto = Producto::factory()->create(['destacado' => true, 'nombre' => 'Nombre viejo']);
+
+    $this->actingAs(usuarioCon('producto.editar'))
+        ->put(route('productos.update', $producto), datosParaEditar($producto, ['nombre' => 'Nombre nuevo', 'destacado' => 1]))
+        ->assertSessionHasNoErrors();
+
+    expect($producto->fresh())->nombre->toBe('Nombre nuevo')->destacado->toBeTrue();
+});
+
+test('la casilla se ve en la edición con producto.editar y marcada si el producto es destacado', function () {
+    $destacado = Producto::factory()->create(['destacado' => true]);
+    $comun     = Producto::factory()->create(['destacado' => false]);
+    $usuario   = usuarioCon('producto.editar');
+
+    $this->actingAs($usuario)->get(route('productos.edit', $destacado))
+        ->assertOk()
+        ->assertSee('name="destacado"', false)
+        ->assertSee('Destacado en la tienda');
+
+    expect($this->actingAs($usuario)->get(route('productos.edit', $destacado))->getContent())
+        ->toMatch('/<input[^>]*id="destacado"[^>]*checked/')
+        ->and($this->actingAs($usuario)->get(route('productos.edit', $comun))->getContent())
+        ->not->toMatch('/<input[^>]*id="destacado"[^>]*checked/');
+});
+
+test('quien sólo puede crear no recibe la casilla en el formulario de alta', function () {
+    $this->actingAs(usuarioCon('producto.crear'))
+        ->get(route('productos.create'))
+        ->assertOk()
+        ->assertDontSee('name="destacado"', false)
+        ->assertDontSee('Destacado en la tienda');
+});
+
+test('quien puede crear y editar recibe la casilla en el alta, sin marcar', function () {
+    $contenido = $this->actingAs(usuarioCon('producto.crear', 'producto.editar'))
+        ->get(route('productos.create'))
+        ->assertOk()
+        ->assertSee('name="destacado"', false)
+        ->getContent();
+
+    expect($contenido)->not->toMatch('/<input[^>]*id="destacado"[^>]*checked/');
+});
+
+test('ante un error la casilla destildada no vuelve marcada', function () {
+    $producto = Producto::factory()->create(['destacado' => true]);
+
+    $this->actingAs(usuarioCon('producto.editar'))
+        ->from(route('productos.edit', $producto))
+        ->put(route('productos.update', $producto), datosParaEditar($producto, ['nombre' => '']))
+        ->assertSessionHasErrors('nombre');
+
+    // El usuario había destildado: después del error sigue destildada, no vuelve al valor guardado.
+    expect($this->get(route('productos.edit', $producto))->getContent())
+        ->not->toMatch('/<input[^>]*id="destacado"[^>]*checked/');
+});
+
+test('el servicio no apaga un destacado si quien lo llama no manda la clave', function () {
+    $producto = Producto::factory()->create(['destacado' => true, 'precio_manual' => true]);
+
+    app(\App\Services\ProductoService::class)->actualizar($producto, datosParaEditar($producto, ['nombre' => 'Sólo el nombre']));
+
+    expect($producto->fresh())->nombre->toBe('Sólo el nombre')->destacado->toBeTrue();
+});
+
+/*
+|--------------------------------------------------------------------------
 | Imágenes
 |--------------------------------------------------------------------------
 |

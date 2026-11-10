@@ -276,6 +276,8 @@ class ProductoService
             'stock_minimo'        => $datos['stock_minimo'],
             'cantidad_reposicion' => $datos['cantidad_reposicion'],
             'activo'              => $datos['activo'],
+            // Sólo si viene: un llamador que no lo conoce no debe apagar un destacado sin querer.
+            ...(array_key_exists('destacado', $datos) ? ['destacado' => (bool) $datos['destacado']] : []),
         ];
     }
 
