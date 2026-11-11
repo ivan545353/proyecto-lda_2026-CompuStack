@@ -23,7 +23,7 @@
     </div>
 
     @php
-        $hayFiltros = request()->hasAny(['q', 'estado', 'cliente_id', 'vendedor_id', 'desde', 'hasta']);
+        $hayFiltros = request()->hasAny(['q', 'estado', 'cliente_id', 'vendedor_id', 'canal', 'desde', 'hasta']);
 
         $chips = collect([
             'q' => request('q') ? 'Texto: "' . Str::limit(request('q'), 18) . '"' : null,
@@ -32,6 +32,9 @@
                 : null,
             'cliente_id' => $clienteFiltrado ? 'Cliente: ' . Str::limit($clienteFiltrado->razon_social, 22) : null,
             'vendedor_id' => $vendedorFiltrado ? 'Vendedor: ' . $vendedorFiltrado->nombre_completo : null,
+            'canal' => request('canal')
+                ? 'Canal: ' . (App\Models\Venta::CANALES[request('canal')] ?? request('canal'))
+                : null,
             'desde' => request('desde') ? 'Desde: ' . request('desde') : null,
             'hasta' => request('hasta') ? 'Hasta: ' . request('hasta') : null,
         ])->filter();
@@ -74,12 +77,22 @@
                 </select>
             </div>
 
-            <div class="col-12 col-sm-6">
+            <div class="col-12 col-sm-4">
+                <label for="canal" class="form-label">Canal</label>
+                <select class="form-select" id="canal" name="canal">
+                    <option value="">Todos</option>
+                    @foreach (App\Models\Venta::CANALES as $valor => $texto)
+                        <option value="{{ $valor }}" @selected(request('canal') === $valor)>{{ $texto }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div class="col-12 col-sm-4">
                 <label for="desde" class="form-label">Emitida desde</label>
                 <input type="date" class="form-control" id="desde" name="desde" value="{{ request('desde') }}">
             </div>
 
-            <div class="col-12 col-sm-6">
+            <div class="col-12 col-sm-4">
                 <label for="hasta" class="form-label">Emitida hasta</label>
                 <input type="date" class="form-control" id="hasta" name="hasta" value="{{ request('hasta') }}">
             </div>
@@ -145,6 +158,7 @@
                         <th scope="col" style="min-width: 7.5rem;">Venta</th>
                         <th scope="col" style="min-width: 12rem;">Cliente</th>
                         <th scope="col" class="d-none d-md-table-cell" style="min-width: 10rem;">Vendedor</th>
+                        <th scope="col" class="d-none d-md-table-cell" style="min-width: 6.5rem;">Canal</th>
                         <th scope="col" style="min-width: 7rem;">Estado</th>
                         <th scope="col" class="text-center d-none d-lg-table-cell" style="min-width: 5.5rem;">
                             Productos
@@ -172,6 +186,10 @@
 
                             <td class="d-none d-md-table-cell">
                                 {{ $venta->usuario?->nombre_completo ?? '—' }}
+                            </td>
+
+                            <td class="d-none d-md-table-cell" data-canal="{{ $venta->canal }}">
+                                {{ $venta->canalTexto() }}
                             </td>
 
                             <td>
@@ -212,7 +230,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="text-center text-body-secondary py-4">
+                            <td colspan="8" class="text-center text-body-secondary py-4">
                                 @if ($hayFiltros)
                                     Ninguna venta coincide con el filtro.
                                     <a href="{{ route('ventas.index') }}">Ver todas</a>.

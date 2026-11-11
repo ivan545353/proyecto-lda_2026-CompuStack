@@ -1253,3 +1253,101 @@ test('un error de validacion devuelve los renglones con su producto legible', fu
         ->assertSee('CBL-00009 — Cable corto')
         ->assertSee('data-buscable-excluir="'.$producto->id.'"', false);
 });
+
+/*
+|--------------------------------------------------------------------------
+| El pedido de la tienda en la gestión (tramo F)
+|--------------------------------------------------------------------------
+*/
+
+beforeEach(function () {
+    // Un pedido de verdad: carrito, checkout con reserva y confirmación por el servicio.
+    $this->tiendaPedido = function (\App\Models\Producto $producto, int $cantidad): Venta {
+        $cuenta = \App\Models\User::factory()->conRol('Cliente')->create();
+        \App\Models\Cliente::factory()->create(['user_id' => $cuenta->id]);
+        $carritos = app(\App\Services\CarritoService::class);
+        $carritos->agregar($cuenta, $producto->id, $cantidad);
+        $carritos->iniciarCheckout($cuenta);
+
+        return $carritos->confirmar($cuenta, [
+            'carrito_id'   => $carritos->paraLeer($cuenta)->id,
+            'medio_pago'   => 'contado',
+            'modo_entrega' => 'retiro',
+        ])['venta'];
+    };
+});
+
+test('el filtro por canal llega al scope y el listado muestra el canal', function () {
+    $this->service->crear(datosDeVenta([lineaDeVenta(productoConPrecios(), 1)]), admin());
+    $pedido = ($this->tiendaPedido)(productoConPrecios(), 1);
+
+    $this->actingAs(usuarioCon('venta.ver'))
+        ->get(route('ventas.index', ['canal' => 'online']))
+        ->assertOk()
+        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1 && $ventas->first()->id === $pedido->id)
+        ->assertSee('data-canal="online"', false)
+        ->assertSee('Canal: Tienda online');
+
+    $this->actingAs(usuarioCon('venta.ver'))
+        ->get(route('ventas.index', ['canal' => 'mostrador']))
+        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1 && $ventas->first()->id !== $pedido->id);
+});
+
+test('un canal desconocido vuelve al listado limpio con un aviso', function () {
+    $this->actingAs(usuarioCon('venta.ver'))
+        ->get(route('ventas.index', ['canal' => 'telefono']))
+        ->assertRedirect(route('ventas.index'))
+        ->assertSessionHas('error');
+});
+
+test('el selector de estado ofrece pendiente de pago y filtra los pedidos', function () {
+    $pedido = ($this->tiendaPedido)(productoConPrecios(), 1);
+    $this->service->crear(datosDeVenta([lineaDeVenta(productoConPrecios(), 1)]), admin());
+
+    $this->actingAs(usuarioCon('venta.ver'))
+        ->get(route('ventas.index', ['estado' => 'pendiente_pago']))
+        ->assertOk()
+        ->assertSee('<option value="pendiente_pago" selected', false)
+        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1 && $ventas->first()->id === $pedido->id);
+});
+
+test('la ficha del pedido ofrece cancelar el pedido y avisa que libera la reserva', function () {
+    $pedido = ($this->tiendaPedido)(productoConPrecios(), 1);
+
+    $this->actingAs(usuarioCon('venta.ver', 'venta.editar'))
+        ->get(route('ventas.show', $pedido))
+        ->assertOk()
+        ->assertSee('Cancelar el pedido')
+        ->assertDontSee('Cancelar el presupuesto')
+        ->assertSee('vuelven al disponible');
+});
+
+test('cancelar el pedido en la web libera la reserva y lo dice', function () {
+    $producto = productoConPrecios();   // 50 en stock
+    $pedido   = ($this->tiendaPedido)($producto, 3);
+
+    expect($producto->fresh()->stock_reservado)->toBe(3);
+
+    $this->actingAs(usuarioCon('venta.editar'))
+        ->post(route('ventas.cancelar', $pedido))
+        ->assertRedirect(route('ventas.show', $pedido))
+        ->assertSessionHas('exito', fn (string $texto) => str_contains($texto, 'Pedido')
+            && str_contains($texto, 'volvieron al disponible'));
+
+    expect($pedido->fresh()->estado)->toBe('cancelada')
+        ->and($producto->fresh()->stock_reservado)->toBe(0)
+        ->and($producto->fresh()->stock)->toBe(50);
+});
+
+test('la pantalla de cobro no avisa faltantes falsos para un pedido reservado', function () {
+    // Todo el stock está reservado por el pedido: el disponible es cero, pero es suyo.
+    $producto = \App\Models\Producto::factory()->conStockYCosto(2, 600)->create([
+        'precio_contado' => 1000, 'precio_lista' => 1200, 'alicuota_iva' => 21,
+    ]);
+    $pedido = ($this->tiendaPedido)($producto, 2);
+
+    $this->actingAs(usuarioCon('venta.cobrar'))
+        ->get(route('pagos.create', $pedido))
+        ->assertOk()
+        ->assertViewHas('problemas', []);
+});

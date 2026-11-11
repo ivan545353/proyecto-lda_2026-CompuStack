@@ -67,7 +67,7 @@ test('el checkout reserva y devuelve el resumen por medio, la entrega y el venci
         ])
         ->and($datos['entrega'])->toBe([
             ['modo' => 'retiro', 'texto' => 'Retiro en el local', 'costo' => '0.00'],
-            ['modo' => 'envio', 'texto' => 'Envío a domicilio', 'costo' => '0.00'],
+            ['modo' => 'envio', 'texto' => 'Envío a domicilio', 'costo' => '8000.00'],
         ])
         ->and($producto->fresh()->stock_reservado)->toBe(2);
 });

@@ -21,6 +21,7 @@ use LogicException;
  *   lineas()       HasMany     qué se vendió, con el precio congelado
  *   pagos()        HasMany     con qué se cobró; el cajero vive en la fila del pago
  *   movimientos()  MorphMany   lo que salió del depósito por esta venta
+ *   carrito()      BelongsTo   el carrito de la tienda del que nació; null en el mostrador
  *
  * Scopes (uno por filtro del listado; el contrato está declarado acá y en
  * VentaFiltroRequest):
@@ -28,6 +29,7 @@ use LogicException;
  *   ?estado=       → conEstado($estado)    lista cerrada de ESTADOS
  *   ?cliente_id=   → deCliente($id)
  *   ?vendedor_id=  → deVendedor($id)       quién vendió, no quién cobró
+ *   ?canal=        → deCanal($canal)       mostrador u online
  *   ?desde=        → desde($fecha)         por fecha de emisión, inclusive
  *   ?hasta=        → hasta($fecha)
  *
@@ -65,8 +67,9 @@ class Venta extends Model
         'devuelta'          => 'Devuelta',
     ];
 
+    // `pendiente_pago` entra con la tienda (tramo F, D-2): el cajero tiene que poder filtrar los pedidos.
     public const ESTADOS_EN_USO = [
-        'presupuesto', 'pagada', 'entregada_parcial', 'entregada', 'cancelada', 'devuelta_parcial', 'devuelta',
+        'presupuesto', 'pendiente_pago', 'pagada', 'entregada_parcial', 'entregada', 'cancelada', 'devuelta_parcial', 'devuelta',
     ];
 
     public const ESTADOS_VENDIDOS = [
@@ -75,6 +78,12 @@ class Venta extends Model
     ];
 
     public const ESTADOS_SIN_COBRO = ['presupuesto', 'pendiente_pago', 'cancelada'];
+
+    /** Los valores del ENUM `canal`, con su texto para la pantalla. */
+    public const CANALES = [
+        'mostrador' => 'Mostrador',
+        'online'    => 'Tienda online',
+    ];
 
     protected $table = 'ventas';
 
@@ -97,6 +106,7 @@ class Venta extends Model
             'descuento'   => 'decimal:2',
             'costo_envio' => 'decimal:2',
             'total'       => 'decimal:2',
+            'reserva_vence' => 'datetime',
         ];
     }
 
@@ -145,6 +155,12 @@ class Venta extends Model
         return $this->hasMany(Entrega::class, 'venta_id')->orderBy('id');
     }
 
+
+    /** El carrito de la tienda del que nació el pedido (D-8). */
+    public function carrito(): BelongsTo
+    {
+        return $this->belongsTo(Carrito::class, 'carrito_id');
+    }
 
     /** Lo que salió del depósito por esta venta, con su fecha y su usuario. */
     public function movimientos(): MorphMany
@@ -231,16 +247,29 @@ class Venta extends Model
 }
 
     /**
-     * Los renglones que piden más unidades de las que hay disponibles hoy.
+     * Los renglones que piden más unidades de las que hay disponibles hoy. Un pedido con reserva
+     * cuenta las suyas como propias: si no, avisaría faltantes de lo que él mismo retiene (§1.3 C).
      *
      * @return Collection<int, VentaLinea>
      */
     public function faltantesDeStock(): Collection
     {
+        $propias = $this->reserva_vence !== null;
+
         return $this->lineas
             ->filter(fn (VentaLinea $linea) => $linea->producto !== null
-                && $linea->cantidad > $linea->producto->stock_disponible)
+                && $linea->cantidad > $linea->producto->stock_disponible + ($propias ? $linea->cantidad : 0))
             ->values();
+    }
+
+    public function canalTexto(): string
+    {
+        return self::CANALES[$this->canal] ?? $this->canal;
+    }
+
+    public function esOnline(): bool
+    {
+        return $this->canal === 'online';
     }
 
     /**
@@ -326,6 +355,15 @@ class Venta extends Model
         return $query->when(
             ctype_digit((string) $id),
             fn (Builder $query) => $query->where('ventas.usuario_id', (int) $id),
+        );
+    }
+
+    /** Por canal; un valor fuera de la lista no filtra (la validación ya lo rechazó). */
+    public function scopeDeCanal(Builder $query, ?string $canal): Builder
+    {
+        return $query->when(
+            array_key_exists((string) $canal, self::CANALES),
+            fn (Builder $query) => $query->where('ventas.canal', $canal),
         );
     }
 

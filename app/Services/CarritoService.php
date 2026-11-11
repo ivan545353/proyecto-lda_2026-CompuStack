@@ -3,12 +3,14 @@
 namespace App\Services;
 
 use App\Exceptions\CarritoCambioException;
+use App\Exceptions\CheckoutVencidoException;
 use App\Exceptions\ReglaDeNegocioException;
 use App\Exceptions\StockInsuficienteException;
 use App\Models\Carrito;
 use App\Models\CarritoLinea;
 use App\Models\Producto;
 use App\Models\User;
+use App\Models\Venta;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
@@ -24,12 +26,13 @@ use Illuminate\Support\Facades\DB;
  *   vaciar()           saca todos los renglones
  *   resumen()          renglones, importes, totales y avisos; no escribe nada
  *   iniciarCheckout()  revalida y reserva todo o nada; con cambios, los guarda y recién lanza
+ *   confirmar()        el checkout pasa a pedido, con su reserva; el reintento devuelve el mismo
  *   soltarCheckout()   libera la reserva y vuelve a `activo`
  *   soltarCheckoutsVencidos()  lo de arriba para los que pasaron `reservado_hasta` (cada minuto)
  */
 class CarritoService
 {
-    public function __construct(private readonly StockService $stock)
+    public function __construct(private readonly StockService $stock, private readonly VentaService $ventas)
     {
     }
 
@@ -228,25 +231,7 @@ class CarritoService
                 throw new ReglaDeNegocioException('Tu carrito está vacío: agregá algún producto para continuar.');
             }
 
-            $enTienda = Producto::enTienda()->whereKey($lineas->pluck('producto_id'))->pluck('id')->flip();
-            $cambios  = [];
-
-            foreach ($lineas as $linea) {
-                if (! $enTienda->has($linea->producto_id)) {
-                    $cambios[] = $this->cambioInactivo($linea);
-
-                    continue;
-                }
-
-                $dePrecio = $this->cambiosDePrecio($linea);
-
-                if ($dePrecio !== []) {
-                    array_push($cambios, ...$dePrecio);
-                    $linea->contado_referencia = $linea->producto->precio_contado;
-                    $linea->lista_referencia   = $linea->producto->precio_lista;
-                    $linea->save();
-                }
-            }
+            $cambios = $this->revalidar($c);
 
             if ($cambios !== []) {
                 return [$c, $cambios];
@@ -269,6 +254,72 @@ class CarritoService
         }
 
         return $this->resumen($carrito->fresh());
+    }
+
+    /**
+     * Convierte el checkout en pedido. La reserva cambia de dueño sin moverse (HL-4): el pedido
+     * nace con ella y el carrito queda `convertido`, en la misma transacción. Un carrito ya
+     * convertido devuelve su pedido con `creada = false` (D-8): el reintento no crea dos.
+     *
+     * @param  array{carrito_id: int, medio_pago: string, modo_entrega: string, direccion?: array<string, string|null>|null}  $datos
+     * @return array{venta: Venta, creada: bool}
+     *
+     * @throws ModelNotFoundException    el carrito no existe o es de otro usuario
+     * @throws CheckoutVencidoException  no está en checkout o la reserva venció
+     * @throws CarritoCambioException    un precio cambió o un producto ya no se vende
+     */
+    public function confirmar(User $usuario, array $datos): array
+    {
+        [$resultado, $cambios, $vencido] = DB::transaction(function () use ($usuario, $datos) {
+            // Por id y por dueño: el de otro usuario es «no encontrado», no «prohibido».
+            $c = Carrito::lockForUpdate()->where('user_id', $usuario->id)->findOrFail((int) $datos['carrito_id']);
+
+            if ($c->estado === 'convertido') {
+                return [['venta' => $c->venta()->firstOrFail(), 'creada' => false], [], false];
+            }
+
+            if (! $c->enCheckoutVigente()) {
+                $this->soltarCheckout($c);
+
+                return [null, [], true];
+            }
+
+            $cambios = $this->revalidar($c);
+
+            if ($cambios !== []) {
+                // Se suelta: el próximo checkout revalida desde cero, con las referencias nuevas.
+                $this->soltarCheckout($c);
+
+                return [null, $cambios, false];
+            }
+
+            $cliente = $usuario->cliente;
+
+            if ($cliente === null) {
+                throw new ReglaDeNegocioException('Tu cuenta no tiene datos de cliente: completalos para pedir.');
+            }
+
+            $venta = $this->ventas->crearOnline(
+                $cliente, $c, $datos['medio_pago'], $datos['modo_entrega'], $datos['direccion'] ?? null,
+            );
+
+            $c->estado          = 'convertido';
+            $c->reservado_hasta = null;
+            $c->save();
+
+            return [['venta' => $venta, 'creada' => true], [], false];
+        });
+
+        // Se lanza afuera: adentro, el rollback desharía la liberación y las referencias nuevas.
+        if ($vencido) {
+            throw new CheckoutVencidoException;
+        }
+
+        if ($cambios !== []) {
+            throw new CarritoCambioException($cambios);
+        }
+
+        return $resultado;
     }
 
     /**
@@ -318,6 +369,38 @@ class CarritoService
 
             return true;
         });
+    }
+
+    /**
+     * Los renglones contra el catálogo de hoy: dados de baja y precios cambiados. Actualiza las
+     * referencias de los que cambiaron, así el carrito muestra el precio nuevo.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function revalidar(Carrito $carrito): array
+    {
+        $lineas   = $carrito->lineas()->with('producto')->orderBy('producto_id')->get();
+        $enTienda = Producto::enTienda()->whereKey($lineas->pluck('producto_id'))->pluck('id')->flip();
+        $cambios  = [];
+
+        foreach ($lineas as $linea) {
+            if (! $enTienda->has($linea->producto_id)) {
+                $cambios[] = $this->cambioInactivo($linea);
+
+                continue;
+            }
+
+            $dePrecio = $this->cambiosDePrecio($linea);
+
+            if ($dePrecio !== []) {
+                array_push($cambios, ...$dePrecio);
+                $linea->contado_referencia = $linea->producto->precio_contado;
+                $linea->lista_referencia   = $linea->producto->precio_lista;
+                $linea->save();
+            }
+        }
+
+        return $cambios;
     }
 
     /** Las dos referencias contra el precio vigente; una entrada por lista que cambió. */

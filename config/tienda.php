@@ -54,8 +54,8 @@ return [
         // Si la tienda ofrece envío además del retiro (requisito 5.3). Es el recorte 2 del plan:
         // en `false`, sólo retiro y costo cero. Lo lee el checkout (E) y la confirmación (F).
         'habilitado' => true,
-        // Costo fijo de envío. Los envíos calculados son de la Etapa 4.
-        'costo' => '0.00',   // a revisar
+        // Costo fijo de envío (Q-1, tramo F): se suma al total del pedido. Los calculados son de la Etapa 4.
+        'costo' => '8000.00',
     ],
 
     'carrito' => [

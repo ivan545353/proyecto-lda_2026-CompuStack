@@ -41,6 +41,7 @@ class VentaFiltroRequest extends FormRequest
             'estado'      => ['nullable', Rule::in(array_keys(Venta::ESTADOS))],
             'cliente_id'  => ['nullable', 'integer', 'exists:clientes,id'],
             'vendedor_id' => ['nullable', 'integer', 'exists:users,id'],
+            'canal'       => ['nullable', Rule::in(array_keys(Venta::CANALES))],
             'desde'       => ['nullable', 'date'],
             'hasta'       => ['nullable', 'date', 'after_or_equal:desde'],
             'page'        => ['nullable', 'integer', 'min:1'],

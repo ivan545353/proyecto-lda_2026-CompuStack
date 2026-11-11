@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\CarritoController;
 use App\Http\Controllers\Api\V1\CarritoLineaController;
 use App\Http\Controllers\Api\V1\CategoriaController;
 use App\Http\Controllers\Api\V1\CheckoutController;
+use App\Http\Controllers\Api\V1\PedidoController;
 use App\Http\Controllers\Api\V1\PerfilController;
 use App\Http\Controllers\Api\V1\ProductoController;
 use App\Http\Controllers\Api\V1\RegistroController;
@@ -71,6 +72,8 @@ Route::prefix('v1')->group(function () {
             Route::delete('carrito/lineas/{linea}', [CarritoLineaController::class, 'destroy'])->whereNumber('linea');
             // Reserva el carrito. Cualquier escritura posterior al carrito suelta la reserva.
             Route::post('carrito/checkout', [CheckoutController::class, 'store']);
+            // Confirma el checkout (tramo F). Idempotente por `carrito_id` (D-8).
+            Route::post('pedidos', [PedidoController::class, 'store']);
         });
     });
 });

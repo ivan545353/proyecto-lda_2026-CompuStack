@@ -72,6 +72,7 @@ final class ListadoVentas extends Listado
             'Estado'   => Venta::ESTADOS[$filtros['estado'] ?? ''] ?? null,
             'Cliente'  => $cliente?->razon_social,
             'Vendedor' => $vendedor ? "{$vendedor->apellido}, {$vendedor->nombre}" : null,
+            'Canal'    => Venta::CANALES[$filtros['canal'] ?? ''] ?? null,
             'Desde'    => filled($filtros['desde'] ?? null) ? Carbon::parse($filtros['desde'])->format('d/m/Y') : null,
             'Hasta'    => filled($filtros['hasta'] ?? null) ? Carbon::parse($filtros['hasta'])->format('d/m/Y') : null,
         ]);

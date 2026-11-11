@@ -1,18 +1,23 @@
 <?php
 
 use App\Exceptions\CarritoCambioException;
+use App\Exceptions\CheckoutVencidoException;
 use App\Exceptions\ReglaDeNegocioException;
 use App\Exceptions\StockInsuficienteException;
 use App\Models\Carrito;
 use App\Models\CarritoLinea;
 use App\Models\Categoria;
+use App\Models\Cliente;
 use App\Models\Producto;
 use App\Models\User;
+use App\Models\Venta;
+use App\Models\VentaLinea;
 use App\Services\CarritoService;
 use App\Services\StockService;
 use Database\Seeders\RolPermisoSeeder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -43,6 +48,22 @@ beforeEach(function () {
         $carrito->save();
 
         return $carrito;
+    };
+});
+
+// Confirma el checkout de la cuenta, de contado y con retiro; le crea el cliente si no lo tiene.
+beforeEach(function () {
+    $this->tiendaConfirmar = function (User $cuenta, array $datos = []): array {
+        if ($cuenta->cliente()->doesntExist()) {
+            Cliente::factory()->create(['user_id' => $cuenta->id]);
+        }
+
+        return $this->carritos->confirmar($cuenta, [
+            'carrito_id'   => $this->carritos->paraLeer($cuenta)->id,
+            'medio_pago'   => 'contado',
+            'modo_entrega' => 'retiro',
+            ...$datos,
+        ]);
     };
 });
 
@@ -440,8 +461,8 @@ test('soltar dos veces el mismo checkout no libera dos veces', function () {
         ->and($producto->fresh()->stock_reservado)->toBe(5);
 });
 
-test('invariante: lo reservado es la suma de los carritos en checkout vigentes', function () {
-    // HL-4. Sin pedidos todavía (tramo F), el único dueño de una reserva es el carrito.
+test('invariante: lo reservado es la suma de los checkouts vigentes y los pedidos pendientes', function () {
+    // HL-4. Dos dueños posibles: el carrito en checkout y, desde el F, el pedido sin cobrar.
     $cuentas   = collect(range(1, 4))->map(fn () => ($this->tiendaCuenta)());
     $productos = collect(range(1, 3))->map(fn () => ($this->tiendaProducto)(20));
 
@@ -449,6 +470,9 @@ test('invariante: lo reservado es la suma de los carritos en checkout vigentes',
         foreach ($productos as $producto) {
             $esperado = (int) CarritoLinea::where('producto_id', $producto->id)
                 ->whereHas('carrito', fn ($c) => $c->where('estado', 'en_checkout')->where('reservado_hasta', '>', now()))
+                ->sum('cantidad');
+            $esperado += (int) VentaLinea::where('producto_id', $producto->id)
+                ->whereHas('venta', fn ($v) => $v->where('estado', 'pendiente_pago')->whereNotNull('reserva_vence'))
                 ->sum('cantidad');
 
             expect($producto->fresh()->stock_reservado)->toBe($esperado, "Producto {$producto->id}");
@@ -470,6 +494,10 @@ test('invariante: lo reservado es la suma de los carritos en checkout vigentes',
     $this->carritos->iniciarCheckout($c3);
     $verificar();
 
+    // c1 confirma de contado: su reserva pasa al pedido sin moverse.
+    ($this->tiendaConfirmar)($c1);
+    $verificar();
+
     $this->carritos->agregar($c2, $p3->id, 1);   // escribir suelta el checkout de c2
     $this->carritos->cambiarCantidad($c3, $this->carritos->paraLeer($c3)->lineas()->first()->id, 2);
     $verificar();
@@ -480,7 +508,7 @@ test('invariante: lo reservado es la suma de los carritos en checkout vigentes',
     $this->carritos->iniciarCheckout($c2);
     $verificar();
 
-    $this->travel(11)->minutes();   // c1 y c3 vencen; c4 y c2, no
+    $this->travel(11)->minutes();   // c3 vence; c4 y c2, no; c1 ya es un pedido de 48 horas
     $this->artisan('tienda:vencer-reservas')->assertSuccessful();
     $verificar();
 
@@ -489,5 +517,131 @@ test('invariante: lo reservado es la suma de los carritos en checkout vigentes',
     $this->artisan('tienda:vencer-reservas')->assertSuccessful();
     $verificar();
 
+    $this->travel(48)->hours();   // el pedido de c1 vence sin cobrarse
+    $this->artisan('tienda:vencer-reservas')->assertSuccessful();
+    $verificar();
+
     expect($productos->sum(fn ($p) => $p->fresh()->stock_reservado))->toBe(0);
+});
+
+// ---------- confirmar() ----------
+
+test('confirmar convierte el carrito en un pedido que se queda con la reserva', function () {
+    $cuenta   = ($this->tiendaCuenta)();
+    $producto = ($this->tiendaProducto)(10);
+    $carrito  = ($this->tiendaEnCheckout)($cuenta, $producto, 3);
+
+    ['venta' => $venta, 'creada' => $creada] = ($this->tiendaConfirmar)($cuenta);
+
+    expect($creada)->toBeTrue()
+        ->and($venta->carrito_id)->toBe($carrito->id)
+        ->and($venta->cliente_id)->toBe($cuenta->cliente->id)
+        ->and($carrito->fresh()->estado)->toBe('convertido')
+        ->and($carrito->fresh()->reservado_hasta)->toBeNull()
+        ->and($carrito->fresh()->venta->id)->toBe($venta->id)
+        ->and($producto->fresh()->stock_reservado)->toBe(3);
+});
+
+test('dos confirmaciones del mismo carrito dan un solo pedido', function () {
+    $cuenta = ($this->tiendaCuenta)();
+    $carrito = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)(), 2);
+
+    $primera = ($this->tiendaConfirmar)($cuenta, ['carrito_id' => $carrito->id]);
+    $segunda = ($this->tiendaConfirmar)($cuenta, ['carrito_id' => $carrito->id, 'medio_pago' => 'pasarela']);
+
+    expect($segunda['creada'])->toBeFalse()
+        ->and($segunda['venta']->id)->toBe($primera['venta']->id)
+        ->and($segunda['venta']->medio_pago)->toBe('contado')
+        ->and(Venta::count())->toBe(1);
+});
+
+test('el carrito de otro usuario no se encuentra', function () {
+    $duena = ($this->tiendaCuenta)();
+    $carrito = ($this->tiendaEnCheckout)($duena, ($this->tiendaProducto)(), 1);
+
+    expect(fn () => ($this->tiendaConfirmar)(($this->tiendaCuenta)(), ['carrito_id' => $carrito->id]))
+        ->toThrow(ModelNotFoundException::class);
+
+    expect($carrito->fresh()->estado)->toBe('en_checkout');
+});
+
+test('un checkout vencido se suelta y no se confirma', function () {
+    $cuenta   = ($this->tiendaCuenta)();
+    $producto = ($this->tiendaProducto)(10);
+    $carrito  = ($this->tiendaEnCheckout)($cuenta, $producto, 2);
+    $this->travel(21)->minutes();
+
+    expect(fn () => ($this->tiendaConfirmar)($cuenta))->toThrow(CheckoutVencidoException::class);
+
+    expect($carrito->fresh()->estado)->toBe('activo')
+        ->and($producto->fresh()->stock_reservado)->toBe(0)
+        ->and(Venta::count())->toBe(0);
+});
+
+test('un carrito que no paso por el checkout no se confirma', function () {
+    $cuenta = ($this->tiendaCuenta)();
+    $this->carritos->agregar($cuenta, ($this->tiendaProducto)()->id, 1);
+
+    expect(fn () => ($this->tiendaConfirmar)($cuenta))->toThrow(CheckoutVencidoException::class);
+
+    expect(Venta::count())->toBe(0);
+});
+
+test('un precio cambiado no confirma: suelta la reserva y deja el precio nuevo a la vista', function () {
+    $cuenta   = ($this->tiendaCuenta)();
+    $producto = ($this->tiendaProducto)(10);
+    $carrito  = ($this->tiendaEnCheckout)($cuenta, $producto, 2);
+    $producto->update(['precio_contado' => '1100.00']);
+
+    expect(fn () => ($this->tiendaConfirmar)($cuenta))->toThrow(CarritoCambioException::class);
+
+    expect(Venta::count())->toBe(0)
+        ->and($carrito->fresh()->estado)->toBe('activo')
+        ->and($producto->fresh()->stock_reservado)->toBe(0)
+        ->and($carrito->lineas()->first()->contado_referencia)->toBe('1100.00');
+});
+
+test('sin registros parciales: si falla el ultimo renglon no queda nada', function () {
+    $cuenta  = ($this->tiendaCuenta)();
+    $p1      = ($this->tiendaProducto)(10);
+    $p2      = ($this->tiendaProducto)(10);
+    $carrito = ($this->tiendaEnCheckout)($cuenta, $p1, 2);
+    $this->carritos->agregar($cuenta, $p2->id, 1);
+    app(StockService::class)->reservar($p2, 1);
+    // agregar() soltó el checkout: se vuelve a armar a mano, con las dos reservas tomadas.
+    $carrito->refresh();
+    $carrito->estado          = 'en_checkout';
+    $carrito->reservado_hasta = now()->addMinutes(20);
+    $carrito->save();
+    app(StockService::class)->reservar($p1, 2);
+
+    $renglones = 0;
+    DB::beforeExecuting(function (string $sql) use (&$renglones) {
+        if (str_starts_with(strtolower($sql), 'insert into `venta_lineas`') && ++$renglones === 2) {
+            throw new RuntimeException('Falla inyectada en el último renglón.');
+        }
+    });
+
+    expect(fn () => ($this->tiendaConfirmar)($cuenta))->toThrow(RuntimeException::class);
+
+    expect(Venta::count())->toBe(0)
+        ->and(VentaLinea::count())->toBe(0)
+        ->and($carrito->fresh()->estado)->toBe('en_checkout')
+        ->and($p1->fresh()->stock_reservado)->toBe(2)
+        ->and($p2->fresh()->stock_reservado)->toBe(1);
+});
+
+test('el comando cancela el pedido de contado vencido y libera su reserva', function () {
+    $cuenta   = ($this->tiendaCuenta)();
+    $producto = ($this->tiendaProducto)(10);
+    ($this->tiendaEnCheckout)($cuenta, $producto, 4);
+    ['venta' => $venta] = ($this->tiendaConfirmar)($cuenta);
+    $this->travel(49)->hours();
+
+    $this->artisan('tienda:vencer-reservas')
+        ->expectsOutputToContain('Pedidos vencidos cancelados: 1')
+        ->assertSuccessful();
+
+    expect($venta->fresh()->estado)->toBe('cancelada')
+        ->and($producto->fresh()->stock_reservado)->toBe(0);
 });

@@ -13,6 +13,6 @@ class PerfilController extends Controller
     /** La cuenta de quien tiene la sesión. */
     public function show(Request $request): JsonResponse
     {
-        return Recurso::respuesta(new PerfilResource($request->user()->load('cliente')));
+        return Recurso::respuesta(new PerfilResource($request->user()->load('cliente.direccionPredeterminada')));
     }
 }

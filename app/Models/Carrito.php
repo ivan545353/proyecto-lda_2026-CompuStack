@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * El carrito de la tienda, guardado en el servidor. No se borra: se convierte en pedido (tramo F).
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * Relaciones:
  *   usuario()  BelongsTo   la cuenta de tienda dueña
  *   lineas()   HasMany     un renglón por producto
- *   (venta() entra en el F, con `ventas.carrito_id`: HL-57)
+ *   venta()    HasOne      el pedido en que se convirtió (`ventas.carrito_id`, D-8 y HL-57)
  *
  * Scopes:
  *   vigente()  `activo` o `en_checkout`: el que el usuario está usando
@@ -46,6 +47,12 @@ class Carrito extends Model
     public function lineas(): HasMany
     {
         return $this->hasMany(CarritoLinea::class, 'carrito_id');
+    }
+
+    /** El pedido en que se convirtió; uno solo, por el UNIQUE de la columna. */
+    public function venta(): HasOne
+    {
+        return $this->hasOne(Venta::class, 'carrito_id');
     }
 
     public function scopeVigente(Builder $query): Builder

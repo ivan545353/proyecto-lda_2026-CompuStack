@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 4** · Etapa 2, tramo E. Base: `/api/v1`.
+**Revisión 5** · Etapa 2, tramo F. Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -9,8 +9,8 @@ revisión** y se anota en el registro de cambios.
 
 La revisión 1 fijó las convenciones, el formato de error, la credencial y el paginado. La 2 suma el
 catálogo público (§7.1). La 3, la cuenta (§7.2), los precios y el orden por precio. La 4, el carrito y
-el checkout con la reserva (§7.3). Los demás endpoints entran por tramo (F pedidos, G pagos, H consulta
-de compras).
+el checkout con la reserva (§7.3). La 5, la confirmación del pedido (§7.4) y la dirección del perfil.
+Los demás endpoints entran por tramo (G pagos, H consulta de compras).
 
 ## 1. Reglas generales
 
@@ -440,12 +440,22 @@ Protegida, sin permiso propio. La cuenta de quien tiene la sesión. Sólo lectur
     "apellido": "Paredes",
     "email": "lucia@correo.local",
     "telefono": "297-4001122",
-    "razon_social": "Lucía Paredes"
+    "razon_social": "Lucía Paredes",
+    "direccion": {
+      "calle": "San Martín",
+      "numero": "1234",
+      "piso_depto": "2 B",
+      "codigo_postal": "9000",
+      "localidad": "Comodoro Rivadavia",
+      "provincia": "Chubut"
+    }
   }
 }
 ```
 
 - `telefono` es `null` si no lo cargó. No viajan el documento ni la condición frente al IVA.
+- `direccion` (desde la revisión 5): la predeterminada, de sólo lectura, para proponerla en el envío;
+  `null` si no tiene. La app la puede editar **sólo para ese pedido** (`POST /pedidos`).
 - Errores: 401 `sin_sesion` / `sesion_invalida`.
 
 ### 7.3 Carrito y checkout (tramo E)
@@ -475,11 +485,13 @@ partiría los totales.
 
 #### `GET /api/v1/carrito`
 
-El carrito vigente. Sin uno, devuelve uno vacío **sin crearlo**: un `GET` no escribe nada.
+El carrito vigente. Sin uno, devuelve uno vacío **sin crearlo**: un `GET` no escribe nada, y su `id`
+es `null`. El `id` (desde la revisión 5) es el que nombra la confirmación del pedido (§7.4).
 
 ```json
 {
   "datos": {
+    "id": 12,
     "estado": "activo",
     "estado_texto": "En armado",
     "reservado_hasta": null,
@@ -598,6 +610,7 @@ veces. Si la reserva venció y la tarea todavía no la soltó, se suelta y se re
 ```json
 {
   "datos": {
+    "id": 12,
     "estado": "en_checkout",
     "estado_texto": "Reservado mientras confirmás",
     "reservado_hasta": "2026-11-11T15:20:00Z",
@@ -614,14 +627,14 @@ veces. Si la reserva venció y la tarea todavía no la soltó, se suelta y se re
     ],
     "entrega": [
       { "modo": "retiro", "texto": "Retiro en el local", "costo": "0.00" },
-      { "modo": "envio", "texto": "Envío a domicilio", "costo": "0.00" }
+      { "modo": "envio", "texto": "Envío a domicilio", "costo": "8000.00" }
     ]
   }
 }
 ```
 
 - `medios`: cuánto sale por cada medio. El contado cobra el precio de contado; la pasarela, el de
-  lista. Sin `tienda.ver_precios`, sin `total`. Cuál se elige lo manda la confirmación (tramo F).
+  lista. Sin `tienda.ver_precios`, sin `total`. Cuál se elige lo manda la confirmación (§7.4).
 - `entrega`: retiro siempre; envío sólo con `tienda.envio.habilitado`, con su costo fijo
   (`tienda.envio.costo`).
 - Ejemplo de 409:
@@ -640,6 +653,91 @@ veces. Si la reserva venció y la tarea todavía no la soltó, se suelta y se re
 - Errores: 409 `carrito_cambio`, 409 `stock_insuficiente`, 409 `regla_de_negocio` (carrito vacío),
   422 `validacion`.
 
+### 7.4 Pedidos (tramo F)
+
+Un pedido es una **venta online**: la misma fila de `ventas` que el mostrador, con `canal = online`,
+sin vendedor y con el cliente de la cuenta. Nace en `pendiente_pago` y se queda con la reserva del
+checkout: las unidades no vuelven al disponible hasta que se cobra (salen del depósito), se cancela o
+vence.
+
+#### `POST /api/v1/pedidos`
+
+Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito reservado en un pedido.
+
+| Parámetro | Dónde | Tipo | Obligatorio | Regla |
+| --- | --- | --- | --- | --- |
+| `carrito_id` | cuerpo | entero | sí | El `id` que trae el resumen del checkout (y `GET /carrito`). Ajeno o inexistente: 404 |
+| `medio_pago` | cuerpo | texto | sí | `contado` (efectivo o transferencia, en el local) o `pasarela` |
+| `modo_entrega` | cuerpo | texto | sí | `retiro`; `envio` sólo con `tienda.envio.habilitado` |
+| `direccion` | cuerpo | objeto | con `envio` | `calle` (150), `numero` (10), `piso_depto` (20, opcional), `codigo_postal` (10), `localidad` (100), `provincia` (100). Con `retiro`, mandarla es 422 |
+| importes | cuerpo | — | — | `precio`, `total`, `subtotal`, `costo_envio`, etc.: **prohibidos** (422). Los calcula el servidor |
+
+1. Bloquea el carrito. Si ya es un pedido, devuelve **ese** pedido con **200** (D-8): el reintento
+   tras un timeout recibe el mismo número, aunque cambie el medio.
+2. Si no está en checkout o la reserva venció: la suelta y **409 `checkout_vencido`**.
+3. Revalida como el checkout. Si algo cambió: suelta la reserva, deja las referencias nuevas y **409
+   `carrito_cambio`** con `cambios`. Hay que volver a iniciar el checkout.
+4. Crea el pedido con los renglones congelados **con la lista del medio** (contado → precio de contado,
+   pasarela → precio de lista), suma el costo del envío (`tienda.envio.costo`, hoy `8000.00`) y pasa el
+   carrito a `convertido`. Todo en una transacción: o queda el pedido entero, o nada.
+
+**201** si nace el pedido; **200** si ya existía.
+
+```json
+{
+  "datos": {
+    "id": 42,
+    "numero": "V-00042",
+    "estado": "pendiente_pago",
+    "estado_texto": "Esperando el pago",
+    "medio_pago": "contado",
+    "medio_pago_texto": "Efectivo o transferencia",
+    "modo_entrega": "envio",
+    "modo_entrega_texto": "Envío a domicilio",
+    "direccion": {
+      "calle": "San Martín",
+      "numero": "1234",
+      "piso_depto": null,
+      "codigo_postal": "9000",
+      "localidad": "Comodoro Rivadavia",
+      "provincia": "Chubut"
+    },
+    "reserva_vence": "2026-11-13T15:00:00Z",
+    "creado": "2026-11-11T15:00:00Z",
+    "lineas": [
+      {
+        "producto_id": 7,
+        "descripcion": "Mouse Logitech G505",
+        "cantidad": 2,
+        "precio_unitario": "54450.00",
+        "total": "108900.00"
+      }
+    ],
+    "importes": {
+      "subtotal": "108900.00",
+      "costo_envio": "8000.00",
+      "total": "116900.00"
+    }
+  }
+}
+```
+
+- `reserva_vence`: hasta cuándo se guarda la mercadería. De contado, 48 horas
+  (`tienda.reservas.contado_horas`): **hay que pagar en el local antes de esa fecha**. Por pasarela,
+  20 minutos (`tienda.reservas.pasarela_minutos`), para el pago del tramo G. Pasada la hora, la tarea
+  de cada minuto cancela el pedido y libera el stock. `null` cuando ya se cobró o se canceló.
+- `direccion`: la del pedido, **copiada**: editar después las direcciones del cliente no la cambia.
+  `null` con retiro.
+- Sin `tienda.ver_precios` no viajan `importes` ni `precio_unitario` y `total` de cada renglón.
+- Nunca viajan el costo, el vendedor ni el stock.
+- Que el pedido esté registrado **no dice que se pagó** (P-4): `estado` es `pendiente_pago` hasta que
+  el local lo cobra o la pasarela lo acredita.
+- `carrito_id` es la clave de la idempotencia: el reintento manda **el mismo**. Un carrito convertido no
+  se reusa; el siguiente `GET /carrito` trae uno nuevo, con otro `id`.
+- Errores: 401 `sin_sesion` / `sesion_invalida`, 403 `sin_permiso`, 404 `no_encontrado` (carrito
+  ajeno o inexistente), 409 `checkout_vencido`, 409 `carrito_cambio`, 409 `regla_de_negocio` (cuenta
+  sin ficha de cliente), 422 `validacion`.
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -647,4 +745,5 @@ veces. Si la reserva venció y la tarea todavía no la soltó, se suelta y se re
 | 1 | A | Convenciones, formato de respuesta y de error, credencial, paginado, límite de intentos |
 | 2 | C | `GET /categorias`, `GET /productos` y `GET /productos/{id}`: catálogo público sin precios; criterio de novedad (ventana y tope); galería nunca vacía; el árbol de categorías se pagina por raíz |
 | 3 | D | `POST /registro`, `POST` y `DELETE /sesion`, `GET /perfil`; clave `precios` con `tienda.ver_precios`; `orden=precio_asc` y `precio_desc` (401 sin sesión, 403 sin permiso); cambiar o restablecer la contraseña revoca las credenciales |
+| 5 | F | `POST /pedidos` (201 al crear, 200 en el reintento con el mismo `carrito_id`; se emite `checkout_vencido`); `id` del carrito en `GET /carrito` y en el checkout; `direccion` en `GET /perfil`; el costo del envío pasa a `8000.00` |
 | 4 | E | `GET` y `DELETE /carrito`, `POST /carrito/lineas`, `PATCH` y `DELETE /carrito/lineas/{linea}`, `POST /carrito/checkout`; se emiten `stock_insuficiente` y `carrito_cambio` (con `cambios`); importes en la solicitud, 422; dónde se guarda el carrito y cómo se asocia a la cuenta |

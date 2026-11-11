@@ -169,6 +169,7 @@ equivocada al implementarla, se plantea y se decide de nuevo antes de escribir c
 | D-19 | **`url_launcher` entra a la lista de librerías** | Mercado Pago se paga en su propia página (Checkout Pro), que la app tiene que abrir. Es el paquete oficial del equipo de Flutter para eso | Se usa detrás de un servicio propio (`NavegadorExterno`) para que los tests lo reemplacen por un falso y ningún widget lo importe (regla 24). Abre en una pestaña personalizada de Chrome |
 | D-20 | **Mercado Pago es obligatorio**, no recortable | La promoción suma a la calificación final, y se decide tratarla como requisito | Sale de los recortes de la §9 y entra en «no se recorta nunca». El simulador **sigue**: la consigna lo admite para la aprobación, permite mostrar un rechazo a voluntad y es el respaldo si la red falla en la defensa. Las cuentas de prueba se preparan antes del tramo E (§14.2) |
 | D-21 | **El catálogo se pagina con números, no con scroll infinito** (decidida en el tramo D) | Elegir la página da control y deja saber dónde se está («Página 5 de 981»); con 20.000 productos el scroll infinito no tiene final a la vista | El pie lleva «anterior», números y «siguiente» en Catálogo y Búsqueda; otra página reemplaza a la que se ve. Reemplaza lo que el tramo C pedía («la página siguiente al acercarse al final») |
+| D-22 | **La cuenta se edita desde la app; lo fiscal que decide el comprobante, no** (decidida al cerrar el tramo F, resuelve Q-2) | Comprar pide los datos de quien compra: cargarlos una vez y que se autocompleten ahorra pasos (regla 30). La condición frente al IVA decide Factura A o B, y declararla mal es un problema fiscal del local; el domicilio de facturación sólo lo pide la facturación con ARCA, que está fuera de alcance (§5) | Tramo K: `PATCH /perfil` con nombre, apellido, teléfono, documento (`tipo_doc` + `nro_doc`, opcional) y la dirección predeterminada. La condición frente al IVA se ve y no se edita. No hay domicilio de facturación. El PDF que baja la app se llama **comprobante**, nunca factura: no es fiscal |
 
 **Decididas por omisión, con la recomendación.** No bloqueaban y se pueden revisar antes del
 tramo que las usa:
@@ -461,6 +462,10 @@ la §1.3 se nombran por su letra.
 | HL-58 | `tienda.envio.habilitado` existe (lo nombran el F y el recorte 2) | `config/tienda.php` sólo tenía `envio.costo` | Se agrega en el E, en `true`: el resumen del checkout ya ofrece los modos de entrega. Con `false`, sólo retiro | E |
 | HL-59 | «+» se puede frenar en el stock antes de pedir (Nielsen: prevenir el error) | El número no viaja (2.3) y ninguna ruta valida sin agregar | En el carrito, el 409 de «+» fija el tope exacto («Es todo el stock disponible.»); en la ficha, el 409 de «Agregar» deja probar una unidad menos. Ninguno es un error grande. Frenarlo antes pide un `maximo` en el contrato (pregunta abierta) | E |
 | HL-60 | Carrito se abre con `push` desde la barra inferior | Fuera de la cáscara, **sin sesión** el login quedaba apilado y al entrar volvía a lo de abajo, no al carrito (HL-56) | Con sesión, `push`; sin sesión, `go`: la guarda pone el login solo y al entrar lleva a `desde` | E |
+| HL-61 | `Venta::scopeDelCliente(Cliente)` entra en el F | Ya existe `scopeDeCliente(int\|string\|null)`, el del filtro del listado | Se reusa con `$cliente->id`: un scope casi homónimo serían dos maneras de decir lo mismo | F |
+| HL-62 | `marcarPagada(Venta, ?User)` | Exigía `User`: en la Etapa 1 siempre cobra una persona | Se ensancha en el F; lo aprovecha la acreditación de la pasarela del G, que no tiene cajero | F |
+| HL-63 | `cancelarVencidos()` excluye los pedidos con un intento de pago pendiente | Los intentos de pago nacen en el G: en el F no hay qué mirar | El F cancela todo pedido vencido; el G agrega la exclusión, con su test | F, G |
+| HL-64 | La confirmación nombra `carrito_id` (D-8) | Ni `GET /carrito` ni el checkout exponían el `id`: la app no tenía de dónde sacarlo | `CarritoResource` suma `id` (null si el carrito no se guardó); `api.md` revisión 5 | F |
 
 ---
 
@@ -742,7 +747,8 @@ revisión; uno incompatible pediría `/api/v2`, y no está previsto.
 | `POST /api/v1/registro` | Crea `user` y `cliente`; devuelve la credencial | Pública, con límite | D |
 | `POST /api/v1/sesion` | Inicia sesión | Pública, con límite | D |
 | `DELETE /api/v1/sesion` | Cierra y **revoca** | Protegida | D |
-| `GET /api/v1/perfil` | Datos básicos | Protegida | D |
+| `GET /api/v1/perfil` | Datos básicos (desde K, con el documento y la condición frente al IVA) | Protegida | D, K |
+| `PATCH /api/v1/perfil` | Edita la cuenta propia: nombre, apellido, teléfono, documento y dirección predeterminada | Protegida | K |
 | `GET /api/v1/carrito` | Renglones con los dos importes, totales y avisos | `tienda.comprar` | E |
 | `POST /api/v1/carrito/lineas` | Agrega (`producto_id`, `cantidad`); si ya está, suma | `tienda.comprar` | E |
 | `PATCH /api/v1/carrito/lineas/{linea}` | Cambia la cantidad | `tienda.comprar` | E |
@@ -752,6 +758,7 @@ revisión; uno incompatible pediría `/api/v2`, y no está previsto.
 | `POST /api/v1/pedidos` | **Confirma**; idempotente por `carrito_id` | `tienda.comprar` | F |
 | `GET /api/v1/pedidos` | Mis pedidos | `tienda.ver_pedidos` | H |
 | `GET /api/v1/pedidos/{id}` | Detalle con estado del pedido y **del pago**; ajeno, 404 | `tienda.ver_pedidos` | H |
+| `GET /api/v1/pedidos/{id}/comprobante` | Una URL firmada y de vida corta para bajar el comprobante (no fiscal) de un pedido pagado; ajeno, 404 | `tienda.ver_pedidos` | H |
 | `POST /api/v1/pedidos/{id}/pagos` | Inicia un intento por la pasarela del pedido (`pasarela`: `simulador` o `mercadopago`) | `tienda.comprar` | G |
 | `GET /api/v1/pedidos/{id}/pagos` | Intentos y estado del pago | `tienda.ver_pedidos` | G |
 | `GET /api/v1/pedidos/{id}/pagos/{intento}` | Resultado; si está pendiente con Mercado Pago, **consulta al proveedor** antes de responder | `tienda.ver_pedidos` | G |
@@ -1321,6 +1328,55 @@ el mismo asiento en el kardex que una de mostrador.
 estados del canal online), `trazabilidad.md` §15, `pendientes-usabilidad.md` (#81 y #82),
 §13.
 
+### Tramo K — Cuenta editable
+
+Se agregó al cerrar el tramo F (D-22, resuelve Q-2). Va **entre F y G**: la letra es la siguiente libre, no
+el orden.
+
+**Objetivo.** Que el cliente cargue y corrija sus datos desde la app, y que la compra los use ya cargados.
+
+**Tareas del backend.**
+- `GET /perfil` suma `tipo_doc` + `tipo_doc_texto`, `nro_doc` y `condicion_iva` + `condicion_iva_texto`
+  (de sólo lectura). Antes no viajaban (`api.md` §7.2).
+- `PATCH /api/v1/perfil`, protegida como `GET /perfil` (la cuenta propia, sin permiso aparte).
+  `ActualizarPerfilRequest`: `nombre` y `apellido` (100 cada uno, juntos 150: son la razón social,
+  HL-53), `telefono` (30, opcional), `tipo_doc` (`dni`, `cuit`, `cuil`) y `nro_doc` **juntos o ninguno**
+  (DNI de 7 u 8 dígitos; CUIT o CUIL de 11 con su dígito verificador), y `direccion` con los largos de
+  `direcciones` (o `null` para quitarla). `email`, `condicion_iva`, `razon_social` e importes,
+  `prohibited`.
+- `PerfilService::actualizar(User, array)`: en una transacción, `users` (nombre y apellido), `clientes`
+  (`razon_social` = nombre y apellido, teléfono y documento) y la dirección predeterminada (la crea, la
+  cambia o la quita). Devuelve el perfil como `GET`. Un pedido ya hecho no cambia: su dirección está
+  copiada (§5 de `modelo-datos.md`).
+- El cajero sigue viendo y corrigiendo la ficha en la web: el mismo dato, dos entradas.
+
+**Tests del backend** (`Api/PerfilEdicionTest`):
+- edita nombre, apellido, teléfono, documento y dirección, y `GET /perfil` devuelve lo nuevo;
+- la razón social sigue al nombre y al apellido;
+- documento sin tipo (o tipo sin número), un DNI corto, un CUIT con el dígito verificador mal: 422 en su campo;
+- `condicion_iva`, `email` o un importe en la solicitud: 422;
+- editar la dirección no cambia la de un pedido ya confirmado;
+- sin credencial, 401; una cuenta de gestión no llega (D-3).
+
+**Tareas de la app.**
+- `Perfil` lee los campos nuevos; `SessionRepository.actualizarPerfil()`.
+- **Mi cuenta editable**: el mismo formulario que el paso 3, con «Guardar».
+- **Paso 3 de la confirmación («Tus datos»)**: los datos propuestos y editables; «Continuar» guarda en la
+  cuenta si cambiaron (no toca el carrito: la reserva sigue). La dirección del paso 4 sigue valiendo
+  sólo para el pedido, con «Guardarla en mi cuenta» como opción.
+- La condición frente al IVA se ve y se explica («La carga CompuStack»); no se edita.
+
+**Tests de la app.** Modelos contra el JSON nuevo; el modelo de vista del formulario (valida como el
+servidor, no envía dos veces, cada 422 junto a su campo); el paso 3 guarda y sigue; widgets en los seis
+estados.
+
+**Entregable.** Una compra con los datos ya cargados se confirma sin escribir nada.
+
+**Criterio de terminado.** Lo que se edita en la app es lo que ve el cajero en la ficha del cliente.
+
+**Documentos.** `docs/api.md` (revisión nueva), `modelo-datos.md` (qué edita el cliente y qué no),
+`trazabilidad.md` §15, §13, regla 34 de la app (Mi cuenta deja de ser de sólo lectura).
+
 ### Tramo G — Pagos
 
 **Objetivo.** El flujo de pago completo contra una interfaz, con el simulador garantizando
@@ -1469,17 +1525,25 @@ con Mercado Pago llega a `pagada` por la consulta al proveedor**.
   congelada, los dos estados, los intentos, y el vencimiento si está pendiente («Pagalo
   antes del…»).
 - `TextosTienda`: `pendiente_pago` se lee «Esperando el pago».
+- **Comprobante** (D-22): `GET /pedidos/{id}/comprobante`, con `can:tienda.ver_pedidos` y la misma
+  consulta por dueño, devuelve `url` y `vence`: una ruta firmada con `URL::temporarySignedRoute`
+  (unos minutos) que sirve el mismo PDF de la web (`ventas.pdf`, el comprobante de una venta cobrada).
+  Un pedido no pagado o cancelado: 409 `regla_de_negocio`. El PDF no muestra costo ni vendedor (HL-1).
+  El detalle suma `comprobante_disponible`.
 
 **Tests del backend** (`Api/PedidoConsultaTest`, `Api/PedidoEscalaTest`):
 - **un cliente pide el pedido de otro y recibe 404**, igual que un número que no existe;
 - el listado trae sólo los propios, ordenados, paginados;
 - el detalle muestra el precio congelado aunque el precio del producto haya cambiado;
 - los dos estados por separado, en cada situación de la tabla de G;
-- las consultas del listado no crecen con los pedidos.
+- las consultas del listado no crecen con los pedidos;
+- el comprobante: pagado da una URL firmada que baja el PDF; ajeno, 404; no pagado, 409; la URL vencida
+  o tocada, 403.
 
 **Tareas de la app.** `PedidoRepository`; Mis pedidos (lista paginada, «traer para
 actualizar»); Detalle del pedido (renglones, los dos estados como insignias con texto, y
-«Pagar» o «Reintentar» si corresponde).
+«Pagar» o «Reintentar» si corresponde); **«Descargar comprobante»** si el pedido está pagado: pide la
+URL y la abre con `NavegadorExterno` (sin librería nueva; el token no viaja en la URL).
 
 **Tests de la app.** Modelos contra el JSON del contrato; modelo de vista del listado
 (paginado); widgets en los seis estados.
@@ -1582,8 +1646,8 @@ advertencias y `flutter test` en verde.
 ## 8. Orden y dependencias
 
 ```
-A ──► C ──► D ──► E ──► F ──► G ──► H ──► I ──► J (opcional)
-B ──┘                     └──────────► H
+A ──► C ──► D ──► E ──► F ──► K ──► G ──► H ──► I ──► J (opcional)
+B ──┘                     └────────────────► H
 ```
 
 | Dependencia | Por qué |
@@ -1595,6 +1659,7 @@ B ──┘                     └──────────► H
 | **D antes que E, F, G y H** | Los cuatro necesitan sesión y permisos |
 | **E antes que F** | No hay confirmación sin checkout ni reserva |
 | **F antes que G y H** | No hay pago sin pedido, ni consulta sin algo que consultar |
+| **K después de F y antes de G** | Edita lo que la confirmación ya muestra (el paso 3). El pago no lo necesita, pero la compra completa del G conviene ensayarla con los datos ya cargados |
 | **G antes que H**, en parte | El detalle muestra el estado del pago. El listado de H puede empezar después de F |
 | **De cada funcionalidad, primero el backend** | Con sus tests en Pest; la app consume algo que ya está fijado |
 | **J, al final y opcional** | Es contenido sobre pantallas que ya funcionan: nada depende de él, y se corta cuando se acabe el tiempo |
@@ -1699,8 +1764,9 @@ lados, se plantea y se decide antes de escribir código, y se agrega acá con su
   `disponibilidad.ultimas_unidades` 3 (188 productos, menos del 1 %, caen en «últimas unidades») y
   `descripcion_breve.palabras` 25, a los que el tramo suma `descripcion_breve.caracteres` 250 (pendiente
   #83). **`carrito.cantidad_maxima` 10, confirmado en el tramo E**: alcanza para una compra de hogar o pyme y frena
-  el carrito que acapara stock. Quedan `envio.costo`, que hay que decidirlo antes del tramo F, que lo suma al
-  total, y `pagos.intento_minutos`.
+  el carrito que acapara stock. **`envio.costo` 8.000, decidido en el tramo F**: un costo fijo distinto de cero,
+  para que el envío se vea en el total y en los tests; los envíos calculados son de la Etapa 4. Queda
+  `pagos.intento_minutos`.
 
 ---
 
@@ -1723,17 +1789,19 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 | Registro | Registro | `POST /registro` | Pública, con límite | D | Hecho |
 | Inicio y cierre de sesión | Inicio de sesión, Perfil | `POST` y `DELETE /sesion` | Pública / protegida | D | Hecho |
 | Datos básicos | Mi cuenta | `GET /perfil` | Protegida | D | Hecho |
+| Editar la cuenta | Mi cuenta, Confirmación (paso 3) | `PATCH /perfil` | Protegida | K | Pendiente |
 | Sesión vencida | Todas | Cualquier protegida (401) | — | B, D | B hecho (mecanismo: 401, `SessionRepository`, guarda, estado); D pendiente |
 | Carrito | Carrito, Ficha, Agregado | `/carrito`, `/carrito/lineas` | `tienda.comprar` | E | Hecho |
 | Vaciar | Carrito | `DELETE /carrito` | `tienda.comprar` | E | Hecho |
 | Checkout y reserva | Carrito (paso 1 de 5, reservado) | `POST /carrito/checkout` | `tienda.comprar` | E | Hecho |
-| Confirmar pedido | Confirmación (pasos 2 a 4) | `POST /pedidos` | `tienda.comprar` | F | Pendiente |
-| Canal en ventas | — (web: listado de ventas) | — | `venta.ver` | F | Pendiente |
-| Cobro de contado | — (web: cobro) | — | `venta.cobrar` | F | Pendiente |
+| Confirmar pedido | Confirmación (pasos 2 a 5), Pedido registrado | `POST /pedidos` | `tienda.comprar` | F | Hecho |
+| Canal en ventas | — (web: listado de ventas) | — | `venta.ver` | F | Hecho |
+| Cobro de contado | — (web: cobro) | — | `venta.cobrar` | F | Hecho |
 | Pago por pasarela | Pago, Simulador, Resultado | `POST /pedidos/{id}/pagos`, `/simulador/…` | `tienda.comprar` | G | Pendiente |
 | Resultado del pago | Resultado, Detalle | `GET /pedidos/{id}/pagos/{intento}` | `tienda.ver_pedidos` | G | Pendiente |
 | Mis pedidos | Mis pedidos | `GET /pedidos` | `tienda.ver_pedidos` | H | Pendiente |
 | Detalle del pedido | Detalle | `GET /pedidos/{id}` | `tienda.ver_pedidos` | H | Pendiente |
+| Comprobante del pedido | Detalle | `GET /pedidos/{id}/comprobante` | `tienda.ver_pedidos` | H | Pendiente |
 | Dirección del servidor | Ajustes (Cuenta → Servidor) | `GET /categorias` (sólo como prueba) | — | B | Hecho |
 
 ---
@@ -1792,7 +1860,8 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | C — Catálogo y detalle | [x] | [x] | [x] `api.md` r2, `modelo-datos`, `trazabilidad` §15 (los dos lados), `pendientes` #83 y #84, `README` y `ARQUITECTURA` de la app | Cerrado |
 | D — Cuenta y precios | [x] | [x] | [x] `api.md` r3, `modelo-datos` (permisos de tienda), `trazabilidad` §15 (los dos lados), D-21, HL-55 y HL-56, `README` y `ARQUITECTURA` de la app | Cerrado |
 | E — Carrito y reserva | [x] | [x] | [x] `api.md` r4, `modelo-datos` §4, `trazabilidad` §15 (los dos lados), HL-57 a HL-60, Q-1 (`cantidad_maxima`), reglas 31 y 32 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
-| F — Confirmación del pedido | [ ] | [ ] | [ ] | Pendiente |
+| F — Confirmación del pedido | [x] | [x] | [x] `api.md` r5, `modelo-datos` §4 y §5, `trazabilidad` §15 (los dos lados), HL-61 a HL-64, Q-1 (`envio.costo`), D-22 y el tramo K, `README` y `ARQUITECTURA` de la app | Cerrado |
+| K — Cuenta editable (entre F y G) | [ ] | [ ] | [ ] | Pendiente |
 | G — Pagos | [ ] | [ ] | [ ] | Pendiente |
 | H — Consulta de compras | [ ] | [ ] | [ ] | Pendiente |
 | I — Pruebas, documentación y demostración | [ ] | [ ] | [ ] | Pendiente |

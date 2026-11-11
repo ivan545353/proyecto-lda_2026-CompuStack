@@ -22,6 +22,8 @@ class CarritoResource extends JsonResource
         $conPrecios = $request->user()?->can('tienda.ver_precios') === true;
 
         return [
+            // Lo nombra la confirmación (D-8, HL-64). Null si el carrito todavía no se guardó.
+            'id'              => $carrito->exists ? $carrito->id : null,
             'estado'          => $carrito->estado,
             'estado_texto'    => TextosTienda::carrito($carrito->estado),
             'reservado_hasta' => $carrito->estado === 'en_checkout'

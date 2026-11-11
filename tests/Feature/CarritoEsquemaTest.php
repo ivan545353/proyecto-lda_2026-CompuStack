@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Carrito;
+use App\Models\Venta;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 
@@ -57,4 +58,58 @@ test('las dos tablas tienen marcas de tiempo', function () {
     foreach (['carritos', 'carrito_lineas'] as $tabla) {
         expect(Schema::hasColumns($tabla, ['created_at', 'updated_at']))->toBeTrue("Faltan en {$tabla}");
     }
+});
+
+// Tramo F: el pedido de la tienda es una venta más.
+
+test('la venta apunta a un solo carrito, y el mostrador lo deja nulo', function () {
+    expect(($this->columna)('ventas', 'carrito_id')['nullable'])->toBeTrue();
+
+    $unico = collect(Schema::getIndexes('ventas'))
+        ->first(fn ($i) => $i['unique'] && $i['columns'] === ['carrito_id']);
+    $foranea = collect(Schema::getForeignKeys('ventas'))
+        ->first(fn ($f) => $f['columns'] === ['carrito_id']);
+
+    expect($unico)->not->toBeNull()
+        ->and($foranea['foreign_table'])->toBe('carritos');
+});
+
+test('el medio de pago es nulo o uno de los dos de la tienda', function () {
+    $c = ($this->columna)('ventas', 'medio_pago');
+    preg_match_all("/'([^']*)'/", $c['type'], $valores);
+
+    expect($c['nullable'])->toBeTrue()
+        ->and($valores[1])->toEqualCanonicalizing(['contado', 'pasarela']);
+});
+
+test('la direccion se congela con los largos de direcciones', function () {
+    foreach (['calle', 'numero', 'piso_depto', 'codigo_postal', 'localidad', 'provincia'] as $campo) {
+        $venta = ($this->columna)('ventas', "entrega_{$campo}");
+        $origen = ($this->columna)('direcciones', $campo);
+
+        expect($venta['type'])->toBe($origen['type'], "entrega_{$campo}")
+            ->and($venta['nullable'])->toBeTrue();
+    }
+});
+
+test('la reserva del pedido vence y tiene su indice, y el canal el suyo', function () {
+    expect(($this->columna)('ventas', 'reserva_vence')['nullable'])->toBeTrue();
+
+    $indices = collect(Schema::getIndexes('ventas'))->pluck('columns')->all();
+
+    expect($indices)->toContain(['estado', 'reserva_vence'])
+        ->and($indices)->toContain(['canal']);
+});
+
+test('el enum del canal coincide con el modelo', function () {
+    preg_match_all("/'([^']*)'/", ($this->columna)('ventas', 'canal')['type'], $valores);
+
+    expect($valores[1])->toEqualCanonicalizing(array_keys(Venta::CANALES));
+});
+
+test('el carrito convertido llega a su venta y la venta a su carrito', function () {
+    $relacion = (new Carrito)->venta();
+
+    expect($relacion->getForeignKeyName())->toBe('carrito_id')
+        ->and((new Venta)->carrito()->getForeignKeyName())->toBe('carrito_id');
 });

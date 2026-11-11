@@ -290,11 +290,14 @@ class VentaController extends Controller
     {
         $venta = $this->service->cancelar($venta);
 
-        return redirect()->route('ventas.show', $venta)->with(
-            'exito',
-            "Presupuesto {$venta->numeroFormateado()} cancelado. No descontó stock ni generó "
-            .'comprobante, así que no quedó nada que revertir. La venta no se borra: queda registrada.',
-        );
+        // El pedido de la tienda sí tenía un efecto: retenía stock, y cancelarlo lo devuelve al disponible.
+        $texto = $venta->esOnline()
+            ? "Pedido {$venta->numeroFormateado()} cancelado. Las unidades que tenía reservadas volvieron "
+                .'al disponible. No se había cobrado, así que no hay plata que devolver. El pedido no se borra: queda registrado.'
+            : "Presupuesto {$venta->numeroFormateado()} cancelado. No descontó stock ni generó "
+                .'comprobante, así que no quedó nada que revertir. La venta no se borra: queda registrada.';
+
+        return redirect()->route('ventas.show', $venta)->with('exito', $texto);
         }
 
     /**
@@ -335,6 +338,7 @@ class VentaController extends Controller
             ->conEstado($request->query('estado'))
             ->deCliente($request->query('cliente_id'))
             ->deVendedor($request->query('vendedor_id'))
+            ->deCanal($request->query('canal'))
             ->desde($request->query('desde'))
             ->hasta($request->query('hasta'))
             ->orderByDesc('id');

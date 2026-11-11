@@ -743,7 +743,8 @@ quiere entrar al sistema, se le crea un rol con sus permisos y se le muestran su
 `estado`: `activo`, `en_checkout`, `convertido`, `abandonado`. Una cuenta tiene un solo carrito
 **vigente** (`activo` o `en_checkout`); para que dos pedidos simultáneos no creen dos, `CarritoService`
 bloquea la fila de `users` antes de buscarlo. `abandonado` se declara y no se usa en esta etapa: agregar
-un valor a un ENUM después reescribe la tabla. Un carrito no se borra: se convierte (tramo F).
+un valor a un ENUM después reescribe la tabla. Un carrito no se borra: se convierte en pedido (tramo F),
+y el convertido apunta a su venta por `ventas.carrito_id`. El siguiente carrito de la cuenta es uno nuevo.
 
 ### `carrito_lineas`
 `id, carrito_id FK (cascada), producto_id FK, cantidad unsigned, contado_referencia decimal(12,2) null,
@@ -799,8 +800,38 @@ la referencia es un dato de ayuda, no del documento.
 | costo_envio   | decimal      | 0 si retira                     |
 | total         | decimal      |                                 |
 | observaciones | varchar null |                                 |
+| carrito_id    | FK null UNIQUE | el carrito del que nació (tramo F); null en el mostrador |
+| medio_pago    | enum null    | `contado`, `pasarela`; null en el mostrador |
+| reserva_vence | timestamp null | hasta cuándo el pedido retiene su stock |
+| entrega_calle … entrega_provincia | varchar null | la dirección del envío, copiada |
 
-**Lo que la Etapa 2 agrega a `ventas`, y decide su plan.** La dirección de entrega congelada en el pedido —el envío mínimo de la consigna no usa la tabla `envios`—, la lista de precios con la que se cotizó y la clave de idempotencia de la confirmación. El precio de una venta online depende del medio de pago: **contado** (`precio_contado`) para efectivo o transferencia, **lista** (`precio_lista`, «tarjeta y cuotas») para Mercado Pago. Hoy `VentaService` cotiza siempre a contado.
+**Lo que la Etapa 2 agrega a `ventas` (tramo F).** Todo `nullable` y sin reescribir datos: el
+mostrador no cambia y sus 25.000 filas quedan como estaban. Índices (`estado`, `reserva_vence`), para
+los pedidos vencidos que la tarea busca cada minuto, y `canal`, para el filtro del listado.
+
+- **`carrito_id` UNIQUE es la idempotencia de la confirmación** (D-8). Un segundo `POST /pedidos` del
+  mismo carrito no puede crear otra venta: la base lo impide, sin tabla ni cabecera aparte. Además
+  deja escrito de qué carrito salió cada pedido.
+- **`medio_pago` decide la lista** con la que se cotizan los renglones (HL-14): `contado` →
+  `precio_contado` (efectivo o transferencia, en el local), `pasarela` → `precio_lista`. Es nulo en el
+  mostrador porque allá el medio se elige al cobrar, en `pagos`, y puede ser más de uno.
+- **`reserva_vence` dice si el pedido todavía retiene stock**, no sólo hasta cuándo. No nulo: las
+  unidades del pedido están en `stock_reservado`. Al cobrarse, `marcarPagada()` las consume
+  (`descontar(..., $deReserva)`) y lo pone en nulo; al cancelarse o vencer, se liberan y también. Una
+  reserva cuya hora pasó y que nadie liberó **sigue siendo del pedido** (HL-10): cobrarla es válido.
+  Plazos: 48 horas de contado (`reservas.contado_horas`), 20 minutos por pasarela
+  (`reservas.pasarela_minutos`).
+- **La dirección se copia, no se referencia**: editar después las direcciones del cliente no cambia
+  adónde se mandó un pedido. Lleva los largos de `direcciones`. `costo_envio` sale de
+  `tienda.envio.costo` (8.000, Q-1) con envío, y es cero con retiro.
+
+**El pedido online en la máquina de estados.** Nace en `pendiente_pago`, que **no es una
+transición** sino su estado de nacimiento, como `presupuesto` en el mostrador. Desde ahí:
+`pagada` (cobrado en el local, o acreditado por la pasarela en el tramo G) o `cancelada` (a mano en la
+web, o por la tarea cuando la reserva vence). Ninguna transición nueva: la tabla ya las declaraba. El
+pedido no se edita —no es un presupuesto—, así que el precio no se recotiza: es el que se aceptó.
+
+**La lista depende del medio.** El precio de una venta online depende del medio de pago: **contado** (`precio_contado`) para efectivo o transferencia, **lista** (`precio_lista`, «tarjeta y cuotas») para Mercado Pago. Desde el tramo F, `VentaService::escribirLineas()` recibe la lista; el mostrador sigue cotizando a contado.
 
 **Por qué no hay columna `numero`.** El número de venta es el `id`, formateado
 `V-00042`, por el mismo criterio que las órdenes de compra: la venta de la Etapa 1 no

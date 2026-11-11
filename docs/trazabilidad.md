@@ -1130,3 +1130,54 @@ Servidor (`compustack`) y app (`compustack-app`). La app pasó de 546 a **673 te
 >
 > **Los relacionados son de la misma categoría** porque es lo único que el contrato tiene; los títulos no dicen
 > «otros compraron» (regla del tramo J).
+
+### Tramo F — Confirmación del pedido
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| Migración `add_tienda_to_ventas_table` | `carrito_id` FK UNIQUE (D-8), `medio_pago`, `reserva_vence` y la dirección congelada, todo nullable; índices (`estado`, `reserva_vence`) y `canal` | Nuevo |
+| `Venta` | `carrito()`, `CANALES` con su texto, `deCanal()`, `esOnline()`, `canalTexto()`; `ESTADOS_EN_USO` suma `pendiente_pago` (D-2); `faltantesDeStock()` cuenta la reserva propia (§1.3 C) | Modificado |
+| `Carrito::venta()` | El pedido en que se convirtió (HL-57) | Nuevo |
+| `VentaService::crearOnline()` | El pedido nace en `pendiente_pago`, sin vendedor, con la lista del medio, el envío y la reserva del carrito, sin moverla (HL-4) | Nuevo |
+| `VentaService::marcarPagada(?User)`, `cancelar()`, `cancelarVencidos()` | Cobrar consume la reserva (HL-10); cancelar y vencer la liberan, un pedido por transacción. Sin usuario para la pasarela del G | Modificado y nuevo |
+| `VentaService::escribirLineas(..., $lista)` | Cotiza a contado o a lista (HL-14); el mostrador no cambia | Modificado |
+| `CarritoService::confirmar()` y `revalidar()` | Bloquea por id y dueño (ajeno: 404); convertido devuelve su pedido; vencido o con cambios, suelta y lanza después de confirmar la liberación | Nuevo |
+| `tienda:vencer-reservas` | Suma la cancelación de los pedidos vencidos (D-1) | Modificado |
+| `PedidoController`, `ConfirmarPedidoRequest`, `PedidoResource` | `POST /pedidos`: 201 al crear, 200 en el reintento; importes `prohibited`; envío con dirección, retiro sin ella; sin `tienda.ver_precios`, sin importes | Nuevo |
+| `CarritoResource` (`id`) y `PerfilResource` (`direccion`) | El `id` que nombra la confirmación (HL-64); la dirección predeterminada, de sólo lectura | Modificado |
+| `VentaFiltroRequest`, `VentaController`, `ventas/index` y `show`, `ListadoVentas` | Ampliación 2: columna y filtro «Canal»; «Cancelar el pedido» avisa que libera la reserva | Modificado |
+| `config/tienda.php` | `envio.costo` 8.000 (Q-1) | Modificado |
+| `docs/api.md` | Revisión 5: §7.4 pedidos, `id` del carrito, `direccion` del perfil | Modificado |
+| `tests/Feature/{VentaOnlineService,CarritoService,CarritoEsquema,VentaFiltros,VentaModulo}Test`, `Api/{PedidoConfirmacion,Cuenta,Carrito,Checkout}Test` | El pedido, la idempotencia, sin parciales, el cobro con el stock justo, el vencimiento, la invariante con dos dueños, el canal en los dos niveles | Nuevo y modificado |
+
+> **La confirmación suelta antes de lanzar.** Vencido o con cambios, el carrito vuelve a `activo` y
+> recién después sale el 409: adentro de la transacción, el rollback desharía la liberación. Con cambios
+> se suelta además porque, si no, el próximo checkout vería la reserva vigente y no revalidaría.
+>
+> **Sin registros parciales se prueba con una falla inyectada** en el segundo `INSERT` de renglones
+> (`DB::beforeExecuting`): no queda venta, ni renglones, ni carrito convertido, y las dos reservas siguen.
+>
+> **El ranking de vendedores no cuenta la venta online, y el panel general sí**: el ranking se arma con
+> un `join` a `users` sobre `ventas.usuario_id`, que en el pedido es nulo. Se fija con un test.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Direccion`, `Pedido`, `LineaPedido`, `ImportesPedido`; `Carrito.id` y `Perfil.direccion` | Los modelos de §7.4 y lo nuevo de §7.2 y §7.3 contra su JSON; sin `tienda.ver_precios`, sin importes | Nuevo y modificado |
+| `PedidoService` y `PedidoRepository` | `POST /pedidos` sin importes, la dirección sólo con envío; 201 o 200; la misma confirmación no sale dos veces mientras corre | Nuevo |
+| `traducirConCambios` | La lectura de los `cambios` del 409, compartida por los dos repositorios sin que se conozcan (regla 25) | Nuevo (salió de `CarritoRepository`) |
+| `CarritoRepository.resumen` | El resumen del checkout mientras el carrito siga reservado: la confirmación no reserva otra vez | Modificado |
+| `CheckoutViewModel` y `CheckoutVista` | Pasos 2 a 5: revisión con la reserva, tus datos, entrega (dirección propuesta, editable sólo para el pedido) y pago con el total de cada medio; «Confirmar» una vez, el reintento con el mismo `carrito_id`; cada 409 vuelve al carrito | Nuevo |
+| `PedidoRegistradoVista` y `PagoProvisorioVista` | Contado: «Pedido V-… registrado. Lo pagás en el local antes del…», sin decir que se pagó (P-4). Pasarela: el lugar del pago hasta el G | Nuevo |
+| `CarritoViewModel` y `CarritoVista` | «Realizar pedido» reserva y pasa a la confirmación; el motivo de un 409 se muestra al volver | Modificado |
+| Router y `Rutas` | `/checkout` y sus hermanas `/checkout/pedido/:id` y `/checkout/pago/:id`, con sesión y sin barra inferior | Modificado |
+| `OpcionElegible`, `sumar`, `fechaHoraLocal` | La opción de un grupo excluyente (no sólo color); la suma en centavos; la fecha y la hora locales | Nuevo |
+
+> **El motivo del 409 viaja como `extra` de la ruta del carrito**, no como estado compartido: el carrito lo
+> muestra una vez y se recarga, porque el servidor ya soltó la reserva.
+>
+> **El cierre y el pago son hermanas de `/checkout`, no hijas**: se llega con `go` y «atrás» va al inicio, así no
+> se vuelve a una confirmación ya hecha.

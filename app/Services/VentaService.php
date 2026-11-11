@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Exceptions\ReglaDeNegocioException;
+use App\Models\Carrito;
+use App\Models\Cliente;
 use App\Models\Pago;
 use App\Models\Producto;
 use App\Models\User;
@@ -18,12 +20,14 @@ use Illuminate\Support\Facades\DB;
  *
  * Métodos:
  *   crear()            alta de un presupuesto, con sus líneas cotizadas
+ *   crearOnline()      el pedido de la tienda: nace en `pendiente_pago`, con la reserva del carrito
  *   actualizar()       edición del presupuesto, conservando los precios congelados
  *   recotizar()        relee los precios de todas las líneas e informa qué cambió
- *   marcarPagada()     el pase a `pagada`: descuenta el stock, exactamente una vez
+ *   marcarPagada()     el pase a `pagada`: descuenta el stock, exactamente una vez (y consume la reserva)
  *   entregar()         la mercadería sale, toda o en parte; no mueve stock ni plata
  *   devolver()         repone stock, revierte los pagos y deriva el estado 
- *   cancelar()         da de baja un presupuesto, antes de que exista cualquier efecto
+ *   cancelar()         da de baja un presupuesto o un pedido; el pedido suelta su reserva
+ *   cancelarVencidos() los pedidos online cuya reserva venció, uno por transacción (D-1)
  *   topeDeDescuento()  el tope que rige para un usuario; lo usan el Request y la vista
  */
 class VentaService
@@ -31,6 +35,9 @@ class VentaService
     /**
      * `StockService` por el constructor, resuelto por el contenedor.
      */
+    /** Con qué lista se cotiza cada medio de la tienda. */
+    private const LISTA_DEL_MEDIO = ['contado' => 'contado', 'pasarela' => 'lista'];
+
     public function __construct(private StockService $stock, private PrecioService $precios)
     {
     }
@@ -66,6 +73,74 @@ class VentaService
 
             $this->escribirLineas($venta, $lineas);
             $this->recalcularTotales($venta, $porcentaje);
+
+            return $venta->fresh('lineas');
+        });
+    }
+
+    /**
+     * El pedido de la tienda. `pendiente_pago` no es una transición: es el estado de nacimiento,
+     * como `presupuesto` en el mostrador. La reserva del carrito pasa a ser del pedido sin moverse
+     * (HL-4): acá no se reserva nada, sólo se anota hasta cuándo vale.
+     *
+     * @param  array{calle: string, numero: string, piso_depto?: string|null, codigo_postal: string, localidad: string, provincia: string}|null  $direccion
+     *
+     * @throws ReglaDeNegocioException
+     */
+    public function crearOnline(
+        Cliente $cliente,
+        Carrito $carrito,
+        string $medio,
+        string $modoEntrega,
+        ?array $direccion,
+    ): Venta {
+        if (! array_key_exists($medio, self::LISTA_DEL_MEDIO)) {
+            throw new ReglaDeNegocioException('El medio de pago tiene que ser contado o pasarela.');
+        }
+
+        if (! in_array($modoEntrega, ['retiro', 'envio'], true)) {
+            throw new ReglaDeNegocioException('La entrega tiene que ser retiro en el local o envío.');
+        }
+
+        if ($modoEntrega === 'envio' && $direccion === null) {
+            throw new ReglaDeNegocioException('Un envío necesita la dirección adónde mandarlo.');
+        }
+
+        $lineas = $carrito->lineas()->orderBy('producto_id')->get()
+            ->map(fn ($l) => ['producto_id' => $l->producto_id, 'cantidad' => $l->cantidad])
+            ->all();
+
+        if ($lineas === []) {
+            throw new ReglaDeNegocioException('El carrito está vacío: no hay nada que pedir.');
+        }
+
+        return DB::transaction(function () use ($cliente, $carrito, $medio, $modoEntrega, $direccion, $lineas) {
+            $venta = new Venta;
+            $venta->cliente_id    = $cliente->id;
+            $venta->usuario_id    = null;
+            $venta->canal         = 'online';
+            $venta->estado        = 'pendiente_pago';
+            $venta->carrito_id    = $carrito->id;
+            $venta->medio_pago    = $medio;
+            $venta->modo_entrega  = $modoEntrega;
+            $venta->costo_envio   = $modoEntrega === 'envio' ? (string) config('tienda.envio.costo') : '0.00';
+            $venta->reserva_vence = $medio === 'contado'
+                ? now()->addHours((int) config('tienda.reservas.contado_horas'))
+                : now()->addMinutes((int) config('tienda.reservas.pasarela_minutos'));
+
+            if ($modoEntrega === 'envio') {
+                $venta->entrega_calle         = $direccion['calle'];
+                $venta->entrega_numero        = $direccion['numero'];
+                $venta->entrega_piso_depto    = $direccion['piso_depto'] ?? null;
+                $venta->entrega_codigo_postal = $direccion['codigo_postal'];
+                $venta->entrega_localidad     = $direccion['localidad'];
+                $venta->entrega_provincia     = $direccion['provincia'];
+            }
+
+            $venta->save();
+
+            $this->escribirLineas($venta, $lineas, self::LISTA_DEL_MEDIO[$medio]);
+            $this->recalcularTotales($venta, 0);
 
             return $venta->fresh('lineas');
         });
@@ -198,7 +273,7 @@ class VentaService
      * @throws ReglaDeNegocioException                       hay un producto dado de baja
      * @throws \App\Exceptions\StockInsuficienteException    no hay disponible de algún producto
      */
-    public function marcarPagada(Venta $venta, User $usuario): Venta
+    public function marcarPagada(Venta $venta, ?User $usuario): Venta
     {
         return DB::transaction(function () use ($venta, $usuario) {
             $v = Venta::lockForUpdate()->findOrFail($venta->id);
@@ -222,10 +297,17 @@ class VentaService
                     );
                 }
             }
+            // Con reserva, sus unidades ya eran de este pedido: valen aunque la hora haya pasado,
+            // mientras nadie la haya liberado (HL-10). `reserva_vence` en null es «ya no hay».
+            $conReserva = $v->reserva_vence !== null;
+
             foreach ($lineas as $linea) {
-                $this->stock->descontar($linea->producto, $linea->cantidad, $v, $usuario);
+                $this->stock->descontar(
+                    $linea->producto, $linea->cantidad, $v, $usuario, $conReserva ? $linea->cantidad : 0,
+                );
             }
 
+            $v->reserva_vence = null;
             $this->cambiarEstado($v, 'pagada');
 
             return $v->fresh(['lineas', 'movimientos']);
@@ -435,10 +517,61 @@ class VentaService
         return DB::transaction(function () use ($venta) {
             $v = Venta::lockForUpdate()->findOrFail($venta->id);
 
+            MaquinaEstadosVenta::validar($v->estado, 'cancelada');
+            $this->soltarReserva($v);
             $this->cambiarEstado($v, 'cancelada');
 
             return $v->fresh();
         });
+    }
+
+    /**
+     * Cancela los pedidos online cuya reserva venció. Cada uno en su transacción: uno que falla
+     * no frena a los demás. Los intentos de pago pendientes los excluye el tramo G (HL-63).
+     */
+    public function cancelarVencidos(): int
+    {
+        $cancelados = 0;
+
+        Venta::query()
+            ->where('canal', 'online')
+            ->where('estado', 'pendiente_pago')
+            ->where('reserva_vence', '<', now())
+            ->orderBy('id')
+            ->pluck('id')
+            ->each(function (int $id) use (&$cancelados) {
+                $cancelados += DB::transaction(function () use ($id) {
+                    $v = Venta::lockForUpdate()->find($id);
+
+                    // Se vuelve a preguntar con la fila bloqueada: pudo cobrarse mientras tanto.
+                    if ($v === null || $v->estado !== 'pendiente_pago'
+                        || $v->reserva_vence === null || $v->reserva_vence->isFuture()) {
+                        return 0;
+                    }
+
+                    $this->soltarReserva($v);
+                    $this->cambiarEstado($v, 'cancelada');
+
+                    return 1;
+                });
+            });
+
+        return $cancelados;
+    }
+
+    /** Devuelve al disponible lo que el pedido retenía. Sin reserva, no hace nada. */
+    private function soltarReserva(Venta $venta): void
+    {
+        if ($venta->reserva_vence === null) {
+            return;
+        }
+
+        // Ordenados por producto, como al reservar: dos liberaciones no se bloquean mutuamente.
+        foreach ($venta->lineas()->with('producto')->orderBy('producto_id')->get() as $linea) {
+            $this->stock->liberar($linea->producto, $linea->cantidad);
+        }
+
+        $venta->reserva_vence = null;
     }
 
     /**
@@ -460,7 +593,7 @@ class VentaService
      *
      * @param  array<int, array{producto_id: int, cantidad: int}>  $lineas
      */
-    private function escribirLineas(Venta $venta, array $lineas): void
+    private function escribirLineas(Venta $venta, array $lineas, string $lista = 'contado'): void
     {
         $productos = Producto::query()
             ->whereIn('id', array_column($lineas, 'producto_id'))
@@ -489,7 +622,8 @@ class VentaService
                     "La cantidad de «{$producto->nombre}» tiene que ser al menos 1."
                 );
             }
-            $precio   = $producto->precio_contado;
+            // El mostrador cotiza a contado; el pedido online, con la lista de su medio (HL-14).
+            $precio   = $lista === 'lista' ? $producto->precio_lista : $producto->precio_contado;
             $importes = $this->importesDe($precio, $producto->alicuota_iva, $cantidad);
 
             $linea = $venta->lineas()->make([

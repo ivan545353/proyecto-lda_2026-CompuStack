@@ -421,11 +421,15 @@
                              que él mismo cargó. `venta.anular` es de la devolución,
                              que es la que toca el dinero. --}}
                         @can('venta.editar')
+                            {{-- El pedido de la tienda retiene stock: el aviso lo dice, porque cancelarlo lo libera. --}}
                             <form method="POST" action="{{ route('ventas.cancelar', $venta) }}"
-                                onsubmit="return confirm(@js('El presupuesto va a quedar cancelado y no se puede volver atrás. No se borra: queda registrado con sus líneas. ¿Seguimos?'));">
+                                onsubmit="return confirm(@js($venta->esOnline()
+                                    ? 'El pedido va a quedar cancelado y no se puede volver atrás. Las unidades que tiene reservadas vuelven al disponible y otro cliente las puede comprar. No se borra: queda registrado. ¿Seguimos?'
+                                    : 'El presupuesto va a quedar cancelado y no se puede volver atrás. No se borra: queda registrado con sus líneas. ¿Seguimos?'));">
                                 @csrf
                                 <button type="submit" class="btn btn-outline-danger w-100">
-                                    <i class="bi bi-x-circle" aria-hidden="true"></i> Cancelar el presupuesto
+                                    <i class="bi bi-x-circle" aria-hidden="true"></i>
+                                    {{ $venta->esOnline() ? 'Cancelar el pedido' : 'Cancelar el presupuesto' }}
                                 </button>
                             </form>
                         @endcan

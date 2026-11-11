@@ -252,16 +252,32 @@ test('el filtro ofrece exactamente los estados que la etapa 1 alcanza', function
         ->keys()
         ->flatMap(fn (string $estado) => MaquinaEstadosVenta::destinosDesde($estado))
         ->push('presupuesto')
+        // El otro estado de nacimiento, desde el tramo F: el pedido de la tienda nace ahí (D-2).
+        ->push('pendiente_pago')
         ->unique();
 
-    // Los de la tienda online quedan afuera a propósito: la tabla los declara completos
-    // para no reabrirla con media decisión tomada, y ninguna pantalla de la Etapa 1 los
-    // dispara.
-    $deLaEtapa2 = ['pendiente_pago', 'en_preparacion', 'despachada', 'lista_retiro'];
+    // Los de la preparación del envío quedan afuera a propósito: la tabla los declara
+    // completos para no reabrirla con media decisión tomada, y ninguna pantalla los
+    // dispara. `pendiente_pago` salió de esta lista en el tramo F (D-2): lo dispara la
+    // confirmación de la tienda, y el cajero tiene que poder filtrar esos pedidos.
+    $deLaEtapa2 = ['en_preparacion', 'despachada', 'lista_retiro'];
+
+    expect(Venta::ESTADOS_EN_USO)->toContain('pendiente_pago')
+        ->not->toContain('en_preparacion', 'despachada', 'lista_retiro');
 
     expect(Venta::ESTADOS_EN_USO)->toEqualCanonicalizing(
         $alcanzables->reject(fn (string $estado) => in_array($estado, $deLaEtapa2, true))
             ->values()
             ->all()
     );
+});
+
+test('deCanal separa el mostrador de la tienda', function () {
+    Venta::factory()->count(2)->create();
+    Venta::factory()->create(['canal' => 'online', 'usuario_id' => null]);
+
+    expect(Venta::deCanal('online')->count())->toBe(1)
+        ->and(Venta::deCanal('mostrador')->count())->toBe(2)
+        ->and(Venta::deCanal(null)->count())->toBe(3)
+        ->and(Venta::deCanal('telefono')->count())->toBe(3);
 });

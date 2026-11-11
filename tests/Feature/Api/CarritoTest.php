@@ -77,6 +77,7 @@ test('sin carrito, devuelve uno vacio sin crearlo', function () {
     $this->getJson('/api/v1/carrito', $bearer)
         ->assertOk()
         ->assertExactJson(['datos' => [
+            'id'              => null,
             'estado'          => 'activo',
             'estado_texto'    => 'En armado',
             'reservado_hasta' => null,

@@ -258,7 +258,23 @@ test('el perfil muestra la cuenta de quien tiene la sesión, sin datos fiscales'
         'email'        => 'lucia@correo.local',
         'telefono'     => '297-4001122',
         'razon_social' => 'Lucía Paredes',
+        'direccion'    => null,
     ]]);
+});
+
+test('el perfil propone la direccion predeterminada, no las otras', function () {
+    $credencial = $this->postJson('/api/v1/registro', ($this->tiendaRegistro)())->json('datos.credencial');
+    $cliente    = \App\Models\Cliente::where('email', 'lucia@correo.local')->sole();
+    $cliente->direcciones()->create([...datosDeDireccion(['calle' => 'Rivadavia']), 'es_predeterminada' => false]);
+    $cliente->direcciones()->create([...datosDeDireccion(['calle' => 'San Martín', 'piso_depto' => null]), 'es_predeterminada' => true]);
+
+    app('auth')->forgetGuards();
+    $direccion = $this->getJson('/api/v1/perfil', ['Authorization' => 'Bearer '.$credencial])
+        ->assertOk()->json('datos.direccion');
+
+    expect($direccion['calle'])->toBe('San Martín')
+        ->and($direccion['piso_depto'])->toBeNull()
+        ->and(array_keys($direccion))->toBe(['calle', 'numero', 'piso_depto', 'codigo_postal', 'localidad', 'provincia']);
 });
 
 test('el perfil sin credencial es 401 sin_sesion', function () {
