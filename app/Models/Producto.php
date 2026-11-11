@@ -466,7 +466,10 @@ class Producto extends Model
     // ------------------------------------------------------------------
 
     /** Los órdenes que admite el catálogo; `CatalogoRequest` valida contra esta lista. */
-    public const ORDENES_TIENDA = ['nombre', 'recientes'];
+    public const ORDENES_TIENDA = ['nombre', 'recientes', 'precio_asc', 'precio_desc'];
+
+    /** Los que exigen `tienda.ver_precios`: ordenar por precio deja inferirlo aunque no viaje. */
+    public const ORDENES_CON_PRECIO = ['precio_asc', 'precio_desc'];
 
     /**
      * Lo que la tienda puede mostrar: activo y en una categoría visible.
@@ -499,9 +502,12 @@ class Producto extends Model
     public function scopeOrdenTienda(Builder $query, string $orden): Builder
     {
         return match ($orden) {
-            'nombre'    => $query->orderBy('productos.nombre')->orderBy('productos.id'),
-            'recientes' => $query->orderByDesc('productos.created_at')->orderByDesc('productos.id'),
-            default     => throw new \InvalidArgumentException("Orden de tienda desconocido: {$orden}"),
+            'nombre'      => $query->orderBy('productos.nombre')->orderBy('productos.id'),
+            'recientes'   => $query->orderByDesc('productos.created_at')->orderByDesc('productos.id'),
+            // Por el de contado: es el que se paga en el local y el más bajo de los dos.
+            'precio_asc'  => $query->orderBy('productos.precio_contado')->orderBy('productos.id'),
+            'precio_desc' => $query->orderByDesc('productos.precio_contado')->orderByDesc('productos.id'),
+            default       => throw new \InvalidArgumentException("Orden de tienda desconocido: {$orden}"),
         };
     }
 

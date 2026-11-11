@@ -16,8 +16,8 @@ use RuntimeException;
  * El resolver aborta con excepción si una clave no existe, en vez de ignorarla.
  * Un permiso mal escrito no se concede ni pasa desapercibido: rompe el seeder.
  *
- * El rol Cliente se crea sin permisos de gestión a propósito: su ámbito es
- * tienda y en la Etapa 1 no hay tienda. Está para que el modelo esté completo.
+ * El rol Cliente no tiene permisos de gestión: su ámbito es la tienda, y desde
+ * el tramo D de la Etapa 2 tiene los del módulo `tienda`.
  *
  * Métodos:
  *   run()  crea permisos, roles y la asignación entre ambos
@@ -38,6 +38,7 @@ class RolPermisoSeeder extends Seeder
         'precio'    => ['ver', 'editar', 'recalcular', 'ver_costo', 'ajustar_masivo', 'deshacer_ajuste'],
         'rol'       => ['ver', 'editar'],
         'panel'     => ['ver_propio', 'ver_global'],
+        'tienda'    => ['ver_precios', 'comprar', 'ver_pedidos'],
     ];
 
     private const ROLES = [
@@ -75,7 +76,7 @@ class RolPermisoSeeder extends Seeder
         'Cliente' => [
             'descripcion' => 'Cuenta de la tienda online. Sin acceso a la gestión.',
             'ambito'      => 'tienda',
-            'permisos'    => [],
+            'permisos'    => ['tienda.*'],
         ],
     ];
 

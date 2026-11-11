@@ -1016,3 +1016,61 @@ Servidor (`compustack`) y app (`compustack-app`). La app pasó de 145 a **442 te
 >
 > **Se probó en un teléfono real** (Android 17, edge-to-edge): de ahí salieron seis correcciones de
 > interfaz (HL-47 a HL-51 y la dirección del servidor, HL-46) que los tests con falsos no podían ver.
+
+### Tramo D — Cuenta y precios
+
+Servidor (`compustack`) y app (`compustack-app`). La app pasó de 442 a **546 tests** (104 nuevos).
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `RolPermisoSeeder` | Módulo `tienda` (`ver_precios`, `comprar`, `ver_pedidos`); el Cliente recibe `tienda.*` (D-6) | Modificado |
+| `RegistroRequest` y `Api\V1\RegistroController` | Alta de la cuenta de tienda con su cliente (DNI sin número, consumidor final) y la credencial, 201. El rol se busca por ámbito y `es_sistema`, no por nombre | Nuevo |
+| `SesionRequest`, `Api\V1\SesionController` y `CredencialService::iniciar()` | Inicio de sesión sin sesión web; incorrecta, inexistente, inactiva y de gestión dan el mismo 422. Cierre: revoca la credencial de este dispositivo, 204 | Nuevo |
+| `Api\V1\PerfilController` y `PerfilResource` | La cuenta de quien tiene la sesión, sin datos fiscales | Nuevo |
+| `App\Support\Api\Precios` y `TextosTienda::PRECIO` | La forma de `precios` (§5), un solo lugar para listado y ficha | Nuevo |
+| `ProductoListadoResource` | `precios` con `$this->when(...)`: sin el permiso la clave no está (regla 21); la ficha lo hereda | Modificado |
+| `Producto::ORDENES_TIENDA`, `ORDENES_CON_PRECIO` y `scopeOrdenTienda` | `precio_asc` y `precio_desc` por `precio_contado`, desempate por `id` (D-14) | Modificado |
+| `Api\V1\ProductoController@index` | El orden por precio da 401 sin sesión y 403 sin permiso **antes de consultar** | Modificado |
+| `UsuarioService::cambiarPassword()` | Cambiar o restablecer la contraseña revoca todas las credenciales de la API | Modificado |
+| `bootstrap/app.php` | `VerificarAmbitoGestion` corre antes de `SubstituteBindings` (HL-54) | Modificado |
+| `routes/api.php` | `registro` y `sesion` públicos con `throttle:tienda-acceso`; `DELETE sesion` y `perfil` protegidos | Modificado |
+| `docs/api.md` | Revisión 3: §7.2 cuenta, precios y orden por precio | Modificado |
+| `tests/Feature/Api/{Cuenta,Precios,FronteraGestion}Test` y `CredencialTest` | 58 tests nuevos: cuenta (34), precios y orden (15), frontera y permisos (9); y 3 de revocación por contraseña | Nuevo |
+
+> **El orden por precio exige el permiso aunque no muestre precios**: ordenar deja deducirlos. Por eso
+> responde antes de consultar, y con 401 o 403, no con 422: el orden existe, lo que falta es poder usarlo.
+>
+> **El mismo 422 para cuatro casos** (contraseña, correo, inactiva, gestión) y un hash calculado aunque
+> el correo no exista: ni el mensaje ni el tiempo dicen qué correos tienen cuenta.
+>
+> **La frontera se lee del router.** `FronteraGestionTest` recorre cada ruta con el middleware `gestion`,
+> con sesión web y con credencial de un cliente: una ruta nueva queda cubierta sin tocar el test. Así
+> apareció HL-54.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Precios`, `Credencial`, `Usuario` y `Perfil`; `precios` en `Producto` y `ProductoFicha` | Los modelos del contrato rev. 3, probados contra su JSON; `precios` ausente es `null` y no se escribe (regla 21) | Nuevo y modificado |
+| `AuthService` | Registro, inicio y cierre de sesión y perfil; guarda la credencial y devuelve sólo el `Usuario` (regla 22). Un 401 al cerrar cuenta como cerrada | Nuevo |
+| `SessionRepository` y `traducirFallas` | Abre, cierra y consulta sin ver la credencial (ya no conoce `TokenStorage`); los repositorios comparten la traducción a `Falla` | Modificado y nuevo |
+| `cambiosDeSesionProvider` | Los listados y la ficha se vuelven a pedir al abrir o cerrar la sesión (con o sin precios), **no al vencer** | Nuevo |
+| `FormularioCuentaViewModel`, `Validar`, `LoginVista` y `RegistroVista` | Validan antes de enviar (regla 26), un solo envío, cada error del 422 junto a su campo, cuenta regresiva del 429; al entrar vuelven a `desde` aunque el login esté apilado (HL-56) | Nuevo |
+| `CuentaVista` (Perfil), `CuentaViewModel`, `MiCuentaVista`, `Iniciales` y `FilaDato` | Perfil según la regla 34 con cerrar sesión (sin red falla y lo dice, regla 27); Mi cuenta de sólo lectura en bloques | Nuevo y modificado |
+| `PreciosFicha`, `ahorro()` y la tarjeta con el de contado | La ficha muestra los dos precios con el de contado destacado y cuánto se ahorra; la tarjeta, el de contado | Nuevo y modificado |
+| `Paginador` y `CatalogoViewModel.irA` | El catálogo y la búsqueda se paginan con números en lugar del scroll infinito del tramo C (D-21) | Nuevo y modificado |
+| `HojaFiltros` y `TextosCatalogo.ordenesPara` | «Menor precio» y «Mayor precio» sólo con sesión; sin ella el orden se descarta antes de pedir | Modificado |
+| `idiomaApp` y `flutter_localizations` | La app fijada en español; los textos de Material del SDK además de los de forui (HL-55) | Nuevo |
+| Router: `/registro` y `/cuenta/datos` | La misma guarda que `/login`; Mi cuenta pide sesión | Modificado |
+
+> **La sesión vencida se prueba de punta a punta** (`sesion_vencida_test.dart`) con el `Dio` real sobre un
+> servidor de mentira: el 401 del catálogo borra la credencial y lo dice, el login vuelve al catálogo y
+> el catálogo ya trae los precios.
+>
+> **Al vencer no se recarga**: la pantalla muestra la falla que lo explica, y una recarga sin credencial
+> la taparía con una lista sin precios, justo lo que el 401 de las rutas de sesión opcional evita (`api.md` §4).
+>
+> **Se probó en un teléfono real**: de ahí salieron la jerarquía de la ficha (los precios antes que los
+> datos de referencia), «Disponible» en gris visible y Mi cuenta en bloques.

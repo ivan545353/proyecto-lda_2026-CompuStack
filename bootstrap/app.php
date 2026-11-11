@@ -54,6 +54,13 @@ return Application::configure(basePath: dirname(__DIR__))
             'tienda.cuenta'          => \App\Http\Middleware\Api\VerificarCuentaTienda::class,
         ]);
 
+        // La frontera corre antes de buscar el modelo de la ruta: si no, una cuenta de la
+        // tienda distinguiría un id que existe (login) de uno que no (404) (HL-54).
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            prepend: \App\Http\Middleware\VerificarAmbitoGestion::class,
+        );
+
         // Los dos tipos de ruta con credencial (docs/api.md, «Autenticación»). Se
         // definen una vez: las rutas y los tests nombran el mismo grupo.
         $middleware->group('tienda.sesion_opcional', [

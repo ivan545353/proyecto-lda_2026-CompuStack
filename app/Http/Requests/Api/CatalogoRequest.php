@@ -9,7 +9,8 @@ use Illuminate\Validation\Rule;
  * Los parámetros del listado de productos (docs/api.md, `GET /productos`).
  *
  * El orden admitido sale de `Producto::ORDENES_TIENDA`: una sola lista para validar y para
- * ordenar. `precio_asc` y `precio_desc` entran con el tramo D, porque exigen permiso.
+ * ordenar. `precio_asc` y `precio_desc` son válidos para todos; el permiso lo exige el
+ * controlador (`Producto::ORDENES_CON_PRECIO`): un 422 diría «no existe», y sí existe.
  *
  * Métodos:
  *   criterios()   lo que el servidor aplica, normalizado; vuelve en `criterios` de la respuesta

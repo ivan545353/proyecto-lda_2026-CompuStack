@@ -17,6 +17,7 @@ namespace App\Support\Api;
  *   pago()            texto del estado del pago
  *   disponibilidad()  texto del nivel de disponibilidad
  *   pasarela()        texto de una pasarela
+ *   precio()          con qué se paga cada uno de los dos precios
  */
 final class TextosTienda
 {
@@ -67,6 +68,12 @@ final class TextosTienda
         'simulador'   => 'Simulador de pagos — no es un cobro real',
     ];
 
+    /** Las claves son las de `precios` (docs/api.md §5): `contado` y `lista`. */
+    public const PRECIO = [
+        'contado' => 'Efectivo o transferencia',
+        'lista'   => 'Mercado Pago',
+    ];
+
     public static function pedido(string $estado): string
     {
         return self::PEDIDO[$estado] ?? $estado;
@@ -85,5 +92,10 @@ final class TextosTienda
     public static function pasarela(string $pasarela): string
     {
         return self::PASARELA[$pasarela] ?? $pasarela;
+    }
+
+    public static function precio(string $tipo): string
+    {
+        return self::PRECIO[$tipo] ?? $tipo;
     }
 }

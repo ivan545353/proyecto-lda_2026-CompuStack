@@ -203,7 +203,7 @@ test('el desempate vuelve estable el orden entre páginas', function () {
     $fecha = now()->subDays(1);
     collect(range(1, 7))->each(fn () => ($this->producto)(['nombre' => 'Igual', 'created_at' => $fecha]));
 
-    foreach (['nombre', 'recientes'] as $orden) {
+    foreach (Producto::ORDENES_TIENDA as $orden) {
         $porPagina = Producto::ordenTienda($orden)->pluck('id')->all();
         $paginas   = array_merge(
             Producto::ordenTienda($orden)->forPage(1, 3)->pluck('id')->all(),
@@ -216,7 +216,7 @@ test('el desempate vuelve estable el orden entre páginas', function () {
 });
 
 test('un orden desconocido se rechaza en vez de caer en uno por omisión', function () {
-    Producto::ordenTienda('precio_asc');
+    Producto::ordenTienda('azar');
 })->throws(InvalidArgumentException::class);
 
 test('los órdenes que admite la tienda son los que el scope conoce', function () {

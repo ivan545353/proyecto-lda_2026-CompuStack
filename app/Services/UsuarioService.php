@@ -191,6 +191,10 @@ class UsuarioService
 
             DB::table('password_reset_tokens')->where('email', $usuario->email)->delete();
 
+            // Quien cambia la contraseña porque se la sacaron espera que el otro quede
+            // afuera: también en la app, no sólo en el navegador.
+            $this->credenciales->revocarTodas($usuario);
+
             return $usuario->fresh();
         });
     }

@@ -79,7 +79,11 @@ test('el rol Cliente es de tienda y no tiene permisos de gestion', function () {
     $cliente = Rol::where('nombre', 'Cliente')->first();
 
     expect($cliente->ambito)->toBe('tienda');
-    expect($cliente->permisos()->count())->toBe(0);
+    // Lo que fijaba la Etapa 1 sigue: ningún permiso de gestión. Desde el tramo D tiene
+    // exactamente los de la tienda (HL-52).
+    expect($cliente->permisos()->where('modulo', '!=', 'tienda')->count())->toBe(0);
+    expect($cliente->permisos()->pluck('clave')->sort()->values()->all())
+        ->toBe(['tienda.comprar', 'tienda.ver_pedidos', 'tienda.ver_precios']);
 });
 
 test('el vendedor solo ve su propio panel', function () {

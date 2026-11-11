@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 2** · Etapa 2, tramo C. Base: `/api/v1`.
+**Revisión 3** · Etapa 2, tramo D. Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -8,8 +8,8 @@ parámetros, respuesta con el JSON completo, errores y notas. **Un cambio de for
 revisión** y se anota en el registro de cambios.
 
 La revisión 1 fijó las convenciones, el formato de error, la credencial y el paginado. La 2 suma el
-catálogo público (§7). Los demás endpoints entran por tramo (D cuenta y precios, E carrito,
-F pedidos, G pagos, H consulta de compras).
+catálogo público (§7.1). La 3, la cuenta (§7.2), los precios y el orden por precio. Los demás
+endpoints entran por tramo (E carrito, F pedidos, G pagos, H consulta de compras).
 
 ## 1. Reglas generales
 
@@ -115,7 +115,7 @@ entera en el renderer y la excepción queda en el log. Un estado HTTP que no fig
 - Sólo la credencial `Bearer` autentica: una sesión de navegador abierta en el panel **no** sirve
   contra `api/*`.
 - La credencial vence a los 7 días (`SANCTUM_EXPIRATION`, en minutos; vacío = 10080). Al desactivar
-  o dar de baja una cuenta se **revocan** todas sus credenciales; además cada pedido revalida que la
+  o dar de baja una cuenta, y al cambiar o restablecer su contraseña, se **revocan** todas sus credenciales; además cada pedido revalida que la
   cuenta siga activa y sea de tienda.
 - Las cuentas de gestión no pueden usar la API: no tienen ficha de cliente.
 - El inicio de sesión y el registro devuelven una forma propia, no la de Sanctum:
@@ -171,13 +171,14 @@ pago, niveles de disponibilidad y pasarelas. El simulador de pagos se dice siemp
 ## 7. Endpoints
 
 Tres grupos de rutas (`routes/api.php`): **pública** (no lee la credencial), **sesión opcional**
-(sin credencial es visitante; con una inválida, 401 `sesion_invalida`) y **protegida**. Hoy sólo hay
-rutas de lectura del catálogo; el grupo protegido sigue vacío.
+(sin credencial es visitante; con una inválida, 401 `sesion_invalida`) y **protegida**. El registro y
+el inicio de sesión son públicos, con el límite `tienda-acceso`; cerrar sesión y el perfil, protegidos.
 
 ### 7.1 Catálogo (tramo C)
 
-Todo el catálogo es **sin precios**: el tramo D agrega la clave `precios` (§5) sólo con el permiso.
-Nunca viajan `costo_promedio`, `ganancia`, `precio_manual`, `stock`, `stock_reservado`,
+**Precios.** Con una credencial válida cuyo rol tiene `tienda.ver_precios`, cada producto (listado y
+ficha) suma la clave `precios` (§5). Sin credencial, o con un rol sin el permiso, la clave **no está**:
+ni `null` ni vacía. Nunca viajan `costo_promedio`, `ganancia`, `precio_manual`, `stock`, `stock_reservado`,
 `stock_minimo` ni proveedores: un test recorre todo el JSON del listado y de la ficha buscándolos.
 
 **Qué se ve.** Un producto está en la tienda si está **activo** y su categoría es **visible**: activa
@@ -233,13 +234,18 @@ Sesión opcional. El listado del catálogo, filtrado, ordenado y paginado.
 | --- | --- | --- |
 | `q` | texto, hasta 100 | Nombre **o** código contiene. Los comodines de SQL (`%`, `_`) se buscan como texto |
 | `categoria_id` | entero ≥ 1 | La categoría **y sus hijas y nietas**. Inexistente, inactiva u oculta: lista vacía, no el catálogo entero |
-| `orden` | `nombre` · `recientes` | `nombre` por omisión. Con `seccion=novedades`, la omisión es `recientes` |
+| `orden` | `nombre` · `recientes` · `precio_asc` · `precio_desc` | `nombre` por omisión. Con `seccion=novedades`, la omisión es `recientes`. Los de precio exigen sesión y `tienda.ver_precios` |
 | `seccion` | `novedades` · `destacados` | Se combina con `q` y `categoria_id` (filtran **dentro** de la sección) |
 | `pagina`, `por_pagina` | enteros | 1 y 20 por omisión; `por_pagina` hasta 50 |
 
 La validación **rechaza y no corrige**: un `orden` o una `seccion` desconocidos, un `q` de más de 100
 caracteres o un `por_pagina` sobre el tope son 422, no se recortan ni se reemplazan por un valor por
-omisión. `orden=precio_asc` y `precio_desc` llegan con el tramo D (exigen `tienda.ver_precios`); hoy son 422.
+omisión.
+
+**Orden por precio.** `precio_asc` y `precio_desc` ordenan por el precio de **contado** y desempatan
+por `id`. Sin sesión son **401 `sin_sesion`**; con sesión y sin el permiso, **403 `sin_permiso`**. Las
+dos respuestas salen **antes de consultar**: ordenar dejaría deducir los precios que no viajan. No son
+422 porque el orden existe; lo que falta es poder usarlo.
 
 ```json
 {
@@ -265,11 +271,20 @@ omisión. `orden=precio_asc` y `precio_desc` llegan con el tramo D (exigen `tien
 }
 ```
 
+Con `tienda.ver_precios`, cada fila suma, después de `disponibilidad_texto`:
+
+```json
+"precios": {
+  "contado": { "importe": "54450.00", "texto": "Efectivo o transferencia" },
+  "lista":   { "importe": "60500.00", "texto": "Mercado Pago" }
+}
+```
+
 - `criterios` trae siempre las cuatro claves, con lo que el servidor **aplicó** (`null` si no se pidió).
   `orden` ya viene resuelto: sin pedirlo, `nombre` (o `recientes` en novedades). La app descarta una
   respuesta cuyos `criterios` no coinciden con los de su pantalla.
-- **Orden estable.** `nombre` y `recientes` desempatan por `id`: una página nunca repite ni saltea
-  filas, aunque haya muchos productos con el mismo nombre o la misma fecha.
+- **Orden estable.** Todos los órdenes desempatan por `id`: una página nunca repite ni saltea
+  filas, aunque haya muchos productos con el mismo nombre, la misma fecha o el mismo precio.
 - **Descripción breve** (D-12): las primeras 25 palabras de la descripción (`descripcion_breve.palabras`
   en `config/tienda.php`), con «…» pegado a la última si se cortó, y **nunca más de 250 caracteres**
   (`descripcion_breve.caracteres`): un texto sin espacios es una sola «palabra» y, sin ese tope, viajaría
@@ -278,7 +293,8 @@ omisión. `orden=precio_asc` y `precio_desc` llegan con el tramo D (exigen `tien
   Sin foto, la imagen por omisión; nunca `null`.
 - **Disponibilidad** (§5): `disponible`, `ultimas_unidades` (de 1 a 3 unidades, `disponibilidad.ultimas_unidades`)
   y `sin_stock`. Se calcula sobre lo disponible (`stock − stock_reservado`) y nunca viaja el número.
-- Errores: 401 `sesion_invalida` (credencial inválida), 422 `validacion`.
+- Errores: 401 `sesion_invalida` (credencial inválida), 401 `sin_sesion` y 403 `sin_permiso` (orden por
+  precio), 422 `validacion`.
 
 **Criterio de novedad.** Un producto es novedad si está en la tienda, se creó dentro de los últimos
 **30 días** (`novedades.dias`) y está entre los **10** más recientes de ésos (`novedades.tope`);
@@ -294,8 +310,8 @@ la categoría tenga productos recientes que quedaron fuera del tope.
 
 #### `GET /api/v1/productos/{id}`
 
-Sesión opcional. La ficha de un producto: todo lo del listado y además la descripción completa, la
-galería y la marca.
+Sesión opcional. La ficha de un producto: todo lo del listado (también `precios`, con el permiso) y
+además la descripción completa, la galería y la marca.
 
 ```json
 {
@@ -339,11 +355,97 @@ Ejemplo de 422 de cualquiera de los dos listados (`GET /api/v1/productos?orden=a
 
 ```json
 {
-  "mensaje": "Ese orden no existe. Podés usar: nombre, recientes.",
+  "mensaje": "Ese orden no existe. Podés usar: nombre, recientes, precio_asc, precio_desc.",
   "codigo": "validacion",
-  "errores": { "orden": [ "Ese orden no existe. Podés usar: nombre, recientes." ] }
+  "errores": { "orden": [ "Ese orden no existe. Podés usar: nombre, recientes, precio_asc, precio_desc." ] }
 }
 ```
+
+### 7.2 Cuenta (tramo D)
+
+Una cuenta de la tienda es un usuario con el rol **Cliente** (ámbito `tienda`, permisos `tienda.ver_precios`,
+`tienda.comprar` y `tienda.ver_pedidos`) y su ficha de cliente. Las cuentas de gestión no entran por acá.
+
+#### `POST /api/v1/registro`
+
+Pública, con el límite `tienda-acceso` (§4). Crea la cuenta y deja la sesión abierta.
+
+| Campo | Tipo | Notas |
+| --- | --- | --- |
+| `nombre`, `apellido` | texto, requeridos, hasta 100 | Juntos («nombre apellido») hasta 150: es la razón social del cliente |
+| `email` | correo, requerido, hasta 150 | Único. Se guarda en minúsculas y sin espacios |
+| `password` | texto, requerido | Al menos 8, con letras y números. Va con `password_confirmation` |
+| `telefono` | texto, opcional, hasta 30 | |
+
+**201**, con la forma de la credencial (§4):
+
+```json
+{
+  "datos": {
+    "credencial": "…",
+    "tipo": "Bearer",
+    "vence": "2026-11-17T14:00:00Z",
+    "usuario": { "nombre": "Lucía", "apellido": "Paredes", "email": "lucia@correo.local" }
+  }
+}
+```
+
+- El cliente se crea con razón social «nombre apellido», documento DNI **sin número**, consumidor final, y
+  el correo y el teléfono de la cuenta. Los datos fiscales los completa el local; la app no los edita.
+- El rol y el estado no se eligen: `rol_id` o `activo` en el cuerpo se ignoran.
+- Errores: 422 `validacion` (cada error en su campo; el correo repetido dice «Ya hay una cuenta con ese
+  correo.»), 429 `demasiados_intentos`.
+
+```json
+{
+  "mensaje": "Las dos contraseñas no coinciden.",
+  "codigo": "validacion",
+  "errores": { "password": [ "Las dos contraseñas no coinciden." ] }
+}
+```
+
+#### `POST /api/v1/sesion`
+
+Pública, con el límite `tienda-acceso`. Campos `email` y `password`, requeridos; el correo se compara sin
+mayúsculas ni espacios. **200** con la misma forma que el registro. No abre una sesión de navegador.
+
+- Contraseña incorrecta, correo inexistente, cuenta inactiva y cuenta de gestión dan **el mismo 422**, con
+  el error en `email`. Decir cuál falló permitiría saber qué correos tienen cuenta:
+
+```json
+{
+  "mensaje": "El correo o la contraseña no son correctos.",
+  "codigo": "validacion",
+  "errores": { "email": [ "El correo o la contraseña no son correctos." ] }
+}
+```
+
+- Errores: 422 `validacion`, 429 `demasiados_intentos` (tampoco entra la contraseña correcta mientras dura).
+
+#### `DELETE /api/v1/sesion`
+
+Protegida, sin permiso propio. Cierra la sesión **de este dispositivo**: la credencial con la que llegó el
+pedido deja de servir (después da 401 `sesion_invalida`); las de otros dispositivos siguen. **204** sin
+cuerpo. Errores: 401 `sin_sesion` / `sesion_invalida`.
+
+#### `GET /api/v1/perfil`
+
+Protegida, sin permiso propio. La cuenta de quien tiene la sesión. Sólo lectura.
+
+```json
+{
+  "datos": {
+    "nombre": "Lucía",
+    "apellido": "Paredes",
+    "email": "lucia@correo.local",
+    "telefono": "297-4001122",
+    "razon_social": "Lucía Paredes"
+  }
+}
+```
+
+- `telefono` es `null` si no lo cargó. No viajan el documento ni la condición frente al IVA.
+- Errores: 401 `sin_sesion` / `sesion_invalida`.
 
 ## Registro de cambios
 
@@ -351,3 +453,4 @@ Ejemplo de 422 de cualquiera de los dos listados (`GET /api/v1/productos?orden=a
 | --- | --- | --- |
 | 1 | A | Convenciones, formato de respuesta y de error, credencial, paginado, límite de intentos |
 | 2 | C | `GET /categorias`, `GET /productos` y `GET /productos/{id}`: catálogo público sin precios; criterio de novedad (ventana y tope); galería nunca vacía; el árbol de categorías se pagina por raíz |
+| 3 | D | `POST /registro`, `POST` y `DELETE /sesion`, `GET /perfil`; clave `precios` con `tienda.ver_precios`; `orden=precio_asc` y `precio_desc` (401 sin sesión, 403 sin permiso); cambiar o restablecer la contraseña revoca las credenciales |

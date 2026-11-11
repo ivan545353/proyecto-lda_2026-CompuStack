@@ -359,7 +359,6 @@ test('un parámetro inválido es 422 con su campo', function (string $consulta, 
         ->assertJsonStructure(['errores' => [$campo]]);
 })->with([
     'orden inexistente'    => ['orden=azar', 'orden'],
-    'orden por precio (D)' => ['orden=precio_asc', 'orden'],
     'sección inexistente'  => ['seccion=ofertas', 'seccion'],
     'q de 101 caracteres'  => ['q='.str_repeat('a', 101), 'q'],
     'q como arreglo'       => ['q[]=a', 'q'],
@@ -375,7 +374,7 @@ test('q de exactamente 100 caracteres se acepta', function () {
 
 test('el mensaje de un orden inválido dice cuáles hay', function () {
     $this->get('/api/v1/productos?orden=azar')
-        ->assertJsonPath('errores.orden.0', 'Ese orden no existe. Podés usar: nombre, recientes.');
+        ->assertJsonPath('errores.orden.0', 'Ese orden no existe. Podés usar: nombre, recientes, precio_asc, precio_desc.');
 });
 
 test('el catálogo sólo se lee: otros métodos dan 405', function () {

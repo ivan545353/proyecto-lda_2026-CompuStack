@@ -3,12 +3,13 @@
 namespace App\Http\Resources\Api;
 
 use App\Support\Api\Imagenes;
+use App\Support\Api\Precios;
 use App\Support\Api\TextosTienda;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * Un producto en el listado. Las claves se enumeran una por una: lo que no está acá no viaja
- * (costo, ganancia, stock, precios). Los precios entran con el tramo D, bajo permiso.
+ * (costo, ganancia, stock). Los precios, sólo con `tienda.ver_precios`.
  */
 class ProductoListadoResource extends JsonResource
 {
@@ -27,6 +28,11 @@ class ProductoListadoResource extends JsonResource
             'es_destacado'         => (bool) $this->destacado,
             'disponibilidad'       => $disponibilidad,
             'disponibilidad_texto' => TextosTienda::disponibilidad($disponibilidad),
+            // `when` omite la clave: sin el permiso no viaja, ni en null (regla 21).
+            'precios'              => $this->when(
+                $request->user()?->can('tienda.ver_precios') === true,
+                fn () => Precios::de($this->resource),
+            ),
         ];
     }
 

@@ -1,7 +1,10 @@
 <?php
 
 use App\Http\Controllers\Api\V1\CategoriaController;
+use App\Http\Controllers\Api\V1\PerfilController;
 use App\Http\Controllers\Api\V1\ProductoController;
+use App\Http\Controllers\Api\V1\RegistroController;
+use App\Http\Controllers\Api\V1\SesionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -34,6 +37,12 @@ Route::prefix('v1')->group(function () {
     Route::group([], function () {
         // El árbol no depende de quién mira: no lee la credencial (plan §6.8).
         Route::get('categorias', [CategoriaController::class, 'index']);
+
+        // Límite por correo e IP (AppServiceProvider): frena la prueba de contraseñas y el alta en masa.
+        Route::middleware('throttle:tienda-acceso')->group(function () {
+            Route::post('registro', [RegistroController::class, 'store']);
+            Route::post('sesion', [SesionController::class, 'store']);
+        });
     });
 
     // Sesión opcional.
@@ -45,6 +54,8 @@ Route::prefix('v1')->group(function () {
 
     // Protegida.
     Route::middleware('tienda.protegida')->group(function () {
-        //
+        // Sin permiso propio: cerrar la sesión es de toda cuenta, como cambiar la contraseña.
+        Route::delete('sesion', [SesionController::class, 'destroy']);
+        Route::get('perfil', [PerfilController::class, 'show']);
     });
 });

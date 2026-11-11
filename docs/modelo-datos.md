@@ -45,6 +45,13 @@ Convenciones: todo importe es `decimal(12,2)` (nunca `float`, ver A-17 de la aud
 ### `rol_permiso`
 `rol_id FK, permiso_id FK` — clave primaria compuesta.
 
+**Los permisos de la tienda** *(Etapa 2, tramo D; D-6).* El módulo `tienda` suma tres claves, una por
+acción: `tienda.ver_precios` (los dos precios y el orden por precio), `tienda.comprar` (carrito,
+confirmación y pago; lo usan los tramos E a G) y `tienda.ver_pedidos` (la consulta de compras; tramo H).
+El rol Cliente recibe `tienda.*`; sigue sin ningún permiso de gestión. El Administrador también las
+recibe por su `'*'`, sin efecto: la API rechaza las cuentas de gestión (D-3). Son filas de `permisos`
+como cualquier otra: no hay columna nueva ni migración, las crea `RolPermisoSeeder`.
+
 **Por qué vuelven las tablas de permisos.** La consigna de la Etapa 1 pide explícitamente un módulo de *administración de roles y permisos*. Eso es un requisito funcional con pantallas: el administrador tiene que poder ver y modificar qué hace cada rol sin que nadie recompile nada.
 
 **Por qué no se replica el modelo anterior.** El sistema original tenía `perfiles`, `modulos` y `permisos` con cuatro banderas CRUD por par (perfil, módulo). Ese diseño produjo el hallazgo C-2 de la auditoría: toda acción que no fuera crear, leer, actualizar o borrar caía en un `?? "can_update"` por defecto. Un vendedor podía anular ventas cobradas porque anular no era ninguna de las cuatro y heredaba el permiso de actualizar.
@@ -147,7 +154,9 @@ cuando todavía no hay ninguna fila de dirección que bloquear.
 **Por qué una fila por credencial.** Es lo que hace posible *revocar*: en el sistema original el
 perfil viajaba dentro del JWT y desactivar a alguien no lo desconectaba hasta que el token vencía
 (A-5). Acá, desactivar o dar de baja una cuenta borra sus filas (`UsuarioService`, en la misma
-transacción), y cada pedido además revalida que la cuenta esté activa.
+transacción), y cada pedido además revalida que la cuenta esté activa. Desde el tramo D, cambiar o
+restablecer la contraseña también las borra (`UsuarioService::cambiarPassword()`): quien la cambia
+porque se la sacaron espera que el otro quede afuera, también en la app.
 
 **Revocar borra la fila.** No choca con la regla de no borrar hechos del negocio: una credencial no
 es un hecho del negocio sino un permiso de acceso, y un permiso revocado no tiene historia que

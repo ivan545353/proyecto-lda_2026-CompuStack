@@ -129,6 +129,45 @@ test('desactivar una cuenta revoca sus credenciales', function () {
         ->and($cuenta->tokens()->count())->toBe(0);
 });
 
+test('cambiar la contraseña desde la cuenta revoca todas sus credenciales', function () {
+    $cuenta = ($this->tiendaCuenta)();
+    $this->credenciales->emitir($cuenta);
+    $this->credenciales->emitir($cuenta);
+
+    $this->actingAs($cuenta)->put(route('cuenta.password.update'), [
+        'password_actual'       => 'Secreta123',
+        'password'              => 'NuevaClave456',
+        'password_confirmation' => 'NuevaClave456',
+    ])->assertSessionHasNoErrors();
+
+    expect($cuenta->tokens()->count())->toBe(0);
+});
+
+test('restablecer la contraseña con el enlace revoca todas sus credenciales', function () {
+    $cuenta = ($this->tiendaCuenta)();
+    $this->credenciales->emitir($cuenta);
+    $token = $this->usuarios->crearTokenDeRestablecimiento($cuenta);
+
+    $this->post(route('password.store'), [
+        'token'                 => $token,
+        'email'                 => $cuenta->email,
+        'password'              => 'NuevaClave456',
+        'password_confirmation' => 'NuevaClave456',
+    ])->assertRedirect(route('login'));
+
+    expect($cuenta->tokens()->count())->toBe(0);
+});
+
+test('la contraseña de otra cuenta no toca estas credenciales', function () {
+    $cuenta = ($this->tiendaCuenta)();
+    $this->credenciales->emitir($cuenta);
+    $otra = User::factory()->conRol('Vendedor')->create();
+
+    $this->usuarios->cambiarPassword($otra, 'NuevaClave456');
+
+    expect($cuenta->tokens()->count())->toBe(1);
+});
+
 test('editar una cuenta que sigue activa no toca sus credenciales', function () {
     $cuenta = ($this->tiendaCuenta)();
     $this->credenciales->emitir($cuenta);

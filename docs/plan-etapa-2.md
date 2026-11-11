@@ -168,6 +168,7 @@ equivocada al implementarla, se plantea y se decide de nuevo antes de escribir c
 | D-18 | **La app se llama CompuStack.** Identificador de Android `ar.compustack.tienda`; paquete Dart `compustack`. Ícono: el logo de CompuStack sobre fondo **blanco crema** (`#FAF6EC` al empezar, ajustable) | El identificador (`applicationId`) es el nombre único y permanente de la app en Android: dos apps con el mismo no conviven en un teléfono, y una vez publicada no se cambia. Se escribe como un dominio al revés. `ar.compustack` no exige tener ese dominio mientras la app no se publique, y `tienda` deja lugar para otra app del mismo sistema | El tramo B fija nombre, identificador e ícono. El ícono adaptativo se genera con el asistente *Image Asset* de Android Studio, **sin librería**: el logo como primer plano y el crema como fondo |
 | D-19 | **`url_launcher` entra a la lista de librerías** | Mercado Pago se paga en su propia página (Checkout Pro), que la app tiene que abrir. Es el paquete oficial del equipo de Flutter para eso | Se usa detrás de un servicio propio (`NavegadorExterno`) para que los tests lo reemplacen por un falso y ningún widget lo importe (regla 24). Abre en una pestaña personalizada de Chrome |
 | D-20 | **Mercado Pago es obligatorio**, no recortable | La promoción suma a la calificación final, y se decide tratarla como requisito | Sale de los recortes de la §9 y entra en «no se recorta nunca». El simulador **sigue**: la consigna lo admite para la aprobación, permite mostrar un rechazo a voluntad y es el respaldo si la red falla en la defensa. Las cuentas de prueba se preparan antes del tramo E (§14.2) |
+| D-21 | **El catálogo se pagina con números, no con scroll infinito** (decidida en el tramo D) | Elegir la página da control y deja saber dónde se está («Página 5 de 981»); con 20.000 productos el scroll infinito no tiene final a la vista | El pie lleva «anterior», números y «siguiente» en Catálogo y Búsqueda; otra página reemplaza a la que se ve. Reemplaza lo que el tramo C pedía («la página siguiente al acercarse al final») |
 
 **Decididas por omisión, con la recomendación.** No bloqueaban y se pueden revisar antes del
 tramo que las usa:
@@ -451,6 +452,11 @@ la §1.3 se nombran por su letra.
 | HL-49 | `FSheet` pinta el contenido de la hoja | **Sólo tiñe lo de atrás**: el menú y los filtros se veían transparentes. Con `useSafeArea` el fondo además quedaba con franjas | `FondoHoja` pone fondo, borde y esquinas, y resuelve el área segura por dentro | C |
 | HL-50 | «Atrás» del dispositivo siempre vuelve | **En Carrito y Perfil cerraba la app**, y el login al que manda la guarda (que *reemplaza* la ruta) quedaba solo en la pila | `PopScope` en la cáscara (vuelve a Inicio) y en el login (a Inicio si no hay nada atrás); 8 tests con el «atrás» real | C |
 | HL-51 | Una grilla de tarjetas se ve pareja sola, y un `Wrap` de insignias sobre la foto alcanza | `SliverMasonryGrid` respeta la altura de cada una (el nombre ocupa 1 o 2 renglones), y el `Wrap` sin ancho **se salía de la tarjeta** (a 276 px en una de 130) | El nombre reserva dos renglones con altura fija; la disponibilidad va en uno; las marcas se apilan acotadas y con color propio | C |
+| HL-52 | Dar `tienda.*` al Cliente es sumar permisos | `RolPermisoSeederTest` (Etapa 1) fijaba que el Cliente tiene **cero** permisos | Se afina con permiso: sigue fijando «ningún permiso de gestión» y ahora además las tres claves exactas de tienda | D |
+| HL-53 | Nombre y apellido, hasta 100 cada uno, forman la razón social | `clientes.razon_social` mide **150**: «nombre apellido» puede llegar a 201 | `RegistroRequest` lo **rechaza** en `apellido` (M-31), no lo recorta | D |
+| HL-54 | Una cuenta de la tienda con sesión web termina en el login en cualquier ruta de gestión (HL-15) | `SubstituteBindings` corría **antes** que `gestion`: las 52 rutas con parámetro daban 404 con un id inexistente, y el 404 contra el login dejaba saber qué ids existen | `VerificarAmbitoGestion` entra en la prioridad antes de `SubstituteBindings` (`bootstrap/app.php`); `FronteraGestionTest` recorre todas las rutas de gestión | D |
+| HL-55 | La app habla en español porque sus textos lo están | Sin idioma fijo, forui sigue al teléfono: en uno en inglés anuncia «Page 5». Fijarlo rompió el arranque: **forui 0.27 trae los textos de Material de `material_ui`**, que no son los que pide el `MaterialApp` de `flutter/material` | `idiomaApp` (`es_AR`) y los delegados de `flutter_localizations` (del SDK) además de los de forui | D |
+| HL-56 | Al abrir sesión, la guarda lleva a `desde` | Sólo si la guarda puso el login. **Un login apilado con `push`** (desde Perfil, una ficha o «Tu sesión venció») quedaba abierto: go_router evalúa la redirección sobre la ruta de abajo | El formulario avisa `completado` y la vista se va sola: a lo de abajo si hay algo, si no a `desde` | D |
 
 ---
 
@@ -998,7 +1004,8 @@ como componente nuevo).
 - `CatalogoRepository` (listado, ficha, categorías) sobre `ApiService`.
 - `CatalogoViewModel`: criterios como estado inmutable; al cambiar uno, **descarta las
   páginas, cancela el pedido en vuelo** (`CancelToken`) y **descarta la respuesta cuyos
-  `criterios` no coinciden**; carga la página siguiente al acercarse al final.
+  `criterios` no coinciden**; carga la página siguiente al acercarse al final (reemplazado
+  por el paginador numerado, D-21).
 - Pantallas: Inicio (destacados y novedades en dos carruseles), Catálogo (grilla de
   `flutter_staggered_grid_view`, dos columnas en teléfono y más en tableta; filtros en hoja
   inferior; los activos como fichas), Búsqueda (300 ms entre teclas), Ficha (galería a
@@ -1703,14 +1710,14 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 | Filtro por categoría | Catálogo (hoja de filtros) | `GET /categorias`, `GET /productos?categoria_id` | Pública | C | Hecho |
 | Búsqueda | Búsqueda | `GET /productos?q` | Pública | C | Hecho |
 | Orden por nombre y fecha | Catálogo | `GET /productos?orden` | Pública | C | Hecho |
-| Orden por precio | Catálogo | `GET /productos?orden=precio_*` | `tienda.ver_precios` | D | Pendiente |
+| Orden por precio | Catálogo | `GET /productos?orden=precio_*` | `tienda.ver_precios` | D | Hecho |
 | Novedades y destacados | Inicio | `GET /productos?seccion` | Pública | C | Hecho |
 | Destacado administrado | — (web: formulario del producto) | — | `producto.editar` | C | Hecho |
 | Ficha | Ficha | `GET /productos/{id}` | Sesión opcional | C | Hecho |
-| Precios | Catálogo, Ficha | `GET /productos`, `/productos/{id}` | `tienda.ver_precios` | D | Pendiente |
-| Registro | Registro | `POST /registro` | Pública, con límite | D | Pendiente |
-| Inicio y cierre de sesión | Inicio de sesión, Cuenta | `POST` y `DELETE /sesion` | Pública / protegida | D | Pendiente |
-| Datos básicos | Cuenta | `GET /perfil` | Protegida | D | Pendiente |
+| Precios | Catálogo, Ficha | `GET /productos`, `/productos/{id}` | `tienda.ver_precios` | D | Hecho |
+| Registro | Registro | `POST /registro` | Pública, con límite | D | Hecho |
+| Inicio y cierre de sesión | Inicio de sesión, Perfil | `POST` y `DELETE /sesion` | Pública / protegida | D | Hecho |
+| Datos básicos | Mi cuenta | `GET /perfil` | Protegida | D | Hecho |
 | Sesión vencida | Todas | Cualquier protegida (401) | — | B, D | B hecho (mecanismo: 401, `SessionRepository`, guarda, estado); D pendiente |
 | Carrito | Carrito, Ficha | `/carrito`, `/carrito/lineas` | `tienda.comprar` | E | Pendiente |
 | Vaciar | Carrito | `DELETE /carrito` | `tienda.comprar` | E | Pendiente |
@@ -1778,7 +1785,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | A — Contrato y capa de API | [x] | — | [x] `api.md` r1, `modelo-datos`, `trazabilidad` | Cerrado |
 | B — Cimientos de la app | — | [x] | [x] `README`, `ARQUITECTURA`, `trazabilidad` §15 | Cerrado |
 | C — Catálogo y detalle | [x] | [x] | [x] `api.md` r2, `modelo-datos`, `trazabilidad` §15 (los dos lados), `pendientes` #83 y #84, `README` y `ARQUITECTURA` de la app | Cerrado |
-| D — Cuenta y precios | [ ] | [ ] | [ ] | Pendiente |
+| D — Cuenta y precios | [x] | [x] | [x] `api.md` r3, `modelo-datos` (permisos de tienda), `trazabilidad` §15 (los dos lados), D-21, HL-55 y HL-56, `README` y `ARQUITECTURA` de la app | Cerrado |
 | E — Carrito y reserva | [ ] | [ ] | [ ] | Pendiente |
 | F — Confirmación del pedido | [ ] | [ ] | [ ] | Pendiente |
 | G — Pagos | [ ] | [ ] | [ ] | Pendiente |

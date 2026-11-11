@@ -3,12 +3,15 @@
 namespace App\Services;
 
 use App\Models\User;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
 
 /**
  * La credencial con la que la app de la tienda se identifica ante la API.
  *
  * Métodos:
+ *   iniciar()       verifica correo y contraseña de una cuenta de tienda y emite su credencial
  *   emitir()        crea una credencial nueva y devuelve su forma de docs/api.md §6.4
  *   revocarActual() cierra la sesión de este dispositivo
  *   revocarTodas()  cierra todas las sesiones de la persona (baja, desactivación)
@@ -17,6 +20,33 @@ class CredencialService
 {
     /** Nombre con el que queda registrada, para distinguirla de otras en la tabla. */
     private const NOMBRE = 'app-tienda';
+
+    /**
+     * Sin abrir sesión web. Inexistente, contraseña incorrecta, inactiva o de gestión dan el
+     * mismo error: decir cuál falló permitiría enumerar cuentas (docs/api.md §4).
+     *
+     * @throws ValidationException
+     */
+    public function iniciar(string $email, string $password): array
+    {
+        $usuario = User::where('email', $email)->first();
+
+        if ($usuario === null) {
+            // Sin cuenta igual se calcula un hash: que el tiempo de respuesta tampoco la delate.
+            Hash::make($password);
+        }
+
+        if ($usuario === null
+            || ! Hash::check($password, $usuario->password)
+            || ! $usuario->activo
+            || $usuario->esDeGestion()) {
+            throw ValidationException::withMessages([
+                'email' => 'El correo o la contraseña no son correctos.',
+            ]);
+        }
+
+        return $this->emitir($usuario);
+    }
 
     /**
      * @return array{credencial: string, tipo: string, vence: string,
