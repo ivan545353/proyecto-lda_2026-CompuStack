@@ -1,6 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\V1\CarritoController;
+use App\Http\Controllers\Api\V1\CarritoLineaController;
 use App\Http\Controllers\Api\V1\CategoriaController;
+use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\PerfilController;
 use App\Http\Controllers\Api\V1\ProductoController;
 use App\Http\Controllers\Api\V1\RegistroController;
@@ -57,5 +60,17 @@ Route::prefix('v1')->group(function () {
         // Sin permiso propio: cerrar la sesión es de toda cuenta, como cambiar la contraseña.
         Route::delete('sesion', [SesionController::class, 'destroy']);
         Route::get('perfil', [PerfilController::class, 'show']);
+
+        // El carrito (tramo E). `{linea}` sin binding implícito: el servicio la busca dentro del
+        // carrito del usuario, y una ajena es 404 igual que una que no existe.
+        Route::middleware('can:tienda.comprar')->group(function () {
+            Route::get('carrito', [CarritoController::class, 'show']);
+            Route::delete('carrito', [CarritoController::class, 'vaciar']);
+            Route::post('carrito/lineas', [CarritoLineaController::class, 'store']);
+            Route::patch('carrito/lineas/{linea}', [CarritoLineaController::class, 'update'])->whereNumber('linea');
+            Route::delete('carrito/lineas/{linea}', [CarritoLineaController::class, 'destroy'])->whereNumber('linea');
+            // Reserva el carrito. Cualquier escritura posterior al carrito suelta la reserva.
+            Route::post('carrito/checkout', [CheckoutController::class, 'store']);
+        });
     });
 });

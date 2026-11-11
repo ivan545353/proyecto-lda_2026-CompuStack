@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 3** · Etapa 2, tramo D. Base: `/api/v1`.
+**Revisión 4** · Etapa 2, tramo E. Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -8,8 +8,9 @@ parámetros, respuesta con el JSON completo, errores y notas. **Un cambio de for
 revisión** y se anota en el registro de cambios.
 
 La revisión 1 fijó las convenciones, el formato de error, la credencial y el paginado. La 2 suma el
-catálogo público (§7.1). La 3, la cuenta (§7.2), los precios y el orden por precio. Los demás
-endpoints entran por tramo (E carrito, F pedidos, G pagos, H consulta de compras).
+catálogo público (§7.1). La 3, la cuenta (§7.2), los precios y el orden por precio. La 4, el carrito y
+el checkout con la reserva (§7.3). Los demás endpoints entran por tramo (F pedidos, G pagos, H consulta
+de compras).
 
 ## 1. Reglas generales
 
@@ -94,7 +95,7 @@ Un listado pagina siempre:
 | 429 | `demasiados_intentos` | Límite de inicio de sesión o registro; trae `reintentar_en` (segundos) y `Retry-After` | Bloquea el botón con la cuenta regresiva |
 | 500 | `error_interno` | Cualquier otra | «Algo falló del lado del servidor», con reintento |
 
-`carrito_cambio` y `checkout_vencido` quedan declarados desde esta revisión; los emiten los tramos E y F.
+`stock_insuficiente` y `carrito_cambio` se emiten desde la revisión 4 (tramo E); `checkout_vencido`, desde el F.
 
 **El 500 nunca muestra la traza**, aunque el servidor tenga `APP_DEBUG=true`: la respuesta se escribe
 entera en el renderer y la excepción queda en el log. Un estado HTTP que no figura en la tabla
@@ -447,6 +448,198 @@ Protegida, sin permiso propio. La cuenta de quien tiene la sesión. Sólo lectur
 - `telefono` es `null` si no lo cargó. No viajan el documento ni la condición frente al IVA.
 - Errores: 401 `sin_sesion` / `sesion_invalida`.
 
+### 7.3 Carrito y checkout (tramo E)
+
+**Dónde se guarda el carrito y cómo se asocia al usuario.** El carrito vive **en el servidor**, en las
+tablas `carritos` y `carrito_lineas`, no en el teléfono. Cada carrito pertenece a una cuenta
+(`carritos.user_id`), y el servidor lo encuentra por la credencial: ninguna ruta lleva el id del carrito,
+así que no hay forma de pedir el de otro. Una cuenta tiene **un solo carrito vigente** (`activo` o
+`en_checkout`); para que dos pedidos simultáneos no creen dos, el servidor bloquea la fila de la cuenta
+antes de buscarlo. Por eso el carrito se conserva entre aperturas de la app y entre dispositivos, y
+cerrar sesión no lo borra: la app sólo descarta su copia en memoria. Un carrito no se borra nunca:
+cuando se confirma el pedido (tramo F) pasa a `convertido`, y el siguiente es nuevo.
+
+**El carrito no guarda precios.** Cada renglón guarda el producto, la cantidad y dos **referencias**: los
+precios que la persona vio al agregarlo. Los importes se calculan siempre con el precio vigente; la
+referencia sólo sirve para avisar que cambió (D-11).
+
+**La reserva ocurre al continuar, no al agregar** (D-16). Agregar sólo verifica que haya disponible.
+`POST /carrito/checkout` reserva cada renglón, todo o nada, por 20 minutos
+(`reservas.checkout_minutos`). **Cualquier escritura posterior al carrito suelta la reserva** y lo
+vuelve a `activo`. Una tarea programada, cada minuto, suelta los checkouts vencidos.
+
+Las seis rutas son **protegidas** y piden `tienda.comprar`. Cada escritura responde con el carrito entero
+(la misma forma que `GET /carrito`), para que la app actualice totales, avisos y la insignia sin otro
+pedido. El carrito es un documento con sus renglones, como una venta, y **no se pagina**: paginarlo
+partiría los totales.
+
+#### `GET /api/v1/carrito`
+
+El carrito vigente. Sin uno, devuelve uno vacío **sin crearlo**: un `GET` no escribe nada.
+
+```json
+{
+  "datos": {
+    "estado": "activo",
+    "estado_texto": "En armado",
+    "reservado_hasta": null,
+    "unidades": 3,
+    "renglones": [
+      {
+        "id": 41,
+        "cantidad": 2,
+        "producto": {
+          "id": 7,
+          "codigo": "MOU-0007",
+          "nombre": "Mouse Logitech G505",
+          "imagen": "http://10.0.2.2:8000/storage/productos/demo-mouse-g505-1.jpg",
+          "en_tienda": true,
+          "disponibilidad": "disponible",
+          "disponibilidad_texto": "Disponible"
+        },
+        "precios": {
+          "contado": { "unitario": "42000.00", "subtotal": "84000.00", "texto": "Efectivo o transferencia" },
+          "lista":   { "unitario": "46200.00", "subtotal": "92400.00", "texto": "Mercado Pago" }
+        }
+      },
+      {
+        "id": 42,
+        "cantidad": 1,
+        "producto": {
+          "id": 12,
+          "codigo": "GAB-0012",
+          "nombre": "Gabinete Corsair 4000D",
+          "imagen": "http://10.0.2.2:8000/img/producto-sin-imagen.svg",
+          "en_tienda": false,
+          "disponibilidad": "disponible",
+          "disponibilidad_texto": "Disponible"
+        },
+        "precios": {
+          "contado": { "unitario": "98000.00", "subtotal": "98000.00", "texto": "Efectivo o transferencia" },
+          "lista":   { "unitario": "107800.00", "subtotal": "107800.00", "texto": "Mercado Pago" }
+        }
+      }
+    ],
+    "totales": {
+      "contado": { "importe": "84000.00", "texto": "Efectivo o transferencia" },
+      "lista":   { "importe": "92400.00", "texto": "Mercado Pago" }
+    },
+    "avisos": [
+      { "producto_id": 7, "descripcion": "Mouse Logitech G505", "tipo": "precio", "lista": "contado", "anterior": "40000.00", "actual": "42000.00" },
+      { "producto_id": 12, "descripcion": "Gabinete Corsair 4000D", "tipo": "inactivo" }
+    ]
+  }
+}
+```
+
+- `estado`: `activo` («En armado») o `en_checkout` («Reservado mientras confirmás»). `reservado_hasta`
+  (ISO 8601 UTC) sólo en checkout; si no, `null`.
+- `unidades` es la suma de las cantidades: lo que muestra la insignia de la barra inferior.
+- `en_tienda: false`: el producto se desactivó o su categoría se ocultó. El renglón queda para que la
+  persona lo vea y lo quite; **no suma a los totales** y frena el checkout.
+- `avisos` tiene la misma forma que `cambios` del 409 `carrito_cambio` (abajo): `precio` (uno por lista que cambió, contra la
+  referencia), `inactivo`, y `disponibilidad` (`pedida` y el nivel) cuando la cantidad supera el
+  disponible. En checkout, lo reservado por el propio carrito cuenta como suyo.
+- **Sin `tienda.ver_precios`** no viajan `precios`, `totales` ni los avisos de tipo `precio` (las claves
+  no están, ni en `null`).
+- Nunca viajan el stock ni las referencias.
+- Errores: 401 `sin_sesion` / `sesion_invalida`, 403 `sin_permiso`.
+
+#### `POST /api/v1/carrito/lineas`
+
+Agrega un producto. Si ya está en el carrito, **suma** la cantidad en el mismo renglón.
+
+| Campo | Tipo | Notas |
+| --- | --- | --- |
+| `producto_id` | entero, requerido | Un producto que esté en la tienda |
+| `cantidad` | entero, requerido | De 1 a `carrito.cantidad_maxima` (10) |
+| `precio`, `precios`, `importe`, `precio_contado`, `precio_lista`, `contado_referencia`, `lista_referencia`, `subtotal`, `total`, `totales` | — | **Prohibidos**: 422. El precio lo pone el servidor, y uno enviado se rechaza en lugar de ignorarse |
+
+**201** si el renglón es nuevo; **200** si sumó a uno existente. Cuerpo: el carrito, con
+`"mensaje": "Agregaste el producto al carrito."`. Las referencias se escriben con el precio vigente.
+
+- Errores: 404 `no_encontrado` (el producto no existe o no está en la tienda), 409 `stock_insuficiente`
+  (no hay disponible para la cantidad total del renglón; el mensaje no dice cuántas unidades hay),
+  409 `regla_de_negocio` (sumando, el renglón pasaría de 10), 422 `validacion`.
+
+#### `PATCH /api/v1/carrito/lineas/{linea}`
+
+Fija la cantidad de un renglón. Cuerpo: `cantidad` (entero, de 1 a 10); los importes, prohibidos.
+**200** con el carrito. Las referencias no cambian: si el precio cambió, el aviso sigue a la vista.
+
+- Errores: 404 `no_encontrado` (el renglón no existe **o es de otra cuenta**: no se distingue),
+  409 `stock_insuficiente`, 409 `regla_de_negocio` (el producto ya no está en la tienda: hay que
+  quitarlo), 422 `validacion`.
+
+#### `DELETE /api/v1/carrito/lineas/{linea}`
+
+Quita un renglón. **200** con el carrito y `"mensaje": "Quitaste el producto del carrito."`. Para
+«deshacer», la app vuelve a agregar el producto con la misma cantidad. Errores: 404 `no_encontrado`.
+
+#### `DELETE /api/v1/carrito`
+
+**Vacía** el carrito: quita todos los renglones y el carrito queda, vacío. **200** con el carrito y
+`"mensaje": "Vaciaste el carrito."`. Vaciar uno vacío también es 200.
+
+#### `POST /api/v1/carrito/checkout`
+
+Revalida el carrito y **reserva** el stock. Sin cuerpo (los importes, prohibidos: 422).
+
+1. Si algún producto salió de la tienda o cambió de precio respecto de la referencia: **409
+   `carrito_cambio`** con `cambios`. Las referencias de precio **quedan actualizadas**, así que el
+   segundo intento, ya revisado, pasa. Un producto fuera de la tienda sigue frenando hasta que se quite.
+2. Si no, reserva cada renglón, **todo o nada**: si uno no alcanza, 409 `stock_insuficiente` y no se
+   reserva ninguno.
+3. Pasa a `en_checkout` y fija `reservado_hasta`, 20 minutos después.
+
+**200**, también en el reintento: con la reserva en plazo, devuelve el mismo resumen y no reserva dos
+veces. Si la reserva venció y la tarea todavía no la soltó, se suelta y se reserva de nuevo.
+
+```json
+{
+  "datos": {
+    "estado": "en_checkout",
+    "estado_texto": "Reservado mientras confirmás",
+    "reservado_hasta": "2026-11-11T15:20:00Z",
+    "unidades": 2,
+    "renglones": [ "… como en GET /carrito …" ],
+    "totales": {
+      "contado": { "importe": "84000.00", "texto": "Efectivo o transferencia" },
+      "lista":   { "importe": "92400.00", "texto": "Mercado Pago" }
+    },
+    "avisos": [],
+    "medios": [
+      { "medio": "contado", "texto": "Efectivo o transferencia", "total": "84000.00" },
+      { "medio": "pasarela", "texto": "Mercado Pago", "total": "92400.00" }
+    ],
+    "entrega": [
+      { "modo": "retiro", "texto": "Retiro en el local", "costo": "0.00" },
+      { "modo": "envio", "texto": "Envío a domicilio", "costo": "0.00" }
+    ]
+  }
+}
+```
+
+- `medios`: cuánto sale por cada medio. El contado cobra el precio de contado; la pasarela, el de
+  lista. Sin `tienda.ver_precios`, sin `total`. Cuál se elige lo manda la confirmación (tramo F).
+- `entrega`: retiro siempre; envío sólo con `tienda.envio.habilitado`, con su costo fijo
+  (`tienda.envio.costo`).
+- Ejemplo de 409:
+
+```json
+{
+  "mensaje": "Algunos productos de tu carrito cambiaron. Revisalos antes de seguir.",
+  "codigo": "carrito_cambio",
+  "errores": {},
+  "cambios": [
+    { "producto_id": 7, "descripcion": "Mouse Logitech G505", "tipo": "precio", "lista": "contado", "anterior": "40000.00", "actual": "42000.00" }
+  ]
+}
+```
+
+- Errores: 409 `carrito_cambio`, 409 `stock_insuficiente`, 409 `regla_de_negocio` (carrito vacío),
+  422 `validacion`.
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -454,3 +647,4 @@ Protegida, sin permiso propio. La cuenta de quien tiene la sesión. Sólo lectur
 | 1 | A | Convenciones, formato de respuesta y de error, credencial, paginado, límite de intentos |
 | 2 | C | `GET /categorias`, `GET /productos` y `GET /productos/{id}`: catálogo público sin precios; criterio de novedad (ventana y tope); galería nunca vacía; el árbol de categorías se pagina por raíz |
 | 3 | D | `POST /registro`, `POST` y `DELETE /sesion`, `GET /perfil`; clave `precios` con `tienda.ver_precios`; `orden=precio_asc` y `precio_desc` (401 sin sesión, 403 sin permiso); cambiar o restablecer la contraseña revoca las credenciales |
+| 4 | E | `GET` y `DELETE /carrito`, `POST /carrito/lineas`, `PATCH` y `DELETE /carrito/lineas/{linea}`, `POST /carrito/checkout`; se emiten `stock_insuficiente` y `carrito_cambio` (con `cambios`); importes en la solicitud, 422; dónde se guarda el carrito y cómo se asocia a la cuenta |

@@ -51,12 +51,17 @@ return [
     ],
 
     'envio' => [
+        // Si la tienda ofrece envío además del retiro (requisito 5.3). Es el recorte 2 del plan:
+        // en `false`, sólo retiro y costo cero. Lo lee el checkout (E) y la confirmación (F).
+        'habilitado' => true,
         // Costo fijo de envío. Los envíos calculados son de la Etapa 4.
         'costo' => '0.00',   // a revisar
     ],
 
     'carrito' => [
-        'cantidad_maxima' => 10,   // a revisar: por renglón
+        // Por renglón (Q-1, tramo E): alcanza para una compra de hogar o pyme y frena el carrito
+        // que acapara stock. Pasarse en la solicitud es 422; sumando sobre el renglón, 409.
+        'cantidad_maxima' => 10,
     ],
 
     // La descripción breve se deriva de la completa (D-12): las primeras palabras, y nunca más de

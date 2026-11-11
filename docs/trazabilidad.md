@@ -1074,3 +1074,59 @@ Servidor (`compustack`) y app (`compustack-app`). La app pasó de 442 a **546 te
 >
 > **Se probó en un teléfono real**: de ahí salieron la jerarquía de la ficha (los precios antes que los
 > datos de referencia), «Disponible» en gris visible y Mi cuenta en bloques.
+
+### Tramo E — Carrito y reserva
+
+Servidor (`compustack`) y app (`compustack-app`). La app pasó de 546 a **673 tests** (127 nuevos).
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| Migraciones `carritos` y `carrito_lineas` | El carrito en el servidor, de la cuenta; `abandonado` declarado sin uso; dos referencias de precio por renglón (D-11); UNIQUE(`carrito_id`, `producto_id`) | Nuevo |
+| `Carrito` y `CarritoLinea` | `ESTADOS`, `vigente()`, `enCheckoutVigente()`. Sin `venta()` hasta el F, que trae `ventas.carrito_id` (HL-57) | Nuevo |
+| `StockService::reservar()` y `liberar()` | La reserva por la única puerta, con la fila bloqueada y sin asiento (D-5); `liberar()` nunca baja de cero ni falla (HL-4) | Nuevo |
+| `StockService::descontar(..., $deReserva)` | Usa `stock_disponible` en lugar de la resta escrita; con `$deReserva`, consume la reserva propia. Sin él, el mostrador no cambia | Modificado |
+| `CarritoService` | Un carrito vigente por cuenta (fila del usuario bloqueada); agregar, cambiar, quitar, vaciar sobre lo propio; resumen sin escribir; checkout que guarda las referencias, confirma y recién lanza; vencimiento | Nuevo |
+| `CarritoCambioException` y `CheckoutVencidoException` | 409 `carrito_cambio` (con `cambios`) y `checkout_vencido` en `RespuestaDeError`, antes de la madre (HL-17) | Nuevo |
+| `CarritoController`, `CarritoLineaController`, `CheckoutController` | Las seis rutas, con `can:tienda.comprar`. Cada escritura devuelve el carrito entero | Nuevo |
+| `CarritoCantidadRequest`, `CarritoLineaRequest`, `CheckoutRequest` | Enteros; `cantidad` hasta `carrito.cantidad_maxima`; todo importe `prohibited` (M-31) | Nuevo |
+| `CarritoResource` y `ResumenCheckoutResource` | Renglones con disponibilidad por nivel, dos importes, totales y avisos; el checkout suma total por medio y modos de entrega. Sin `tienda.ver_precios`, ningún importe (regla 21) | Nuevo |
+| `TextosTienda::CARRITO` y `ENTREGA` | Estado del carrito y modos de entrega con su texto | Modificado |
+| `tienda:vencer-reservas` (`VencerReservasTienda`) | Suelta los checkouts vencidos, cada minuto y sin encimarse; el F y el G le suman pasos | Nuevo |
+| `config/tienda.php` | `carrito.cantidad_maxima` 10 confirmado (Q-1); `envio.habilitado` (HL-58) | Modificado |
+| `docs/api.md` | Revisión 4: §7.3 carrito y checkout, dónde se guarda el carrito | Modificado |
+| `tests/Feature/{CarritoEsquema,StockReserva,CarritoService}Test`, `Api/{Carrito,Checkout}Test` | 97 tests nuevos: esquema (5), reserva (15), servicio (34), carrito (31) y checkout (12) | Nuevo |
+
+> **La concurrencia se prueba antes del bloqueo.** En `reservar()` el bloqueo y la lectura son la misma
+> consulta, así que la reserva competidora se inyecta con `DB::beforeExecuting`, justo antes del
+> `FOR UPDATE`: `DB::listen` corre después y lo inyectado no entraría en la cuenta de ninguna implementación.
+>
+> **La invariante de HL-4 se verifica en seis puntos** de una secuencia con cuatro cuentas: agregar,
+> iniciar, escribir (suelta), volver a iniciar, vencer y vaciar. Con el F, la suma agrega los pedidos.
+>
+> **Los mensajes que llegan a la tienda no dicen cuántas unidades hay**: el de `reservar()` lo omite; el
+> de `descontar()`, que lee el mostrador, lo sigue diciendo.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Carrito`, `Renglon`, `AvisoCarrito` y `ResumenCheckout` | Los modelos de §7.3 contra su JSON; sin permiso, sin precios ni totales (regla 21); un tipo de aviso desconocido es servidor caído | Nuevo |
+| `CarritoService` y `CarritoRepository` | Las seis rutas; el carrito como flujo que publica cada escritura; un mismo pedido no sale dos veces; se descarta con cualquier cambio de sesión; el 409 trae `cambios` leídos | Nuevo |
+| `CarritoViewModel` y `CarritoVista` | Paso 1 de 5; renglones con imagen, nombre, dos precios con ícono, «− cantidad +» y quitar (botón o deslizar) con deshacer; vaciar con confirmación; relacionados; barra fija con el total y «Realizar pedido» | Nuevo |
+| `TarjetaReserva` y `CuentaRegresiva` | Al reservar: la cuenta regresiva y mosaicos de igual alto con medios y entrega | Nuevo |
+| `AgregarViewModel`, barra de compra de `FichaVista` y `conCargandoMarca` | Cantidad y «Agregar» fijos en la ficha; sin sesión, al login apilado; sin stock, no se ofrece; el cargador con el logo mientras se agrega | Nuevo y modificado |
+| `AgregadoVista` y `relacionadosProvider` | Lo agregado, más de su categoría con «Agregar», «Ver artículos en el carrito» y «Seguir comprando» | Nuevo |
+| Tope de stock aprendido del 409 | En el carrito «+» se frena en el stock exacto; en la ficha, una unidad menos que la rechazada (HL-59) | Nuevo |
+| `CascaraDestinos` y router | Carrito deja de ser rama: abre `/carrito` y `/agregado/:id` sin barra inferior, con la insignia de unidades (HL-60) | Modificado |
+| `PreciosCompactos`, `LeyendaPrecios`, `InsigniaAhorro`, `IndicadorPasos`, `RenglonCarrito`, `SelectorCantidad`, `BarraPedido`, `AvisosCarrito` | Las piezas de la compra; el rótulo de cada precio una sola vez | Nuevo |
+
+> **El tope de stock no se conoce antes de pedir**: el número no viaja (requisito 2.3), así que la app lo aprende
+> del 409 `stock_insuficiente`, que no se muestra como error sino como un aviso chico junto a la cantidad.
+>
+> **Del carrito al pago no hay barra inferior** (regla 32) y **el logo aparece en el cargador al agregar** (regla
+> 31): son decisiones de interfaz del tramo, pedidas al revisar las pantallas.
+>
+> **Los relacionados son de la misma categoría** porque es lo único que el contrato tiene; los títulos no dicen
+> «otros compraron» (regla del tramo J).

@@ -18,6 +18,8 @@ namespace App\Support\Api;
  *   disponibilidad()  texto del nivel de disponibilidad
  *   pasarela()        texto de una pasarela
  *   precio()          con qué se paga cada uno de los dos precios
+ *   carrito()         texto del estado del carrito
+ *   entrega()         texto de un modo de entrega
  */
 final class TextosTienda
 {
@@ -74,6 +76,18 @@ final class TextosTienda
         'lista'   => 'Mercado Pago',
     ];
 
+    /** Las claves son `carritos.estado`; `convertido` y `abandonado` no llegan a la app. */
+    public const CARRITO = [
+        'activo'      => 'En armado',
+        'en_checkout' => 'Reservado mientras confirmás',
+    ];
+
+    /** Las claves son `ventas.modo_entrega`. */
+    public const ENTREGA = [
+        'retiro' => 'Retiro en el local',
+        'envio'  => 'Envío a domicilio',
+    ];
+
     public static function pedido(string $estado): string
     {
         return self::PEDIDO[$estado] ?? $estado;
@@ -97,5 +111,15 @@ final class TextosTienda
     public static function precio(string $tipo): string
     {
         return self::PRECIO[$tipo] ?? $tipo;
+    }
+
+    public static function carrito(string $estado): string
+    {
+        return self::CARRITO[$estado] ?? $estado;
+    }
+
+    public static function entrega(string $modo): string
+    {
+        return self::ENTREGA[$modo] ?? $modo;
     }
 }

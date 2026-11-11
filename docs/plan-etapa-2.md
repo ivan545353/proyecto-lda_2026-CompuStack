@@ -457,6 +457,10 @@ la §1.3 se nombran por su letra.
 | HL-54 | Una cuenta de la tienda con sesión web termina en el login en cualquier ruta de gestión (HL-15) | `SubstituteBindings` corría **antes** que `gestion`: las 52 rutas con parámetro daban 404 con un id inexistente, y el 404 contra el login dejaba saber qué ids existen | `VerificarAmbitoGestion` entra en la prioridad antes de `SubstituteBindings` (`bootstrap/app.php`); `FronteraGestionTest` recorre todas las rutas de gestión | D |
 | HL-55 | La app habla en español porque sus textos lo están | Sin idioma fijo, forui sigue al teléfono: en uno en inglés anuncia «Page 5». Fijarlo rompió el arranque: **forui 0.27 trae los textos de Material de `material_ui`**, que no son los que pide el `MaterialApp` de `flutter/material` | `idiomaApp` (`es_AR`) y los delegados de `flutter_localizations` (del SDK) además de los de forui | D |
 | HL-56 | Al abrir sesión, la guarda lleva a `desde` | Sólo si la guarda puso el login. **Un login apilado con `push`** (desde Perfil, una ficha o «Tu sesión venció») quedaba abierto: go_router evalúa la redirección sobre la ruta de abajo | El formulario avisa `completado` y la vista se va sola: a lo de abajo si hay algo, si no a `desde` | D |
+| HL-57 | `Carrito` tiene la relación `venta` desde el E | La columna que la sostiene, `ventas.carrito_id` (D-8), nace en el F; hoy nadie apunta a nadie (HL-4) | La relación entra en el F, con su columna | E, F |
+| HL-58 | `tienda.envio.habilitado` existe (lo nombran el F y el recorte 2) | `config/tienda.php` sólo tenía `envio.costo` | Se agrega en el E, en `true`: el resumen del checkout ya ofrece los modos de entrega. Con `false`, sólo retiro | E |
+| HL-59 | «+» se puede frenar en el stock antes de pedir (Nielsen: prevenir el error) | El número no viaja (2.3) y ninguna ruta valida sin agregar | En el carrito, el 409 de «+» fija el tope exacto («Es todo el stock disponible.»); en la ficha, el 409 de «Agregar» deja probar una unidad menos. Ninguno es un error grande. Frenarlo antes pide un `maximo` en el contrato (pregunta abierta) | E |
+| HL-60 | Carrito se abre con `push` desde la barra inferior | Fuera de la cáscara, **sin sesión** el login quedaba apilado y al entrar volvía a lo de abajo, no al carrito (HL-56) | Con sesión, `push`; sin sesión, `go`: la guarda pone el login solo y al entrar lleva a `desde` | E |
 
 ---
 
@@ -1694,8 +1698,9 @@ lados, se plantea y se decide antes de escribir código, y se agrega acá con su
   30 y `novedades.tope` 10 (el tope es el que acota: todo el catálogo se creó en dos fechas),
   `disponibilidad.ultimas_unidades` 3 (188 productos, menos del 1 %, caen en «últimas unidades») y
   `descripcion_breve.palabras` 25, a los que el tramo suma `descripcion_breve.caracteres` 250 (pendiente
-  #83). Quedan `envio.costo`, que hay que decidirlo antes del tramo F, que lo suma al total,
-  `pagos.intento_minutos` y `carrito.cantidad_maxima`.
+  #83). **`carrito.cantidad_maxima` 10, confirmado en el tramo E**: alcanza para una compra de hogar o pyme y frena
+  el carrito que acapara stock. Quedan `envio.costo`, que hay que decidirlo antes del tramo F, que lo suma al
+  total, y `pagos.intento_minutos`.
 
 ---
 
@@ -1719,9 +1724,9 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 | Inicio y cierre de sesión | Inicio de sesión, Perfil | `POST` y `DELETE /sesion` | Pública / protegida | D | Hecho |
 | Datos básicos | Mi cuenta | `GET /perfil` | Protegida | D | Hecho |
 | Sesión vencida | Todas | Cualquier protegida (401) | — | B, D | B hecho (mecanismo: 401, `SessionRepository`, guarda, estado); D pendiente |
-| Carrito | Carrito, Ficha | `/carrito`, `/carrito/lineas` | `tienda.comprar` | E | Pendiente |
-| Vaciar | Carrito | `DELETE /carrito` | `tienda.comprar` | E | Pendiente |
-| Checkout y reserva | Confirmación (paso 1) | `POST /carrito/checkout` | `tienda.comprar` | E | Pendiente |
+| Carrito | Carrito, Ficha, Agregado | `/carrito`, `/carrito/lineas` | `tienda.comprar` | E | Hecho |
+| Vaciar | Carrito | `DELETE /carrito` | `tienda.comprar` | E | Hecho |
+| Checkout y reserva | Carrito (paso 1 de 5, reservado) | `POST /carrito/checkout` | `tienda.comprar` | E | Hecho |
 | Confirmar pedido | Confirmación (pasos 2 a 4) | `POST /pedidos` | `tienda.comprar` | F | Pendiente |
 | Canal en ventas | — (web: listado de ventas) | — | `venta.ver` | F | Pendiente |
 | Cobro de contado | — (web: cobro) | — | `venta.cobrar` | F | Pendiente |
@@ -1786,7 +1791,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | B — Cimientos de la app | — | [x] | [x] `README`, `ARQUITECTURA`, `trazabilidad` §15 | Cerrado |
 | C — Catálogo y detalle | [x] | [x] | [x] `api.md` r2, `modelo-datos`, `trazabilidad` §15 (los dos lados), `pendientes` #83 y #84, `README` y `ARQUITECTURA` de la app | Cerrado |
 | D — Cuenta y precios | [x] | [x] | [x] `api.md` r3, `modelo-datos` (permisos de tienda), `trazabilidad` §15 (los dos lados), D-21, HL-55 y HL-56, `README` y `ARQUITECTURA` de la app | Cerrado |
-| E — Carrito y reserva | [ ] | [ ] | [ ] | Pendiente |
+| E — Carrito y reserva | [x] | [x] | [x] `api.md` r4, `modelo-datos` §4, `trazabilidad` §15 (los dos lados), HL-57 a HL-60, Q-1 (`cantidad_maxima`), reglas 31 y 32 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
 | F — Confirmación del pedido | [ ] | [ ] | [ ] | Pendiente |
 | G — Pagos | [ ] | [ ] | [ ] | Pendiente |
 | H — Consulta de compras | [ ] | [ ] | [ ] | Pendiente |

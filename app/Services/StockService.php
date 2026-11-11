@@ -14,7 +14,9 @@ use Illuminate\Support\Facades\DB;
  * La única puerta por la que se escriben el stock y el costo.
  *
  * Métodos:
- *   descontar()      salida por venta; valida contra el disponible
+ *   reservar()       compromete unidades para un checkout; sin asiento (D-5)
+ *   liberar()        suelta una reserva; nunca baja de cero ni falla (HL-4)
+ *   descontar()      salida por venta; valida contra el disponible y consume la reserva propia
  *   reponer()        entrada por devolución; el motivo es opcional
  *   recibirCompra()  entrada por recepción; recalcula el costo promedio ponderado
  *   fijarCosto()     fija el costo neto sin mover stock; no escribe asiento
@@ -23,7 +25,50 @@ use Illuminate\Support\Facades\DB;
 class StockService
 {
     /**
-     * Salida de stock por una venta.
+     * Compromete unidades sin moverlas: baja el disponible, no el stock. No deja asiento:
+     * el kardex dice qué entró y salió del depósito, y una reserva no mueve mercadería (D-5).
+     *
+     * @throws StockInsuficienteException
+     */
+    public function reservar(Producto $producto, int $cantidad): void
+    {
+        $this->exigirCantidadPositiva($cantidad);
+
+        DB::transaction(function () use ($producto, $cantidad) {
+            // Se decide con la fila bloqueada, no con el modelo que trajo quien llama.
+            $p = Producto::lockForUpdate()->findOrFail($producto->id);
+
+            if ($p->stock_disponible < $cantidad) {
+                // Sin el número: este mensaje llega a la tienda, que nunca publica unidades.
+                throw new StockInsuficienteException(
+                    "Ya no hay stock suficiente de «{$p->nombre}» para {$cantidad} unidades."
+                );
+            }
+
+            $p->stock_reservado = $p->stock_reservado + $cantidad;
+            $p->save();
+        });
+    }
+
+    /**
+     * Suelta una reserva. Nunca baja de cero ni falla (HL-4): quien libera es un vencimiento o
+     * una cancelación, y un error ahí dejaría la reserva tomada para siempre.
+     */
+    public function liberar(Producto $producto, int $cantidad): void
+    {
+        $this->exigirCantidadPositiva($cantidad);
+
+        DB::transaction(function () use ($producto, $cantidad) {
+            $p = Producto::lockForUpdate()->findOrFail($producto->id);
+
+            $p->stock_reservado = max(0, $p->stock_reservado - $cantidad);
+            $p->save();
+        });
+    }
+
+    /**
+     * Salida de stock por una venta. Con `$deReserva`, esa parte ya estaba comprometida para
+     * esta venta: se consume de `stock_reservado` y cuenta como disponible propio.
      *
      * @throws StockInsuficienteException
      */
@@ -32,12 +77,19 @@ class StockService
         int $cantidad,
         Model $origen,
         ?User $usuario = null,
+        int $deReserva = 0,
     ): MovimientoStock {
         $this->exigirCantidadPositiva($cantidad);
 
-        return DB::transaction(function () use ($producto, $cantidad, $origen, $usuario) {
+        if ($deReserva < 0 || $deReserva > $cantidad) {
+            throw new ReglaDeNegocioException(
+                'La parte reservada de una salida tiene que estar entre cero y la cantidad que sale.'
+            );
+        }
+
+        return DB::transaction(function () use ($producto, $cantidad, $origen, $usuario, $deReserva) {
             $p = Producto::lockForUpdate()->findOrFail($producto->id);
-            $disponible = $p->stock - $p->stock_reservado;
+            $disponible = $p->stock_disponible + $deReserva;
 
             if ($disponible < $cantidad) {
                 throw new StockInsuficienteException(
@@ -45,7 +97,9 @@ class StockService
                 );
             }
 
-            $p->stock = $p->stock - $cantidad;
+            $p->stock           = $p->stock - $cantidad;
+            // Con la invariante nunca hace falta el tope; si algo la rompió, no se agrava.
+            $p->stock_reservado = max(0, $p->stock_reservado - $deReserva);
             $p->save();
 
             return $this->registrar($p, 'venta', -$cantidad, $origen, $usuario);

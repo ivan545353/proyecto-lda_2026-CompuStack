@@ -2,6 +2,8 @@
 
 namespace App\Http\Api;
 
+use App\Exceptions\CarritoCambioException;
+use App\Exceptions\CheckoutVencidoException;
 use App\Exceptions\ReglaDeNegocioException;
 use App\Exceptions\StockInsuficienteException;
 use App\Exceptions\TransicionInvalidaException;
@@ -59,6 +61,10 @@ final class RespuestaDeError
 
             // Las hijas antes que la madre (HL-17).
             $e instanceof StockInsuficienteException => self::armar(409, 'stock_insuficiente', $e->getMessage()),
+            $e instanceof CarritoCambioException => self::armar(
+                409, 'carrito_cambio', $e->getMessage(), extra: ['cambios' => $e->cambios],
+            ),
+            $e instanceof CheckoutVencidoException => self::armar(409, 'checkout_vencido', $e->getMessage()),
             $e instanceof TransicionInvalidaException => self::armar(409, 'transicion_invalida', $e->getMessage()),
             $e instanceof ReglaDeNegocioException => self::armar(409, 'regla_de_negocio', $e->getMessage()),
 

@@ -735,14 +735,20 @@ quiere entrar al sistema, se le crea un rol con sus permisos y se le muestran su
 ## 4. Carrito
 
 ### `carritos`
-`id, user_id FK, estado, reservado_hasta timestamp null` — Etapa 2
+`id, user_id FK, estado, reservado_hasta timestamp null, timestamps` — Etapa 2 (tramo E). Índices
+(`user_id`, `estado`), para encontrar el vigente, y (`estado`, `reservado_hasta`), para los vencidos.
 
 `session_token varchar null` — Etapa 4 (carrito anónimo, ver abajo)
 
-`estado`: `activo`, `en_checkout`, `convertido`, `abandonado`.
+`estado`: `activo`, `en_checkout`, `convertido`, `abandonado`. Una cuenta tiene un solo carrito
+**vigente** (`activo` o `en_checkout`); para que dos pedidos simultáneos no creen dos, `CarritoService`
+bloquea la fila de `users` antes de buscarlo. `abandonado` se declara y no se usa en esta etapa: agregar
+un valor a un ENUM después reescribe la tabla. Un carrito no se borra: se convierte (tramo F).
 
 ### `carrito_lineas`
-`id, carrito_id FK, producto_id FK, cantidad` — UNIQUE(carrito_id, producto_id)
+`id, carrito_id FK (cascada), producto_id FK, cantidad unsigned, contado_referencia decimal(12,2) null,
+lista_referencia decimal(12,2) null, timestamps` — UNIQUE(carrito_id, producto_id): agregar un producto
+que ya está suma cantidad en el mismo renglón.
 
 **Por qué el carrito no es una venta en estado "carrito".** Si el carrito fuera una venta, la tabla de ventas se llenaría de carritos abandonados — filas que nadie decidió comprar mezcladas con documentos comerciales, y todas las métricas del dashboard tendrían que filtrarlas. Separarlo mantiene `ventas` limpia: una fila ahí significa que alguien decidió comprar.
 
@@ -750,11 +756,29 @@ quiere entrar al sistema, se le crea un rol con sus permisos y se le muestran su
 
 **La reserva de stock** ocurre al pasar a `en_checkout`: se suma la cantidad a `productos.stock_reservado` y se fija `reservado_hasta = now() + 20 min`. Es lo que evita que dos clientes compren la última unidad. Tres cosas que la Etapa 2 tiene que respetar:
 
-- **Pasa por `StockService`**, como todo lo que toca el stock (A-13). Hoy el servicio no tiene `reservar` ni `liberar`, y `descontar` no sabe que una unidad pudo venir de una reserva: son las operaciones que la etapa agrega.
+- **Pasa por `StockService`**, como todo lo que toca el stock (A-13): `reservar()` (bloquea, exige el
+  disponible, suma), `liberar()` (bloquea y resta, **nunca baja de cero ni falla**: un ajuste de
+  inventario pudo dejar el stock por debajo de lo reservado) y `descontar(..., $deReserva)`, que
+  consume la reserva propia de la venta. **La reserva no deja asiento en el kardex** (D-5): el kardex
+  dice qué entró y salió del depósito, y una reserva no mueve mercadería. Varios productos se reservan
+  y se liberan ordenados por `id`, para que dos checkouts no se bloqueen mutuamente.
 - **La liberación de las vencidas corre cada minuto**, no con la reposición de las 07:00: una reserva de veinte minutos liberada una vez por día bloquea la mercadería hasta el día siguiente.
 - **Una reserva baja el disponible que ve el mostrador**, porque el disponible es `stock - stock_reservado` (`Producto::DISPONIBLE`). Es lo correcto —esa unidad está comprometida— y los avisos de faltante del tramo F de la Fase 7.5 ya lo cuentan así.
 
+**La reserva tiene dos dueños sucesivos** (HL-4): primero el carrito en checkout, después el pedido
+(tramo F, `ventas.reserva_vence`). Cambia de dueño en la transacción de la confirmación, sin moverse.
+La invariante, con test: **`stock_reservado` de cada producto = lo reservado por los carritos en
+checkout vigentes + lo de los pedidos pendientes con reserva**. Toda escritura sobre un carrito en
+checkout lo suelta primero (libera y vuelve a `activo`): así la reserva siempre coincide con los renglones.
+
 **El carrito no guarda precios.** Se recalculan contra `productos` al mostrar y al cerrar el checkout. Congelar el precio al agregar al carrito significa vender a un precio viejo si el carrito quedó tres días abierto.
+
+**Guarda una referencia, que no es un precio** (D-11). `contado_referencia` y `lista_referencia` son
+los precios que la persona vio al agregar. Nunca se cobran: sólo dicen contra qué comparar para
+«informar si cambió el precio». El carrito los muestra como aviso, y el checkout, si difieren, responde
+409 `carrito_cambio` con los cambios y **actualiza la referencia antes de responder** (confirma la
+transacción y recién después lanza): el segundo intento, ya revisado, pasa. Son `null`-ables porque
+la referencia es un dato de ayuda, no del documento.
 
 ---
 
