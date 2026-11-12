@@ -17,6 +17,8 @@ namespace App\Support\Api;
  *   pago()            texto del estado del pago
  *   disponibilidad()  texto del nivel de disponibilidad
  *   pasarela()        texto de una pasarela
+ *   situacionDelPago() texto del pago de un pedido, según `Venta::situacionDelPago()`
+ *   intento()         texto del estado de un intento de pago
  *   precio()          con qué se paga cada uno de los dos precios
  *   carrito()         texto del estado del carrito
  *   entrega()         texto de un modo de entrega
@@ -53,6 +55,29 @@ final class TextosTienda
 
     public const PAGO_PENDIENTE_CONTADO  = 'Se paga en el local';
     public const PAGO_PENDIENTE_INTENTO  = 'Esperando la confirmación del pago';
+
+    /** Las claves son `Venta::situacionDelPago()`: el texto que corresponde a cada situación. */
+    public const SITUACION_PAGO = [
+        'pagado'      => self::PAGO['aprobado'],
+        'contado'     => self::PAGO_PENDIENTE_CONTADO,
+        'esperando'   => self::PAGO_PENDIENTE_INTENTO,
+        'en_revision' => self::PAGO['en_revision'],
+        'rechazado'   => self::PAGO['rechazado'],
+        'falta_pagar' => self::PAGO['pendiente'],
+        'sin_cobrar'  => self::PAGO['sin_cobrar'],
+    ];
+
+    /**
+     * Las claves son `intentos_pago.estado`. `vencido` y `error` no afirman un rechazo que no
+     * ocurrió (regla 16): dicen lo que pasó.
+     */
+    public const INTENTO = [
+        'pendiente' => 'Esperando la confirmación',
+        'aprobado'  => 'Aprobado',
+        'rechazado' => 'Rechazado',
+        'vencido'   => 'Venció sin respuesta',
+        'error'     => 'No se pudo iniciar',
+    ];
 
     /** Niveles de disponibilidad: nunca se publica el número de unidades. */
     public const DISPONIBILIDAD = [
@@ -101,6 +126,16 @@ final class TextosTienda
     public static function disponibilidad(string $nivel): string
     {
         return self::DISPONIBILIDAD[$nivel] ?? $nivel;
+    }
+
+    public static function situacionDelPago(string $situacion): string
+    {
+        return self::SITUACION_PAGO[$situacion] ?? $situacion;
+    }
+
+    public static function intento(string $estado): string
+    {
+        return self::INTENTO[$estado] ?? $estado;
     }
 
     public static function pasarela(string $pasarela): string

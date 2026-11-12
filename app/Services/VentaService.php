@@ -13,6 +13,7 @@ use App\Models\VentaLinea;
 use App\Support\Importe;
 use App\Services\PrecioService;
 use App\Support\MaquinaEstadosVenta;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -527,7 +528,8 @@ class VentaService
 
     /**
      * Cancela los pedidos online cuya reserva venció. Cada uno en su transacción: uno que falla
-     * no frena a los demás. Los intentos de pago pendientes los excluye el tramo G (HL-63).
+     * no frena a los demás. No cancela lo que está en el aire (HL-63, §1.3 E): un intento de pago
+     * pendiente, o uno aprobado que todavía no se acreditó —esa plata ya entró—.
      */
     public function cancelarVencidos(): int
     {
@@ -537,6 +539,7 @@ class VentaService
             ->where('canal', 'online')
             ->where('estado', 'pendiente_pago')
             ->where('reserva_vence', '<', now())
+            ->whereDoesntHave('intentosPago', fn (Builder $q) => self::enElAire($q))
             ->orderBy('id')
             ->pluck('id')
             ->each(function (int $id) use (&$cancelados) {
@@ -545,7 +548,8 @@ class VentaService
 
                     // Se vuelve a preguntar con la fila bloqueada: pudo cobrarse mientras tanto.
                     if ($v === null || $v->estado !== 'pendiente_pago'
-                        || $v->reserva_vence === null || $v->reserva_vence->isFuture()) {
+                        || $v->reserva_vence === null || $v->reserva_vence->isFuture()
+                        || self::enElAire($v->intentosPago()->getQuery())->exists()) {
                         return 0;
                     }
 
@@ -557,6 +561,13 @@ class VentaService
             });
 
         return $cancelados;
+    }
+
+    /** Los intentos que impiden cancelar: pendientes, o aprobados sin su pago escrito. */
+    private static function enElAire(Builder $intentos): Builder
+    {
+        return $intentos->where(fn (Builder $q) => $q->where('estado', 'pendiente')
+            ->orWhere(fn (Builder $q) => $q->where('estado', 'aprobado')->whereNull('acreditado_at')));
     }
 
     /** Devuelve al disponible lo que el pedido retenía. Sin reserva, no hace nada. */

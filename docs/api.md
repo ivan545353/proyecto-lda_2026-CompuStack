@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 7** · Etapa 2, tramo K. Base: `/api/v1`.
+**Revisión 8** · Etapa 2, tramo G. Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -11,7 +11,7 @@ La revisión 1 fijó las convenciones, el formato de error, la credencial y el p
 catálogo público (§7.1). La 3, la cuenta (§7.2), los precios y el orden por precio. La 4, el carrito y
 el checkout con la reserva (§7.3). La 5, la confirmación del pedido (§7.4) y la dirección del perfil. La 6,
 la cuenta editable (`PATCH /perfil`) y los datos fiscales en el perfil. La 7, la provincia de lista cerrada (§5).
-Los demás endpoints entran por tramo (G pagos, H consulta de compras).
+La 8, los pagos (§7.5): intentos por Mercado Pago y por el simulador. La consulta de compras entra con el H.
 
 ## 1. Reglas generales
 
@@ -844,6 +844,132 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
   sin ficha de cliente), 422 `validacion` (con envío, una provincia fuera de la lista de §5 va en
   `direccion.provincia`).
 
+### 7.5 Pagos (tramo G)
+
+Un pedido por **pasarela** se paga con **intentos**. Un intento es un pedido de cobro a una pasarela
+—Mercado Pago (Checkout Pro) o el simulador— y **no es un pago**: el pago es la fila que el servidor
+escribe cuando el proveedor confirma, una sola por intento. Un intento rechazado, vencido o que no se
+pudo iniciar no deja ningún pago.
+
+**Sólo la consulta al proveedor confirma.** La app abre `url_pago` en el navegador; cuando vuelve al
+frente, consulta el intento (`GET …/pagos/{intento}`) y el servidor le pregunta a Mercado Pago. Que el
+cliente haya vuelto, o lo que diga la pantalla de Mercado Pago, no cambia nada.
+
+**El intento** (la forma que devuelven los cinco endpoints):
+
+```json
+{
+  "id": 17,
+  "pasarela": "mercadopago",
+  "pasarela_texto": "Mercado Pago",
+  "estado": "pendiente",
+  "estado_texto": "Esperando la confirmación",
+  "importe": "121000.00",
+  "url_pago": "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=1234-abcd",
+  "vence": "2026-11-13T15:20:00Z",
+  "resuelto": null,
+  "creado": "2026-11-13T15:00:00Z",
+  "pedido": {
+    "id": 42,
+    "numero": "V-00042",
+    "estado": "pendiente_pago",
+    "estado_texto": "Esperando el pago",
+    "estado_pago": "pendiente",
+    "estado_pago_texto": "Esperando la confirmación del pago"
+  }
+}
+```
+
+- `estado` del intento: `pendiente`, `aprobado`, `rechazado`, `vencido` (el plazo pasó **con respuesta**
+  del proveedor y sin pago) o `error` (no se pudo iniciar). Ni `vencido` ni `error` afirman un rechazo.
+- `url_pago`: sólo con Mercado Pago y sólo mientras está pendiente; con el simulador, siempre `null`.
+- `vence`: 20 minutos desde que nace (`tienda.pagos.intento_minutos`). La preferencia de Mercado Pago
+  vence a la misma hora.
+- `pedido`: el estado del pedido y **del pago**, ya derivados. La app no necesita otro pedido para saber
+  el resultado.
+- Sin `tienda.ver_precios`, `importe` no viaja. Nunca viajan el identificador del pago del proveedor ni su detalle.
+
+**Estado del pago** (`pedido.estado_pago`), derivado de los datos y no elegido por nadie:
+
+| Situación | `estado_pago` | `estado_pago_texto` |
+| --- | --- | --- |
+| El pedido está pagado o en un estado posterior | `aprobado` | «Pagado» |
+| Pendiente, de contado | `pendiente` | «Se paga en el local» |
+| Pendiente, el último intento espera respuesta | `pendiente` | «Esperando la confirmación del pago» |
+| Pendiente, el último intento se aprobó y no se acreditó todavía | `en_revision` | «Pago recibido, en revisión» |
+| Pendiente, el último intento se rechazó | `rechazado` | «Pago rechazado: podés reintentar» |
+| Pendiente, sin intentos, o el último vencido o con error | `pendiente` | «Falta pagar» |
+| Cancelado | `sin_cobrar` | «No se cobró» |
+
+**Qué pasa si el pago falla** (D-9). El rechazo **conserva la reserva**: el cliente reintenta, con otra
+tarjeta o por la otra pasarela, sobre **el mismo pedido**, y la mercadería lo espera. La reserva dura 20
+minutos y **nunca vence con un intento pendiente**: si el intento termina después, la reserva se estira
+hasta él. Pasado el plazo sin un pago aprobado, la tarea de cada minuto primero le pregunta al proveedor
+por última vez y, si no hay pago, cancela el pedido y devuelve el stock. Un pago aprobado que no se pudo
+acreditar (por ejemplo, un producto dado de baja mientras tanto) **no se pierde ni cancela el pedido**:
+queda «en revisión» y la tarea reintenta acreditarlo. Si Mercado Pago no contesta, el intento sigue
+pendiente: la plata pudo haber entrado, y el sistema no afirma lo que no puede verificar.
+
+#### `POST /api/v1/pedidos/{id}/pagos`
+
+Protegida, `tienda.comprar`. **Inicia** un intento sobre un pedido propio por pasarela, pendiente y con
+la reserva vigente.
+
+| Parámetro | Dónde | Tipo | Obligatorio | Regla |
+| --- | --- | --- | --- | --- |
+| `id` | ruta | entero | sí | Un pedido de la cuenta. Ajeno o inexistente: 404 |
+| `pasarela` | cuerpo | texto | sí | `mercadopago` o `simulador` |
+
+**201** con el intento nuevo y `"mensaje": "Iniciaste el pago."`. Si el pedido ya tiene un intento
+pendiente, **200** con **ese** intento y `"mensaje": "Ya tenías un pago en curso para este pedido."`
+(§6.6 del plan): como mucho un intento pendiente por pedido, aunque el segundo pida la otra pasarela.
+
+- Con Mercado Pago, `url_pago` es adonde mandar al cliente. Si la preferencia no se pudo crear, el
+  intento vuelve con `estado: "error"` y se puede iniciar otro.
+- Errores: 401, 403 `sin_permiso`, 404 `no_encontrado`, 409 `regla_de_negocio` (pedido de contado,
+  cobrado, cancelado o con la reserva vencida; pasarela no disponible: el simulador apagado o Mercado
+  Pago sin credencial), 422 `validacion` (`pasarela` fuera de la lista).
+
+#### `GET /api/v1/pedidos/{id}/pagos`
+
+Protegida, `tienda.ver_pedidos`. Los intentos del pedido, **el último primero** (desempata por `id`).
+Paginado (§2: `pagina`, `por_pagina`); `criterios` vacío.
+
+```json
+{
+  "datos": [
+    { "id": 18, "pasarela": "simulador", "pasarela_texto": "Simulador de pagos — no es un cobro real", "estado": "pendiente", "...": "la forma del intento" },
+    { "id": 17, "pasarela": "mercadopago", "pasarela_texto": "Mercado Pago", "estado": "rechazado", "...": "la forma del intento" }
+  ],
+  "pagina": 1,
+  "por_pagina": 20,
+  "ultima_pagina": 1,
+  "total": 2,
+  "criterios": {}
+}
+```
+
+Errores: 401, 403, 404 (pedido ajeno), 422 (`por_pagina` sobre el tope).
+
+#### `GET /api/v1/pedidos/{id}/pagos/{intento}`
+
+Protegida, `tienda.ver_pedidos`. **El resultado.** Si el intento está pendiente, **antes de responder el
+servidor consulta al proveedor** y aplica lo que dice: aprobado (y acredita el pago), rechazado, o
+vencido si el plazo pasó. Es lo que la app llama al volver de Mercado Pago, y lo que ofrece como «Volver
+a consultar». **200** con el intento. Un intento de otro pedido, aunque sea propio, es 404.
+
+#### `POST /api/v1/simulador/intentos/{intento}/aprobar` y `…/rechazar`
+
+Protegida, `tienda.comprar`. **Simulador de pagos — no es un cobro real.** Existen **sólo con
+`tienda.pagos.simulador` encendido** (`TIENDA_SIMULADOR`); en producción no hay ruta (404). Resuelven un
+intento pendiente del simulador por el mismo camino que Mercado Pago: aprobar deja el pedido pagado con un
+pago de método «Simulador — no es cobro real»; rechazar no escribe ningún pago y conserva la reserva.
+
+**200** con el intento y `"mensaje": "El simulador aprobó el pago."` (o «…rechazó el pago.»).
+
+Errores: 401, 403, 404 (intento ajeno), 409 `regla_de_negocio` (ya resuelto, no es del simulador, o el
+simulador se apagó).
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -855,3 +981,4 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
 | 6 | K | `PATCH /perfil` (parcial; documento con dígito verificador; lo fiscal, el correo y los importes, 422); `GET /perfil` suma `tipo_doc` + `_texto`, `nro_doc` y `condicion_iva` + `_texto` |
 | 7 | K | `direccion.provincia` en `PATCH /perfil` y `POST /pedidos`: de texto de hasta 100 a **una de la lista cerrada** de 24 (§5), 422 «Elegí una provincia de la lista.»; una dirección vieja puede traer en `GET /perfil` una fuera de la lista (HL-69) |
 | 4 | E | `GET` y `DELETE /carrito`, `POST /carrito/lineas`, `PATCH` y `DELETE /carrito/lineas/{linea}`, `POST /carrito/checkout`; se emiten `stock_insuficiente` y `carrito_cambio` (con `cambios`); importes en la solicitud, 422; dónde se guarda el carrito y cómo se asocia a la cuenta |
+| 8 | G | §7.5: `POST`, `GET /pedidos/{id}/pagos`, `GET /pedidos/{id}/pagos/{intento}` (consulta al proveedor si está pendiente) y `POST /simulador/intentos/{intento}/aprobar` y `/rechazar` (sólo con el simulador encendido); la forma del intento con `pedido.estado_pago`; la tabla del estado del pago y qué pasa si el pago falla (D-9) |

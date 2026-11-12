@@ -1195,6 +1195,8 @@ Servidor (`compustack`) y app (`compustack-app`). La app pasó de 546 a **673 te
 | `PerfilController::update` y la ruta | `PATCH /perfil`, protegida como el `GET`, sin permiso aparte; devuelve el perfil con `mensaje` | Nuevo |
 | `ReglasFiscales::EXIGEN_DOCUMENTO`, `ConfirmarPedidoRequest::CAMPOS_DIRECCION` | Pasan a públicas para reusarlas, sin cambiar lo que hacen | Modificado |
 | `docs/api.md` | Revisión 6: `PATCH /perfil` y los datos fiscales del `GET` | Modificado |
+| `ActualizarPerfilRequest` y `ConfirmarPedidoRequest` (`direccion.provincia`) | `Rule::in(Direccion::PROVINCIAS)`, como la web: una de las 24, 422 «Elegí una provincia de la lista.» (HL-69). Filas sumadas en el tramo G | Modificado |
+| `docs/api.md` (revisión 7) | La provincia de lista cerrada en §5 y en los dos endpoints que mandan dirección | Modificado |
 | `tests/Feature/Api/PerfilEdicionTest`, `Api/CuentaTest` | Lectura, validación en cada campo, guardado, la razón social, lo que no vino no se toca, el pedido ya hecho no cambia, el cajero ve lo mismo, 401 y la cuenta de gestión | Nuevo y modificado |
 
 > **El `PATCH` es parcial a propósito**: el paso 4 de la compra guarda sólo la dirección, y un CUIT que el
@@ -1218,3 +1220,36 @@ Servidor (`compustack`) y app (`compustack-app`). La app pasó de 546 a **673 te
 >
 > **Una provincia guardada antes de la revisión 7 que no está en la lista llega sin elegir** (HL-69): la app no la
 > da por buena ni la manda tal cual.
+
+### Tramo G — Pagos
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| Migraciones `create_intentos_pago_table`, `add_intento_pago_id_to_pagos_table`, `add_simulador_to_pagos_metodo` | Los intentos aparte de `pagos`; `pagos.intento_pago_id` FK UNIQUE (HL-2); `simulador` al final del ENUM (D-13) | Nuevo |
+| Migración `fix_timestamps_sin_on_update` | `intentos_pago.vence_at` y `pagos.fecha` sin el `ON UPDATE CURRENT_TIMESTAMP` implícito de MariaDB (HL-73); los valores guardados no cambian | Nuevo |
+| `IntentoPago` | Estados y pasarelas; no se borra; `aprobadoSinAcreditar()`, `acreditable()` e `IMPORTE_DISTINTO` (HL-72) | Nuevo |
+| `Pago` | `simulador` en `METODOS`; `METODOS_EN_USO` sin cambios (§1.3 G); `intentoPago()`; el motivo de por qué el mostrador no ofrece `mercadopago` | Modificado |
+| `App\Pagos\{Pasarela, Inicio, Consulta, PasarelaNoDisponible, Pasarelas}` | El contrato; `Consulta` distingue «contestó pendiente» de «no contestó» (`respondida`); `Pasarelas` resuelve por el contenedor y dice cuáles están habilitadas (Mercado Pago, sólo con credencial) | Nuevo |
+| `PasarelaSimulador` | Sin URL; la consulta devuelve lo guardado | Nuevo |
+| `PasarelaMercadoPago` | Checkout Pro con `Http`, sin SDK: preferencia con `expires` y vencimiento (HL-71), `X-Idempotency-Key`; búsqueda por `external_reference` con la regla de varios pagos y el importe (HL-72); sin red, pendiente | Nuevo |
+| `PagoService::acreditarIntento()` | El pago de la pasarela sin cajero, idempotente por `intento_pago_id`; comparte con `cobrar()` `exigirQueSePuedaCobrar()` y `escribirPago()`; `cobrar()` no cambia (HL-3) | Nuevo y modificado |
+| `IntentoPagoService` | `iniciar` (uno pendiente por pedido, estira la reserva), `verificar` (HTTP afuera, aplicar adentro, aprobado en su transacción), `resolverSimulado`, `verificarVencidos`, `reintentarAcreditaciones`, `pedidoDe` e `intentoDe` (ajeno: 404) | Nuevo |
+| `Venta` | `intentosPago()`, `ultimoIntentoPago()`, `delCliente()` (HL-70), `situacionDelPago()` y `estadoDelPago()` (regla 9) | Modificado |
+| `VentaService::cancelarVencidos()` y `tienda:vencer-reservas` | No cancela con un intento pendiente ni con un aprobado sin acreditar (HL-63, §1.3 E); el comando resuelve lo que está en el aire antes de cancelar | Modificado |
+| `PagoPedidoController`, `SimuladorController`, `IniciarPagoRequest`, `IntentoPagoResource` y las rutas | Los cinco endpoints de §7.5; el simulador, sólo con su llave; el intento lleva el estado del pago del pedido; sin `tienda.ver_precios`, sin `importe` | Nuevo |
+| `TextosTienda` | `SITUACION_PAGO` e `INTENTO`, con sus textos | Modificado |
+| `config/tienda.php`, `config/services.php`, `.env.example`, `phpunit.xml` | `intento_minutos` 20 (Q-1); el token de Mercado Pago sólo desde `.env`; los tests no leen el token real | Modificado |
+| `docs/api.md` | Revisión 8: §7.5 pagos, la tabla del estado del pago y la política ante pago fallido (D-9) | Modificado |
+| `tests/Feature/{IntentoPagoEsquema,Pasarelas,PasarelaMercadoPago,AcreditarIntento,IntentoPagoService}Test`, `Api/PagoTest`, `VentaOnlineServiceTest` | El esquema, la traducción de cada estado del proveedor, la acreditación una sola vez, el rechazo sin pago y con la reserva, el reintento, lo que queda en el aire, el vencimiento, lo ajeno 404 | Nuevo y modificado |
+
+> **Ninguna llamada HTTP con la venta bloqueada.** Se consulta afuera; adentro se bloquea la venta, se relee el
+> intento y se aplica sólo si sigue pendiente. El aprobado se guarda en su transacción y se acredita en otra: si
+> la acreditación falla, la aprobación queda y el comando la reintenta.
+>
+> **Un intento sólo vence si el proveedor contestó.** Sin respuesta, la plata pudo haber entrado: el intento
+> sigue pendiente y el pedido no se cancela (regla 16).
+>
+> **La prueba contra el sandbox real** (antes del paso 4): una preferencia creada con la credencial de prueba
+> volvió con la misma `external_reference`, `expires: true` y el vencimiento exacto del intento.

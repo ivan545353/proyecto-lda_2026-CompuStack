@@ -471,6 +471,10 @@ la §1.3 se nombran por su letra.
 | HL-67 | El documento es opcional | `UNIQUE(tipo_doc, nro_doc)`, y Responsable inscripto y Monotributo exigen documento (`ReglasFiscales::EXIGEN_DOCUMENTO`) | 422 en `nro_doc` si es de otro cliente (también si choca al guardar) o si esa condición lo quiere quitar | K |
 | HL-68 | «La dirección predeterminada (la crea, la cambia o la quita)» | El cliente puede tener varias, cargadas en la web, y `DireccionService` no deja ninguna sin predeterminada | `direccion: null` borra la predeterminada con `DireccionService::eliminar` y asciende la más antigua; el perfil propone esa. Ningún pedido apunta a `direcciones` (copia `entrega_*`) | K |
 | HL-69 | La dirección de la API se valida como la de la web | La web valida `provincia` con `Rule::in(Direccion::PROVINCIAS)` y arma el selector con esa lista; `PATCH /perfil` y `POST /pedidos` sólo pedían `string\|max:100`: «Chubutt» quedaba en el pedido y en la predeterminada, y el selector del cajero la mostraba vacía | Los dos requests suman `Rule::in(Direccion::PROVINCIAS)`, 422 en `direccion.provincia` con el texto de la web. Las 24 van escritas en el contrato (`api.md` revisión 7, §5), sin endpoint: son fijas. Lo ya guardado no se corrige (M-16): la app hace elegir de nuevo una provincia fuera de la lista | K |
+| HL-70 | «Los pedidos se buscan con `delCliente()`» | No existía: está `Venta::deCliente($id)`, un **filtro del listado** del cajero que con `null` no filtra. Usarlo para la pertenencia dejaría ver todo | `Venta::delCliente(Cliente)`: siempre filtra, por cliente y canal online. `IntentoPagoService::pedidoDe()` e `intentoDe()` lo usan; ajeno, 404 | G |
+| HL-71 | La preferencia vence con `expiration_date_to` | La documentación de Mercado Pago (verificada en el tramo, §14.3) pide además `expires: true`, y la fecha en ISO 8601 con zona | La preferencia lleva `expires`, `expiration_date_from` y `expiration_date_to`; probado contra el sandbox con la credencial de prueba | G |
+| HL-72 | `consultar()` traduce **el** estado del pago | Una `external_reference` puede tener **varios** pagos: el comprador reintenta dentro de Checkout Pro tras un rechazo. Y un `approved` no dice por cuánto | Manda el `approved`; si no, uno en curso (`pending`, `in_process`, `authorized`) es pendiente; rechazado sólo si todos lo fueron; `refunded` o un estado desconocido, pendiente; otra moneda no cuenta. Un aprobado por otro importe queda `aprobado` con `importe_distinto`, no se acredita solo y el pedido dice «en revisión» | G |
+| HL-73 | `vence_at` es un `TIMESTAMP NOT NULL` | En MariaDB con `explicit_defaults_for_timestamp` apagado, el primer `TIMESTAMP NOT NULL` sin `DEFAULT` recibe `ON UPDATE CURRENT_TIMESTAMP`: guardar la `url_pago` le pisaba el vencimiento con la hora de la sesión, y el intento de Mercado Pago nacía vencido. Los tests del simulador no lo veían (no hay `UPDATE`) | Una migración (`fix_timestamps_sin_on_update`) les da `DEFAULT` explícito (`useCurrent()->change()`) a `vence_at` y a **`pagos.fecha`** (Etapa 1), que tenía la misma trampa: hoy ningún camino actualiza un pago, pero el primero le cambiaría la fecha del cobro. Los 10.146 pagos de la base conservaron su fecha. Un test de comportamiento por columna | G |
 
 ---
 
@@ -1772,8 +1776,9 @@ lados, se plantea y se decide antes de escribir código, y se agrega acá con su
   `descripcion_breve.palabras` 25, a los que el tramo suma `descripcion_breve.caracteres` 250 (pendiente
   #83). **`carrito.cantidad_maxima` 10, confirmado en el tramo E**: alcanza para una compra de hogar o pyme y frena
   el carrito que acapara stock. **`envio.costo` 8.000, decidido en el tramo F**: un costo fijo distinto de cero,
-  para que el envío se vea en el total y en los tests; los envíos calculados son de la Etapa 4. Queda
-  `pagos.intento_minutos`.
+  para que el envío se vea en el total y en los tests; los envíos calculados son de la Etapa 4.
+  **`pagos.intento_minutos` 20, decidido en el tramo G**: igual que `reservas.pasarela_minutos`, un solo plazo;
+  si el intento termina después que la reserva, la reserva se estira hasta él (D-9). Q-1 queda cerrada.
 
 ---
 
@@ -1869,7 +1874,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | E — Carrito y reserva | [x] | [x] | [x] `api.md` r4, `modelo-datos` §4, `trazabilidad` §15 (los dos lados), HL-57 a HL-60, Q-1 (`cantidad_maxima`), reglas 31 y 32 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
 | F — Confirmación del pedido | [x] | [x] | [x] `api.md` r5, `modelo-datos` §4 y §5, `trazabilidad` §15 (los dos lados), HL-61 a HL-64, Q-1 (`envio.costo`), D-22 y el tramo K, `README` y `ARQUITECTURA` de la app | Cerrado |
 | K — Cuenta editable (entre F y G) | [x] | [x] | [x] `api.md` r6 y r7, `modelo-datos` §1, `trazabilidad` §15 (los dos lados), HL-65 a HL-69, regla 34 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
-| G — Pagos | [ ] | [ ] | [ ] | Pendiente |
+| G — Pagos | [x] | [ ] | [x] `api.md` r8, `modelo-datos` §5 y §10, `trazabilidad` §15 (servidor, y las filas de HL-69 del K), HL-70 a HL-73, Q-1 cerrada (`intento_minutos`) | En curso (falta la app y la prueba con Mercado Pago) |
 | H — Consulta de compras | [ ] | [ ] | [ ] | Pendiente |
 | I — Pruebas, documentación y demostración | [ ] | [ ] | [ ] | Pendiente |
 | J — Contenido que invita a comprar (opcional) | — | [ ] | [ ] | Opcional, al final |

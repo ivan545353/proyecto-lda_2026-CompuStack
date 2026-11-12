@@ -4,11 +4,13 @@ use App\Http\Controllers\Api\V1\CarritoController;
 use App\Http\Controllers\Api\V1\CarritoLineaController;
 use App\Http\Controllers\Api\V1\CategoriaController;
 use App\Http\Controllers\Api\V1\CheckoutController;
+use App\Http\Controllers\Api\V1\PagoPedidoController;
 use App\Http\Controllers\Api\V1\PedidoController;
 use App\Http\Controllers\Api\V1\PerfilController;
 use App\Http\Controllers\Api\V1\ProductoController;
 use App\Http\Controllers\Api\V1\RegistroController;
 use App\Http\Controllers\Api\V1\SesionController;
+use App\Http\Controllers\Api\V1\SimuladorController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -76,6 +78,22 @@ Route::prefix('v1')->group(function () {
             Route::post('carrito/checkout', [CheckoutController::class, 'store']);
             // Confirma el checkout (tramo F). Idempotente por `carrito_id` (D-8).
             Route::post('pedidos', [PedidoController::class, 'store']);
+
+            // Pagar (tramo G). Como mucho un intento pendiente por pedido (§6.6). Ajeno, 404.
+            Route::post('pedidos/{pedido}/pagos', [PagoPedidoController::class, 'store'])->whereNumber('pedido');
+
+            // El simulador existe sólo con su llave encendida: en producción no hay ruta (D-13).
+            if (config('tienda.pagos.simulador')) {
+                Route::post('simulador/intentos/{intento}/aprobar', [SimuladorController::class, 'aprobar'])->whereNumber('intento');
+                Route::post('simulador/intentos/{intento}/rechazar', [SimuladorController::class, 'rechazar'])->whereNumber('intento');
+            }
+        });
+
+        // Leer los pagos (tramo G). Si el intento está pendiente, `show` consulta al proveedor antes.
+        Route::middleware('can:tienda.ver_pedidos')->group(function () {
+            Route::get('pedidos/{pedido}/pagos', [PagoPedidoController::class, 'index'])->whereNumber('pedido');
+            Route::get('pedidos/{pedido}/pagos/{intento}', [PagoPedidoController::class, 'show'])
+                ->whereNumber(['pedido', 'intento']);
         });
     });
 });

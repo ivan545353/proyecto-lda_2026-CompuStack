@@ -287,3 +287,80 @@ test('el ranking de vendedores no cuenta la venta online y el panel general si',
         ->and($panel['cantidad'])->toBe(2)
         ->and($panel['facturado'])->toBe(3000.0);
 });
+
+// ---------- lo que está en el aire no se cancela (tramo G, HL-63) ----------
+
+test('un pedido vencido con un intento pendiente no se cancela', function () {
+    config(['tienda.pagos.simulador' => true]);
+    $producto = ($this->tiendaProducto)(10);
+    $venta    = ($this->tiendaPedido)($producto, 2, 'pasarela');
+    app(\App\Services\IntentoPagoService::class)->iniciar($venta, 'simulador');
+    $this->travel(21)->minutes();
+
+    expect($this->ventas->cancelarVencidos())->toBe(0)
+        ->and($venta->fresh()->estado)->toBe('pendiente_pago')
+        ->and($producto->fresh()->stock_reservado)->toBe(2);
+});
+
+test('un pedido vencido con un aprobado sin acreditar no se cancela; con un rechazo, si', function () {
+    config(['tienda.pagos.simulador' => true]);
+    $intentos  = app(\App\Services\IntentoPagoService::class);
+    $producto  = ($this->tiendaProducto)(10);
+    $aprobado  = ($this->tiendaPedido)($producto, 1, 'pasarela');
+    $rechazado = ($this->tiendaPedido)($producto, 1, 'pasarela');
+
+    ['intento' => $a] = $intentos->iniciar($aprobado, 'simulador');
+    ['intento' => $r] = $intentos->iniciar($rechazado, 'simulador');
+    $producto->update(['activo' => false]);   // la acreditación falla: queda aprobado sin acreditar
+    $intentos->resolverSimulado($a, 'aprobado');
+    $intentos->resolverSimulado($r, 'rechazado');
+    $this->travel(21)->minutes();
+
+    expect($this->ventas->cancelarVencidos())->toBe(1)
+        ->and($aprobado->fresh()->estado)->toBe('pendiente_pago')
+        ->and($rechazado->fresh()->estado)->toBe('cancelada')
+        ->and($producto->fresh()->stock_reservado)->toBe(1);
+});
+
+test('el comando cierra el intento vencido y despues cancela el pedido y libera la reserva', function () {
+    config(['tienda.pagos.simulador' => true]);
+    $producto = ($this->tiendaProducto)(10);
+    $venta    = ($this->tiendaPedido)($producto, 3, 'pasarela');
+    ['intento' => $intento] = app(\App\Services\IntentoPagoService::class)->iniciar($venta, 'simulador');
+    $this->travel(21)->minutes();
+
+    // `output()` vacía lo que lee: se guarda una vez.
+    expect(\Illuminate\Support\Facades\Artisan::call('tienda:vencer-reservas'))->toBe(0);
+    $salida = \Illuminate\Support\Facades\Artisan::output();
+
+    expect($salida)->toContain('Intentos vencidos resueltos: 1.')
+        ->and($salida)->toContain('Pedidos vencidos cancelados: 1.');
+
+    expect($intento->fresh()->estado)->toBe('vencido')
+        ->and($venta->fresh()->estado)->toBe('cancelada')
+        ->and($producto->fresh()->stock_reservado)->toBe(0)
+        ->and(\App\Models\Pago::count())->toBe(0);
+});
+
+test('el comando acredita un aprobado pendiente antes de mirar vencimientos', function () {
+    config(['tienda.pagos.simulador' => true]);
+    $intentos = app(\App\Services\IntentoPagoService::class);
+    $producto = ($this->tiendaProducto)(10);
+    $venta    = ($this->tiendaPedido)($producto, 2, 'pasarela');
+    ['intento' => $intento] = $intentos->iniciar($venta, 'simulador');
+    $producto->update(['activo' => false]);
+    $intentos->resolverSimulado($intento, 'aprobado');
+    $producto->update(['activo' => true]);
+    $this->travel(21)->minutes();
+
+    expect(\Illuminate\Support\Facades\Artisan::call('tienda:vencer-reservas'))->toBe(0);
+    $salida = \Illuminate\Support\Facades\Artisan::output();
+
+    expect($salida)->toContain('Pagos acreditados: 1.')
+        ->and($salida)->toContain('Pedidos vencidos cancelados: 0.');
+
+    expect($venta->fresh()->estado)->toBe('pagada')
+        ->and(\App\Models\Pago::count())->toBe(1)
+        ->and($producto->fresh()->stock)->toBe(8)
+        ->and($producto->fresh()->stock_reservado)->toBe(0);
+});

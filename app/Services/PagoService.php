@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\ReglaDeNegocioException;
+use App\Models\IntentoPago;
 use App\Models\Pago;
 use App\Models\User;
 use App\Models\Venta;
@@ -110,7 +111,8 @@ use Illuminate\Support\Facades\DB;
  * total.
  *
  * Métodos:
- *   cobrar()  registra los medios de pago por el total exacto y pasa la venta a pagada
+ *   cobrar()            registra los medios de pago por el total exacto y pasa la venta a pagada
+ *   acreditarIntento()  escribe el pago de un intento de pasarela aprobado, sin cajero (tramo G)
  */
 class PagoService
 {
@@ -186,48 +188,18 @@ class PagoService
             }
 
             // Punto 4. La pregunta se la hace la tabla, no un `if` con un literal.
-            if (! MaquinaEstadosVenta::puede($v->estado, 'pagada')) {
-                throw new ReglaDeNegocioException(
-                    "La venta {$v->numeroFormateado()} está «{$v->estadoTexto()}» y en ese estado no se "
-                    .'cobra. Una venta se cobra una sola vez: si hay que devolver lo que entró, el camino '
-                    .'es la devolución.'
-                );
-            }
-
             // Punto 5. El saldo, DESPUÉS del lock. Acá está el hallazgo.
-            $saldo       = $v->saldo();
-            $enCentavos  = $this->centavos($saldo);
-            $cobrado     = array_sum(array_map(
+            $this->exigirQueSePuedaCobrar($v, array_sum(array_map(
                 fn (array $pago) => $this->centavos($pago['monto']),
                 $pagos,
-            ));
+            )));
 
-            if ($cobrado !== $enCentavos) {
-                throw $this->desajusteDeSaldo($v, $saldo, $cobrado / 100);
-            }
-
-            // Punto 6. Las filas de pago.
+            // Punto 6. Las filas de pago. En el mostrador la fecha del hecho es ahora.
             foreach ($pagos as $datosPago) {
-                // De la fila sólo son asignables `metodo` y `monto`, que es lo único
-                // que manda el formulario. El cajero, la fecha y la clave del webhook
-                // se escriben por asignación directa: un `create()` con ellos adentro
-                // los descartaría en silencio.
-                $pago = $v->pagos()->make([
-                    'metodo' => $datosPago['metodo'],
-                    'monto'  => round((float) $datosPago['monto'], 2),
-                ]);
-
-                $pago->usuario_id = $usuario->id;
-
-                // `fecha` es NOT NULL y sin DEFAULT, así que todo camino que escriba
-                // un pago tiene que asignarla. Es la fecha del hecho y no la de la
-                // fila: en el mostrador coinciden con `created_at`, y un webhook que
-                // llega con atraso no.
-                $pago->fecha = now();
-
-                $pago->mp_payment_id = $datosPago['mp_payment_id'] ?? null;
-
-                $pago->save();
+                $this->escribirPago(
+                    $v, $datosPago['metodo'], $datosPago['monto'], $usuario->id, now(),
+                    $datosPago['mp_payment_id'] ?? null,
+                );
             }
 
             // El pase a `pagada`, que es el que descuenta el stock exactamente una
@@ -237,9 +209,109 @@ class PagoService
         });
     }
 
+    /**
+     * Acredita un intento de pasarela aprobado: escribe su pago y pasa el pedido a pagada (HL-3).
+     *
+     * Mismo orden que `cobrar()`, sin cajero: el lock de la venta como primera lectura, la
+     * idempotencia antes del estado (`pagos.intento_pago_id` UNIQUE, HL-2), la tabla de
+     * transiciones y el saldo exacto en centavos. Si algo falla, el intento sigue `aprobado` con
+     * `acreditado_at` nulo y el comando lo reintenta: la aprobación no se pierde (§1.3 E).
+     *
+     * @throws ReglaDeNegocioException
+     * @throws \App\Exceptions\TransicionInvalidaException
+     * @throws \App\Exceptions\StockInsuficienteException
+     */
+    public function acreditarIntento(IntentoPago $intento): Venta
+    {
+        return DB::transaction(function () use ($intento) {
+            // Primera lectura de la venta, y con lock: serializa con `cobrar()` y con otra acreditación.
+            $v = Venta::lockForUpdate()->findOrFail($intento->venta_id);
+            $i = IntentoPago::lockForUpdate()->findOrFail($intento->id);
+
+            if (Pago::where('intento_pago_id', $i->id)->exists()) {
+                return $v;   // ya acreditado: el mismo intento dos veces no escribe nada
+            }
+
+            if ($i->estado !== 'aprobado') {
+                throw new ReglaDeNegocioException(
+                    "El intento de pago del pedido {$v->numeroFormateado()} no está aprobado, así que no hay nada que acreditar."
+                );
+            }
+
+            $this->exigirQueSePuedaCobrar($v, $this->centavos($i->importe));
+
+            // Sin cajero: lo acreditó la consulta al proveedor. La fecha es la de la aprobación.
+            $this->escribirPago(
+                $v, $i->pasarela, $i->importe, null, $i->resuelto_at ?? now(),
+                $i->pasarela === 'mercadopago' ? $i->payment_id : null, $i->id,
+            );
+
+            $venta = $this->ventas->marcarPagada($v, null);
+
+            $i->acreditado_at = now();
+            $i->save();
+
+            return $venta;
+        });
+    }
+
     // ------------------------------------------------------------------
     // Interno
     // ------------------------------------------------------------------
+
+    /**
+     * Los puntos 4 y 5 del cobro, compartidos con la acreditación: la tabla de transiciones y el
+     * saldo exacto, leído con la venta ya bloqueada.
+     *
+     * @throws ReglaDeNegocioException
+     */
+    private function exigirQueSePuedaCobrar(Venta $v, int $cobradoEnCentavos): void
+    {
+        if (! MaquinaEstadosVenta::puede($v->estado, 'pagada')) {
+            throw new ReglaDeNegocioException(
+                "La venta {$v->numeroFormateado()} está «{$v->estadoTexto()}» y en ese estado no se "
+                .'cobra. Una venta se cobra una sola vez: si hay que devolver lo que entró, el camino '
+                .'es la devolución.'
+            );
+        }
+
+        $saldo = $v->saldo();
+
+        if ($cobradoEnCentavos !== $this->centavos($saldo)) {
+            throw $this->desajusteDeSaldo($v, $saldo, $cobradoEnCentavos / 100);
+        }
+    }
+
+    /**
+     * Una fila de `pagos`, campo por campo (regla 19).
+     *
+     * De la fila sólo son asignables `metodo` y `monto`. El cajero, la fecha, la clave del
+     * proveedor y el intento se escriben por asignación directa: un `create()` con ellos
+     * adentro los descartaría en silencio. `fecha` es NOT NULL y sin DEFAULT: es la del hecho,
+     * no la de la fila.
+     */
+    private function escribirPago(
+        Venta $v,
+        string $metodo,
+        float|string $monto,
+        ?int $usuarioId,
+        \DateTimeInterface $fecha,
+        ?string $mpPaymentId = null,
+        ?int $intentoId = null,
+    ): Pago {
+        $pago = $v->pagos()->make([
+            'metodo' => $metodo,
+            'monto'  => round((float) $monto, 2),
+        ]);
+
+        $pago->usuario_id      = $usuarioId;
+        $pago->fecha           = $fecha;
+        $pago->mp_payment_id   = $mpPaymentId;
+        $pago->intento_pago_id = $intentoId;
+        $pago->save();
+
+        return $pago;
+    }
 
     /**
      * ¿Es el mismo pago externo que ya se acreditó?

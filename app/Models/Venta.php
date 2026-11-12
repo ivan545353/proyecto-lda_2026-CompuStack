@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Builder;
 use LogicException;
@@ -22,6 +23,9 @@ use LogicException;
  *   pagos()        HasMany     con qué se cobró; el cajero vive en la fila del pago
  *   movimientos()  MorphMany   lo que salió del depósito por esta venta
  *   carrito()      BelongsTo   el carrito de la tienda del que nació; null en el mostrador
+ *   intentosPago() HasMany     los intentos de pago por pasarela (tramo G)
+ *
+ * Pertenencia (API): delCliente($cliente)   los pedidos de la tienda de ese cliente; siempre filtra
  *
  * Scopes (uno por filtro del listado; el contrato está declarado acá y en
  * VentaFiltroRequest):
@@ -42,6 +46,8 @@ use LogicException;
  *   descuentoPorcentaje()  el porcentaje, derivado del monto guardado
  *   pagado()               cuánta plata quedó de esta venta, sumada en la base
  *   saldo()                lo que falta cobrar; se lee DESPUÉS del lock
+ *   situacionDelPago()     la situación del pago, derivada; elige el texto para el cliente
+ *   estadoDelPago()        aprobado, pendiente, en_revision, rechazado o sin_cobrar (tramo G)
  *   tienePendientesDeDevolver()  si queda algo sin devolver; de acá sale el estado
  *   clienteTexto()         «Sin identificar» cuando no hay cliente
 
@@ -162,6 +168,18 @@ class Venta extends Model
         return $this->belongsTo(Carrito::class, 'carrito_id');
     }
 
+    /** Cada intento de pagar el pedido por una pasarela (tramo G). */
+    public function intentosPago(): HasMany
+    {
+        return $this->hasMany(IntentoPago::class, 'venta_id');
+    }
+
+    /** El último intento: decide el estado del pago. Relación, para leerlo una vez por pedido. */
+    public function ultimoIntentoPago(): HasOne
+    {
+        return $this->hasOne(IntentoPago::class, 'venta_id')->latestOfMany('id');
+    }
+
     /** Lo que salió del depósito por esta venta, con su fecha y su usuario. */
     public function movimientos(): MorphMany
     {
@@ -228,6 +246,49 @@ class Venta extends Model
         return round((float) $this->total - $this->pagado(), 2);
     }
     
+    /**
+     * En qué situación está el pago del pedido, derivada de los datos (regla 9, plan tramo G).
+     * Es más fina que `estadoDelPago()`: las tres formas de «pendiente» se dicen distinto.
+     *
+     * @return 'pagado'|'contado'|'esperando'|'en_revision'|'rechazado'|'falta_pagar'|'sin_cobrar'
+     */
+    public function situacionDelPago(): string
+    {
+        if (in_array($this->estado, self::ESTADOS_VENDIDOS, true)) {
+            return 'pagado';
+        }
+
+        if ($this->estado === 'cancelada') {
+            return 'sin_cobrar';
+        }
+
+        if ($this->medio_pago === 'contado') {
+            return 'contado';
+        }
+
+        $ultimo = $this->ultimoIntentoPago;
+
+        return match (true) {
+            $ultimo === null                  => 'falta_pagar',
+            $ultimo->estado === 'pendiente'   => 'esperando',
+            $ultimo->aprobadoSinAcreditar()   => 'en_revision',
+            $ultimo->estado === 'rechazado'   => 'rechazado',
+            default                           => 'falta_pagar',   // vencido o con error
+        };
+    }
+
+    /** @return 'aprobado'|'pendiente'|'en_revision'|'rechazado'|'sin_cobrar' */
+    public function estadoDelPago(): string
+    {
+        return match ($this->situacionDelPago()) {
+            'pagado'                            => 'aprobado',
+            'contado', 'esperando', 'falta_pagar' => 'pendiente',
+            'en_revision'                       => 'en_revision',
+            'rechazado'                         => 'rechazado',
+            'sin_cobrar'                        => 'sin_cobrar',
+        };
+    }
+
     /**
      * ¿Queda algo sin devolver?
      */
@@ -345,6 +406,15 @@ class Venta extends Model
             ctype_digit((string) $id),
             fn (Builder $query) => $query->where('ventas.cliente_id', (int) $id),
         );
+    }
+
+    /**
+     * Los pedidos de la tienda de este cliente: la pertenencia de la API (HL-70). No es
+     * `deCliente()`, que es un filtro del listado y sin valor no filtra; éste siempre filtra.
+     */
+    public function scopeDelCliente(Builder $query, Cliente $cliente): Builder
+    {
+        return $query->where('ventas.cliente_id', $cliente->id)->where('ventas.canal', 'online');
     }
 
     /**

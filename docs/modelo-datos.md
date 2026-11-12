@@ -974,9 +974,11 @@ lugar de «demora un poco más».
 **Por qué una sola tabla para mostrador y online.** Lo confirmaste (31). Son el mismo hecho económico con distinto origen. Duplicarlas obligaría a duplicar líneas, pagos, comprobantes, devoluciones y todas las consultas del dashboard. `canal` es una columna.
 
 ### `pagos`
-`id, venta_id FK, metodo, monto, comision, neto_acreditado, cuotas, mp_payment_id varchar UNIQUE null, mp_status, usuario_id FK null, fecha`
+`id, venta_id FK, metodo, monto, comision, neto_acreditado, cuotas, mp_payment_id varchar UNIQUE null, mp_status, usuario_id FK null, fecha, intento_pago_id FK UNIQUE null`
 
-`metodo`: `efectivo`, `transferencia`, `qr`, `mercadopago`.
+`metodo`: `efectivo`, `transferencia`, `qr`, `mercadopago`, `simulador`. El cajero ofrece los tres primeros (`Pago::METODOS_EN_USO`); `mercadopago` y `simulador` los escribe sólo `PagoService::acreditarIntento()`, después de que el proveedor confirmó. `simulador` («Simulador — no es cobro real», D-13) entró en el tramo G **al final** del ENUM: con la tabla cargada, es lo único que MariaDB agrega sin reescribir cada fila.
+
+`intento_pago_id` (tramo G, HL-2): el intento que este pago acredita; null en el mostrador. **UNIQUE**: un intento aprobado da, como mucho, un pago. `mp_payment_id` no alcanzaba para eso: el simulador no tiene identificador de Mercado Pago, e inventarle uno en una columna `mp_*` afirmaría algo falso. `mp_payment_id` sigue guardando el identificador real del proveedor.
 
 **Por qué sigue siendo tabla aparte si eliminaste los pagos parciales.** Por dos motivos que no dependen de eso:
 
@@ -985,7 +987,20 @@ lugar de «demora un poco más».
 
 `usuario_id` es el cajero que cobró — lo que permite separar "quién vendió" de "quién cobró" en las métricas. Es nullable: un pago que aprueba la pasarela no tiene cajero.
 
-**`pagos` es el libro de la plata, no el registro de intentos.** El panel suma `SUM(pagos.monto)` y el saldo de la venta sale de ahí, así que una fila es plata que entró o que volvió. **Un intento de pago rechazado no puede ser una fila de `pagos`**: inflaría lo cobrado. La consigna de la Etapa 2 pide que los intentos —pendientes, aprobados y rechazados— queden registrados y asociados al pedido, así que van en una tabla propia, que diseña el plan de esa etapa; `pagos` recibe sólo el intento aprobado. El simulador de pagos tampoco cabe hoy: `metodo` no tiene un valor para él, y registrarlo como `mercadopago` afirmaría algo falso.
+**`pagos` es el libro de la plata, no el registro de intentos.** El panel suma `SUM(pagos.monto)` y el saldo de la venta sale de ahí, así que una fila es plata que entró o que volvió. **Un intento de pago rechazado no puede ser una fila de `pagos`**: inflaría lo cobrado. La consigna de la Etapa 2 pide que los intentos —pendientes, aprobados y rechazados— queden registrados y asociados al pedido, así que van en una tabla propia, `intentos_pago`; `pagos` recibe sólo el intento aprobado.
+
+### `intentos_pago`
+**Tramo G.** `id, venta_id FK, pasarela, estado, importe decimal(12,2), referencia uuid UNIQUE, url_pago null, payment_id null, detalle null, vence_at, resuelto_at null, acreditado_at null, timestamps`; índice (`venta_id`, `estado`).
+
+`pasarela`: `simulador`, `mercadopago`. `estado`: `pendiente`, `aprobado`, `rechazado`, `vencido`, `error`. `vencido` dice que el plazo pasó con respuesta del proveedor y sin pago; `error`, que no se pudo iniciar. Ninguno afirma un rechazo que no ocurrió (regla 16).
+
+- **Por qué no es `pagos`.** Un intento no movió plata hasta que el proveedor lo confirma; en el libro de la plata, uno rechazado inflaría lo cobrado. El intento es el registro de lo que se intentó; el pago, de lo que entró.
+- `referencia` es la `external_reference` de Mercado Pago: con ella se buscan los pagos del intento. Un intento puede tener varios pagos del lado del proveedor (el comprador reintenta dentro del checkout); manda el aprobado (HL-72).
+- `importe` se congela al nacer (el saldo del pedido). Un aprobado por otro importe queda `aprobado` con `detalle = importe_distinto` y no se acredita solo: lo revisa una persona.
+- `aprobado` con `acreditado_at` nulo es «aprobado sin acreditar»: la plata entró y su fila en `pagos` todavía no (§1.3 E del plan). El pedido no se cancela, y la tarea programada reintenta.
+- **Como mucho un intento `pendiente` por pedido**, verificado con la venta bloqueada (§6.6 del plan). Un pedido con un intento pendiente, o aprobado sin acreditar, no vence (D-9).
+- `vence_at` es `TIMESTAMP NOT NULL` **con `DEFAULT` explícito** (HL-73): en MariaDB, sin él, la primera columna así de la tabla recibe `ON UPDATE CURRENT_TIMESTAMP`, y cada `UPDATE` del intento le pisaba el vencimiento. `pagos.fecha` tenía la misma definición y se corrigió en la misma migración, sin cambiar ningún valor guardado.
+- No se borra (M-16): se resuelve o vence.
 
 ### `vales`
 **Etapa 4.** La consigna de la Etapa 2 no los pide.
@@ -1161,7 +1176,7 @@ congelados por renglón, lotes de ajuste y entregas).
 | Etapa 1 (backend Laravel, cerrada)                                                | Etapa 2 (tienda móvil)                                                | Etapa 4 (mejoras)                    |
 | --------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------ |
 | `users`, `roles`, `permisos`, `rol_permiso`                                       | `carritos`, `carrito_lineas`                                          | `comprobantes`, `comprobante_lineas` |
-| `clientes`, `empleados`, `direcciones`                                            | La tabla de intentos de pago                                          | `envios`                             |
+| `clientes`, `empleados`, `direcciones`                                            | `intentos_pago` y `pagos.intento_pago_id` (tramo G)                   | `envios`                             |
 | `categorias`, `marcas`, `productos`, `producto_proveedor`                         | `personal_access_tokens` (credenciales de la API; tramo A)            | `vales` y `ventas.vale_id`           |
 | `movimientos_stock`                                                               | Columnas de entrega y de idempotencia en `ventas` (las decide su plan) | `banners`                            |
 | `proveedores`, `ordenes_compra`, `orden_compra_lineas`                            |                                                                       | `carritos.session_token`             |
@@ -1181,7 +1196,7 @@ Casos concretos:
 
 - `ventas.estado` declara sus valores aunque la Etapa 1 sólo use `presupuesto`, `pagada`, `entregada_parcial`, `entregada`, `cancelada` y las dos devoluciones. Eran diez; el tramo H de la Fase 7.5 agregó `entregada_parcial`, cuando la tabla todavía no tenía datos que reescribir.
 - `ventas.canal` declara `mostrador` y `online` aunque la Etapa 1 sólo use el primero. El segundo es el de la app.
-- `pagos` se crea con `comision`, `neto_acreditado`, `cuotas` y `mp_payment_id` con índice único, todas nulas hasta que llegue Mercado Pago. Cuando llegue, no hay que tocar la tabla.
+- `pagos` se crea con `comision`, `neto_acreditado`, `cuotas` y `mp_payment_id` con índice único, todas nulas hasta que llegue Mercado Pago. Cuando llegó (tramo G), la tabla recibió sólo lo que la regla admite: una columna nullable (`intento_pago_id`) y un valor **al final** del ENUM (`simulador`), las dos cosas que MariaDB hace sin reescribir la tabla.
 - `venta_lineas.cantidad_devuelta` existe desde el inicio con valor cero.
 
 **Única excepción:** las claves foráneas que apuntan a tablas de etapas siguientes (`ventas.vale_id`) se agregan cuando exista la tabla destino, porque una FK no puede referenciar algo inexistente. Es un `ADD COLUMN` nullable, sin migración de datos.
@@ -1195,7 +1210,7 @@ Casos concretos:
 | Stock              | `movimientos_stock`                                                                 |
 | Compras            | `proveedores`, `producto_proveedor`, `ordenes_compra`, `orden_compra_lineas`        |
 | Carrito            | `carritos`, `carrito_lineas`                                                        |
-| Ventas             | `ventas`, `venta_lineas`, `venta_linea_impuestos`, `pagos`, `vales`                 |
+| Ventas             | `ventas`, `venta_lineas`, `venta_linea_impuestos`, `pagos`, `intentos_pago`, `vales` |
 | Facturación        | `comprobantes`, `comprobante_lineas`                                                |
 | Logística          | `envios`                                                                            |
 | Contenido          | `banners`                                                                           |
