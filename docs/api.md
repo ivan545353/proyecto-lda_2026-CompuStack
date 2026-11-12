@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 10** (final de la Etapa 2) · tramo I. Base: `/api/v1`.
+**Revisión 11** · tramo J (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -14,7 +14,7 @@ la cuenta editable (`PATCH /perfil`) y los datos fiscales en el perfil. La 7, la
 La 8, los pagos (§7.5): intentos por Mercado Pago y por el simulador. La 9, la consulta de compras (§7.6):
 mis pedidos, el detalle y el comprobante por enlace firmado. La 10 no cambia ninguna forma: es la revisión
 final, con cada endpoint pedido al servidor y sus ejemplos comparados con las respuestas reales (§7, al
-principio).
+principio). La 11 suma `GET /tienda` (§7.1), lo que la tienda ofrece, para el Inicio del tramo J.
 
 ## 1. Reglas generales
 
@@ -393,6 +393,31 @@ Ejemplo de 422 de cualquiera de los dos listados (`GET /api/v1/productos?orden=a
   "errores": { "orden": [ "Ese orden no existe. Podés usar: nombre, recientes, precio_asc, precio_desc." ] }
 }
 ```
+
+#### `GET /api/v1/tienda`
+
+Pública (revisión 11, tramo J). Lo que la tienda ofrece hoy, para que el Inicio lo muestre sin escribirlo
+en la app. Sin parámetros.
+
+```json
+{
+  "datos": {
+    "entrega": [
+      { "modo": "retiro", "texto": "Retiro en el local" },
+      { "modo": "envio", "texto": "Envío a domicilio" }
+    ]
+  }
+}
+```
+
+- `entrega`: retiro siempre y envío sólo con `tienda.envio.habilitado`, en ese orden. Son los mismos modos
+  y textos que ofrece el checkout (§7.3), y salen del mismo lugar (`TextosTienda::modosEntrega()`), así que
+  no pueden contradecirse.
+- **El costo del envío no viaja**, ni con sesión: el visitante no ve precios (regla 21). El checkout lo
+  sigue trayendo. Con o sin credencial la respuesta es la misma, y la ruta no lee la credencial: una
+  inválida no da 401.
+- Es un recurso, no un listado: no pagina.
+- Errores: ninguno propio.
 
 ### 7.2 Cuenta (tramo D)
 
@@ -1109,3 +1134,4 @@ Errores: 401, 403, 404 (ajeno o inexistente), 409 `regla_de_negocio` (todavía s
 | 8 | G | §7.5: `POST`, `GET /pedidos/{id}/pagos`, `GET /pedidos/{id}/pagos/{intento}` (consulta al proveedor si está pendiente) y `POST /simulador/intentos/{intento}/aprobar` y `/rechazar` (sólo con el simulador encendido); la forma del intento con `pedido.estado_pago`; la tabla del estado del pago y qué pasa si el pago falla (D-9) |
 | 9 | H | §7.6: `GET /pedidos` (sólo online, del más nuevo al más viejo, con los dos estados y `unidades`), `GET /pedidos/{id}` (la forma de `POST /pedidos` más `estado_pago`, `ultimo_pago` y `comprobante_disponible`), `GET /pedidos/{id}/comprobante` (URL firmada de cinco minutos; sin pagar, 409; firma vencida o tocada, 403). `POST /pedidos` no cambia |
 | 10 | I | Sin cambio de forma. Revisión final: cada endpoint pedido al servidor y comparado con su ejemplo (§7, «Verificación de la revisión 10»); los ejemplos, con los ids y las imágenes (`.webp`) del catálogo de demostración; este registro, en orden |
+| 11 | J | `GET /tienda` (pública): los modos de entrega vigentes con su texto, sin costo (HL-81). Ninguna forma anterior cambia; las rutas pasan a 25 (23 con el simulador apagado) |

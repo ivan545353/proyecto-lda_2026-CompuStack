@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\ProductoController;
 use App\Http\Controllers\Api\V1\RegistroController;
 use App\Http\Controllers\Api\V1\SesionController;
 use App\Http\Controllers\Api\V1\SimuladorController;
+use App\Http\Controllers\Api\V1\TiendaController;
 use App\Impresion\ComprobanteVenta;
 use Illuminate\Support\Facades\Route;
 
@@ -44,6 +45,9 @@ Route::prefix('v1')->group(function () {
     Route::group([], function () {
         // El árbol no depende de quién mira: no lee la credencial (plan §6.8).
         Route::get('categorias', [CategoriaController::class, 'index']);
+
+        // Lo que la tienda ofrece, para el bloque de confianza de Inicio (tramo J, HL-81). Sin precios.
+        Route::get('tienda', [TiendaController::class, 'show']);
 
         // Límite por correo e IP (AppServiceProvider): frena la prueba de contraseñas y el alta en masa.
         Route::middleware('throttle:tienda-acceso')->group(function () {

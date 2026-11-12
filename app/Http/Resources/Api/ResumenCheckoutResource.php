@@ -26,7 +26,7 @@ class ResumenCheckoutResource extends CarritoResource
             ...($conPrecios ? ['total' => Importe::json($totales[$lista])] : []),
         ], ['contado', 'pasarela'], ['contado', 'lista']);
 
-        $modos = config('tienda.envio.habilitado') ? ['retiro', 'envio'] : ['retiro'];
+        $modos = TextosTienda::modosEntrega();
 
         return [
             // El vencimiento es `reservado_hasta`, que ya trae el carrito.

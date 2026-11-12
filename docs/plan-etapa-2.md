@@ -483,6 +483,10 @@ la §1.3 se nombran por su letra.
 | HL-78 | §13: «Sesión vencida … D pendiente» | El D la probó de punta a punta (`sesion_vencida_test.dart`; `trazabilidad.md` §15, tramo D): la fila no se actualizó al cerrar el D | La fila pasa a «Hecho» | I |
 | HL-79 | «`README.md` del backend: `schedule:work`, `serve --host=0.0.0.0`, `storage:link`, las variables nuevas» | El README seguía en la Etapa 1: decía que el login rechazaba la cuenta de cliente «porque no hay tienda», ponía la API en una «Etapa 3», y no nombraba `tienda:vencer-reservas` ni las claves de la tienda | README al día (Estado, Alcance, Configuración, Ejecución, Tarea programada, Estructura, Documentación) | I |
 | HL-80 | «Hasta entonces `TIENDA_SIMULADOR=false`» (D-23) | `config/tienda.php` toma `env('TIENDA_SIMULADOR', true)`: sin la clave en `.env`, el simulador se enciende. El `.env` de desarrollo lo tenía encendido (la verificación de `api.md` encontró la ruta `/simulador/…` publicada), y `.env.example` decía «true en la demostración» | El valor por omisión pasa a `false`: sin la clave, apagado. `phpunit.xml` fija `TIENDA_SIMULADOR=true`, porque las rutas del simulador se registran al arrancar y los tests del G las usan (sin eso, 6 de `Api/PagoTest` daban 404). `.env.example` corregido | I |
+| HL-81 | «Tareas […] Todas con el contrato actual (sólo app)»; el bloque de confianza muestra el envío «sólo si `tienda.envio.habilitado`» | La llave sólo llega en `POST /carrito/checkout`, que exige sesión y carrito: el visitante de Inicio no tiene de dónde saberla | `GET /api/v1/tienda`, pública, con los modos de entrega y su texto, sin costo (regla 21). `api.md` r11. Los modos los decide `TextosTienda::modosEntrega()`, también para el checkout y la confirmación | J |
+| HL-82 | El J propone carruseles con «Ver todo», el botón fijo en la ficha e íconos en las categorías, y `lottie` para los vacíos | Los carruseles de Destacados y Novedades con «Ver todo» (C), la `BarraFija` de la ficha (E) y `Iconos.deCategoria` por nombre ya estaban. No hay ninguna animación `.json` en `assets/` | El J los reusa y no los rehace. El ícono lo sigue eligiendo la app por el nombre (ponerlo en el contrato pediría una columna). `lottie` se recorta mientras no haya un recurso | J |
+| HL-83 | «Atajos a las categorías raíz, con su ícono» | En el ancho del atajo, un nombre como «Almacenamiento» no entra en un renglón, y Flutter no separa en sílabas: lo partía en cualquier letra | `cortesDeSilaba` (reglas simples del español, sin dejar una letra sola) y `TextoSilabeado`, que corta con guion sólo la palabra que no entra al ancho y la escala de letra reales; el lector de pantalla lee el nombre entero | J |
+| HL-84 | «Productos de la misma categoría […] sin el producto actual», con la fila «Más productos de X» que ya tenía la ficha (C) | Con la sección y su «Ver todo», la fila repetía el destino; y si la categoría no tiene otros productos, llevaba a un catálogo con sólo el actual | La fila se va: «Más de X» con «Ver todo» aparece sólo si hay otros productos (Nielsen: nada que no lleve a algo) | J |
 
 ---
 
@@ -1885,7 +1889,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | G — Pagos | [x] | [x] | [x] `api.md` r8, `modelo-datos` §5 y §10, `trazabilidad` §15 (los dos lados, y las filas de HL-69 del K), HL-70 a HL-74, Q-1 cerrada (`intento_minutos`), D-23 (sin simulador en la app), `README` y `ARQUITECTURA` de la app | Cerrado (Mercado Pago anduvo de punta a punta, anotado en `pruebas-etapa-2.md`; quitar el simulador del backend es el pendiente #85) |
 | H — Consulta de compras | [x] | [x] | [x] `api.md` r9, `trazabilidad` §15 (los dos lados), HL-75 a HL-77, `README` y `ARQUITECTURA` de la app | Cerrado (el test del pedido ajeno, nombrado en `pruebas-etapa-2.md`; el comprobante desde el teléfono se prueba en el ensayo) |
 | I — Pruebas, documentación y demostración | [x] `config/tienda.php` y `phpunit.xml` (HL-80) | — | [x] `api.md` r10, `pruebas-etapa-2`, `seguridad-etapa-2`, `demostracion-etapa-2`, `README`, `trazabilidad` §15 (cierre), §13, HL-78 a HL-80, `pendientes` #85, §15 de este plan | Cerrado (los dos ensayos del guion quedan a cargo del autor, fuera de la sesión: §14.5 y §14.6) |
-| J — Contenido que invita a comprar (opcional) | — | [ ] | [ ] | Opcional, al final |
+| J — Contenido que invita a comprar (opcional) | [x] `GET /tienda` (HL-81) | [x] | [x] `api.md` r11, `trazabilidad` §15 (los dos lados), HL-81 a HL-84, `README` y `ARQUITECTURA` de la app | Cerrado (el guion se vuelve a ensayar con las pantallas nuevas: §14.5 y §14.6) |
 
 ### 14.5 Al cerrar la etapa
 
@@ -1901,7 +1905,8 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 ### 14.6 Próximo paso
 
 Los **dos ensayos del guion** (`demostracion-etapa-2.md`) en el equipo de la defensa, sin tocar
-código, a cargo del autor; lo que encuentren, como HL desde el HL-81. Después, si hay tiempo, el tramo J (opcional).
+código, a cargo del autor, **con las pantallas del J** (Inicio y la ficha cambiaron); lo que encuentren, como HL
+desde el HL-85. El J está cerrado.
 
 ---
 
@@ -1923,7 +1928,7 @@ mismo asiento en el kardex. Cada fila de la §2 tiene su tramo cerrado, y la mat
 | --- | --- |
 | El simulador en la app (D-23) | «Simulador» quería decir la simulación que ya dan las cuentas de prueba de Mercado Pago; una opción que el servidor puede tener apagada dejaba una salida sin destino |
 | Cambiar la contraseña desde la app | Quedó fuera del K: la consigna pide registro, inicio, consulta y cierre de sesión |
-| El tramo J | Es opcional (§9, orden 0) |
+| El tramo J | Es opcional (§9, orden 0). Se hizo después del cierre (§14.4), sin cambiar la matriz |
 | La facturación, los envíos, los vales y los banners | No es recorte: la consigna no los pide (Etapa 4, §5) |
 
 **Qué quedó pendiente.**

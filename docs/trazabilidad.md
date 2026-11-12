@@ -1339,3 +1339,36 @@ Los servicios de la Etapa 1 que la tienda reutiliza —`VentaService`, `PagoServ
 tiene un camino paralelo. Lo que no se hizo tiene su motivo escrito: lo que la consigna no pide es la
 Etapa 4 del plan (§5), y lo que quedó abierto está en `pendientes-usabilidad.md` con su número (#85, el
 retiro del simulador). Falta, para dar la etapa por presentada, ensayar el guion dos veces.
+
+### Tramo J — Contenido que invita a comprar (opcional)
+
+Mejora declarada, no requisito: no cierra nada de la matriz.
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `GET /api/v1/tienda` (`TiendaController`, `TiendaResource`) | Lo que la tienda ofrece, para el bloque de confianza de Inicio: los modos de entrega, sin costo (HL-81) | Nuevo |
+| `TextosTienda::modosEntrega()` | Un solo lugar decide los modos de entrega: el checkout, la confirmación y `/tienda` | Nuevo |
+| `ResumenCheckoutResource`, `ConfirmarPedidoRequest` | Toman los modos de `modosEntrega()` en lugar de repetir la llave | Modificado |
+| `docs/api.md` | Revisión 11 | Modificado |
+
+> **El contrato creció por una sola razón.** El plan quería el J entero con el contrato de la r10. Pero el
+> visitante no tenía de dónde saber si la tienda hace envíos: sólo lo decía el checkout, con sesión y
+> carrito. Escribirlo en la app habría sido afirmar algo que el sistema no verifica (regla 16).
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Tienda` (+ `ModoEntregaTienda`) | `GET /tienda` contra su JSON de `api.md` §7.1: los modos con el texto del servidor, sin costo | Nuevo |
+| `CatalogoRepository.tienda()` | La pide con `traducirFallas`, junto a `categorias()`: pública, de sólo lectura | Modificado |
+| `InicioViewModel` (`atajosInicioProvider`, `tiendaInicioProvider`), `InicioVista` | Atajos a las categorías raíz (el mismo árbol del menú, una sola petición) y el bloque de entrega, aparte de los carruseles: si fallan, no aparecen y el resto sigue; tarjetas de 200 px | Modificado |
+| `AtajosCategorias`, `BloqueEntrega` (`ui/comun`) | La fila de raíces con `Iconos.deCategoria`; «Cómo recibís tu compra» con un ícono por modo y el texto de `/tienda` | Nuevo |
+| `cortesDeSilaba`, `TextoSilabeado` (`ui/comun`) | Un nombre que no entra se corta entre sílabas con guion, no en cualquier letra (HL-83); el lector lo lee entero | Nuevo |
+| `FichaVista`, `relacionadosProvider` (ahora en `ficha_view_model.dart`) | «Más de X» con «Ver todo», sin el producto actual (sin otros, no aparece: HL-84); la descripción en un plegable; la disponibilidad destacada | Modificado |
+| `Plegable`, `Entrada` (`ui/comun`); `InsigniaDisponibilidad` (`destacada`) | El plegable sobre `FAccordion`; las entradas encadenadas con `flutter_animate`, sin animar si el sistema lo pide y sin repetirse al desplazarse | Nuevo y modificado |
+| `test/data/{models/tienda,repositories/catalogo_repository}_test`, `test/ui/{inicio,ficha}/*`, `test/ui/comun/{entrada,silabas}_test`, `test/routing/*`, `CatalogoRepositoryFalso` | Serialización contra `api.md`; atajos, bloque y «Más de …» con sus fallas aisladas; ningún precio fuera de `Precio`; las sílabas de las categorías; las rutas con los buscadores acotados al menú y a la galería | Nuevo y modificado |
+
+> **Sólo contenido real.** Las piezas nuevas salen de `/categorias`, `/productos` y `/tienda`; ninguna inventa
+> stock, reseñas ni urgencia, y los precios siguen pasando sólo por `Precio` (sin sesión, «Iniciá sesión»).
+>
+> **`lottie` quedó recortado** (HL-82): no hay ningún recurso `.json`, y no se agrega uno sin preguntar.

@@ -22,6 +22,7 @@ namespace App\Support\Api;
  *   precio()          con qué se paga cada uno de los dos precios
  *   carrito()         texto del estado del carrito
  *   entrega()         texto de un modo de entrega
+ *   modosEntrega()    los modos que la tienda ofrece hoy (checkout, confirmación y /tienda)
  */
 final class TextosTienda
 {
@@ -156,5 +157,11 @@ final class TextosTienda
     public static function entrega(string $modo): string
     {
         return self::ENTREGA[$modo] ?? $modo;
+    }
+
+    /** Los modos de entrega que la tienda ofrece hoy: retiro siempre, envío sólo si está habilitado. */
+    public static function modosEntrega(): array
+    {
+        return config('tienda.envio.habilitado') ? ['retiro', 'envio'] : ['retiro'];
     }
 }

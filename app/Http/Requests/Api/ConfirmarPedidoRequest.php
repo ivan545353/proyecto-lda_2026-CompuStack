@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api;
 
 use App\Models\Direccion;
+use App\Support\Api\TextosTienda;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -25,7 +26,7 @@ class ConfirmarPedidoRequest extends FormRequest
     public function rules(): array
     {
         // Sin envío habilitado, pedirlo se rechaza: no se corrige a retiro (M-31).
-        $modos = config('tienda.envio.habilitado') ? ['retiro', 'envio'] : ['retiro'];
+        $modos = TextosTienda::modosEntrega();
 
         $direccion = [];
         foreach (self::CAMPOS_DIRECCION as $campo => $largo) {
