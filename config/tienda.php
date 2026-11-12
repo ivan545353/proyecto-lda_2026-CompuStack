@@ -52,6 +52,10 @@ return [
         'intento_minutos' => 20,
     ],
 
+    // Vigencia del enlace firmado del comprobante (D-22): lo que tarda el navegador en abrirlo, no más.
+    // Vencido, se pide otro desde el detalle del pedido.
+    'comprobante_minutos' => 5,
+
     'envio' => [
         // Si la tienda ofrece envío además del retiro (requisito 5.3). Es el recorte 2 del plan:
         // en `false`, sólo retiro y costo cero. Lo lee el checkout (E) y la confirmación (F).

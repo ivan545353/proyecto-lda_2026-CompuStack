@@ -7,6 +7,7 @@ use App\Http\Requests\DevolucionRequest;
 use App\Http\Requests\EntregaRequest;
 use App\Http\Requests\VentaFiltroRequest;
 use App\Http\Requests\VentaRequest;
+use App\Impresion\ComprobanteVenta;
 use App\Impresion\ListadoVentas;
 use App\Models\Cliente;
 use App\Models\Entrega;
@@ -303,7 +304,7 @@ class VentaController extends Controller
     /**
      * El documento de la venta: presupuesto si no se cobró, comprobante si sí.
      */
-    public function pdf(Venta $venta): Response|RedirectResponse
+    public function pdf(Venta $venta, ComprobanteVenta $comprobante): Response|RedirectResponse
     {
         if (! $venta->sePuedeImprimir()) {
             return redirect()->route('ventas.show', $venta)->with(
@@ -312,14 +313,7 @@ class VentaController extends Controller
             );
         }
 
-        $venta->load(['cliente', 'usuario:id,nombre,apellido', 'lineas.producto:id,codigo']);
-
-        $nombre = $venta->esPresupuesto() ? 'presupuesto' : 'comprobante';
-
-        return Pdf::loadView('ventas.pdf', [
-            'venta'       => $venta,
-            'validoHasta' => $venta->created_at->copy()->addDays((int) config('venta.presupuesto.validez_dias')),
-        ])->download("{$nombre}-{$venta->numeroFormateado()}.pdf");
+        return $comprobante->descarga($venta);
     }
 
     /** El listado filtrado, en PDF con el tope declarado o en planilla completa. */

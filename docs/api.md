@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 8** · Etapa 2, tramo G. Base: `/api/v1`.
+**Revisión 9** · Etapa 2, tramo H. Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -11,7 +11,8 @@ La revisión 1 fijó las convenciones, el formato de error, la credencial y el p
 catálogo público (§7.1). La 3, la cuenta (§7.2), los precios y el orden por precio. La 4, el carrito y
 el checkout con la reserva (§7.3). La 5, la confirmación del pedido (§7.4) y la dirección del perfil. La 6,
 la cuenta editable (`PATCH /perfil`) y los datos fiscales en el perfil. La 7, la provincia de lista cerrada (§5).
-La 8, los pagos (§7.5): intentos por Mercado Pago y por el simulador. La consulta de compras entra con el H.
+La 8, los pagos (§7.5): intentos por Mercado Pago y por el simulador. La 9, la consulta de compras (§7.6):
+mis pedidos, el detalle y el comprobante por enlace firmado.
 
 ## 1. Reglas generales
 
@@ -970,6 +971,116 @@ pago de método «Simulador — no es cobro real»; rechazar no escribe ningún 
 Errores: 401, 403, 404 (intento ajeno), 409 `regla_de_negocio` (ya resuelto, no es del simulador, o el
 simulador se apagó).
 
+### 7.6 Consulta de compras (tramo H)
+
+**Sólo los pedidos de la cuenta, y sólo los de la tienda** (`canal = online`): las compras del mismo
+cliente en el mostrador no son pedidos de la app y no aparecen. El filtro por dueño es la consulta misma
+(HL-70): **un pedido ajeno es 404, igual que uno que no existe**, con la misma respuesta.
+
+#### `GET /api/v1/pedidos`
+
+Protegida, `tienda.ver_pedidos`. Mis pedidos, **del más nuevo al más viejo** (desempata por `id`).
+Paginado (§2: `pagina`, `por_pagina`); `criterios` vacío.
+
+```json
+{
+  "datos": [
+    {
+      "id": 42,
+      "numero": "V-00042",
+      "creado": "2026-11-11T15:00:00Z",
+      "estado": "pendiente_pago",
+      "estado_texto": "Esperando el pago",
+      "estado_pago": "rechazado",
+      "estado_pago_texto": "Pago rechazado: podés reintentar",
+      "unidades": 2,
+      "importes": { "total": "129000.00" }
+    },
+    {
+      "id": 37,
+      "numero": "V-00037",
+      "creado": "2026-11-02T18:30:00Z",
+      "estado": "entregada",
+      "estado_texto": "Entregado",
+      "estado_pago": "aprobado",
+      "estado_pago_texto": "Pagado",
+      "unidades": 1,
+      "importes": { "total": "54450.00" }
+    }
+  ],
+  "pagina": 1,
+  "por_pagina": 20,
+  "ultima_pagina": 1,
+  "total": 2,
+  "criterios": {}
+}
+```
+
+- `unidades`: la suma de las cantidades de los renglones («2 productos»), no la cantidad de renglones.
+- Los dos estados van **por separado** (`estado` del pedido, `estado_pago` del pago), con la tabla de §7.5.
+- Sin `tienda.ver_precios`, `importes` no viaja.
+
+Errores: 401, 403, 422 (`por_pagina` sobre el tope).
+
+#### `GET /api/v1/pedidos/{id}`
+
+Protegida, `tienda.ver_pedidos`. El detalle: **la misma forma que `POST /pedidos`** (§7.4: renglones y
+dirección congelados, `reserva_vence`, `importes`), más cuatro claves.
+
+```json
+{
+  "datos": {
+    "id": 42,
+    "numero": "V-00042",
+    "estado": "pendiente_pago",
+    "estado_texto": "Esperando el pago",
+    "...": "el resto, como en POST /pedidos",
+    "reserva_vence": "2026-11-11T15:20:00Z",
+    "estado_pago": "rechazado",
+    "estado_pago_texto": "Pago rechazado: podés reintentar",
+    "ultimo_pago": {
+      "id": 17,
+      "pasarela": "mercadopago",
+      "pasarela_texto": "Mercado Pago",
+      "estado": "rechazado",
+      "estado_texto": "Rechazado",
+      "creado": "2026-11-11T15:03:00Z"
+    },
+    "comprobante_disponible": false
+  }
+}
+```
+
+- Los precios son **los del pedido**: si después cambia el precio del producto, el detalle no cambia.
+- `reserva_vence` es el «Pagalo antes del…» mientras está pendiente; `null` cuando se cobró o se canceló.
+- `ultimo_pago`: el intento que decide `estado_pago`, o `null` si no hubo ninguno. Los intentos completos
+  salen de `GET /pedidos/{id}/pagos`, que pagina (HL-75). «Pagar» o «Reintentar» llevan a
+  `POST /pedidos/{id}/pagos`.
+- `comprobante_disponible`: `true` sólo si el pedido está cobrado (`estado_pago` = `aprobado`).
+
+Errores: 401, 403, 404 (ajeno o inexistente).
+
+#### `GET /api/v1/pedidos/{id}/comprobante`
+
+Protegida, `tienda.ver_pedidos`. Pide **el enlace del comprobante** (D-22): una URL firmada y temporal que
+la app abre en el navegador. **La credencial no viaja en la URL**: la firma es la autorización.
+
+```json
+{
+  "datos": {
+    "url": "https://tienda.ejemplo/api/v1/pedidos/42/comprobante.pdf?expires=1762874100&signature=3f9a…",
+    "vence": "2026-11-11T15:15:00Z"
+  }
+}
+```
+
+- `vence`: cinco minutos (`tienda.comprobante_minutos`). Vencido, se pide otro.
+- La URL baja el **mismo PDF que la web** (el comprobante de la venta cobrada), sin costo ni vendedor.
+  Abierta sin firma, con la firma vencida o tocada (otro pedido): **403** `sin_permiso`.
+
+Errores: 401, 403, 404 (ajeno o inexistente), 409 `regla_de_negocio` (todavía sin pagar, o cancelado:
+«El pedido V-00042 todavía no está pagado, así que no tiene comprobante.»).
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -982,3 +1093,4 @@ simulador se apagó).
 | 7 | K | `direccion.provincia` en `PATCH /perfil` y `POST /pedidos`: de texto de hasta 100 a **una de la lista cerrada** de 24 (§5), 422 «Elegí una provincia de la lista.»; una dirección vieja puede traer en `GET /perfil` una fuera de la lista (HL-69) |
 | 4 | E | `GET` y `DELETE /carrito`, `POST /carrito/lineas`, `PATCH` y `DELETE /carrito/lineas/{linea}`, `POST /carrito/checkout`; se emiten `stock_insuficiente` y `carrito_cambio` (con `cambios`); importes en la solicitud, 422; dónde se guarda el carrito y cómo se asocia a la cuenta |
 | 8 | G | §7.5: `POST`, `GET /pedidos/{id}/pagos`, `GET /pedidos/{id}/pagos/{intento}` (consulta al proveedor si está pendiente) y `POST /simulador/intentos/{intento}/aprobar` y `/rechazar` (sólo con el simulador encendido); la forma del intento con `pedido.estado_pago`; la tabla del estado del pago y qué pasa si el pago falla (D-9) |
+| 9 | H | §7.6: `GET /pedidos` (sólo online, del más nuevo al más viejo, con los dos estados y `unidades`), `GET /pedidos/{id}` (la forma de `POST /pedidos` más `estado_pago`, `ultimo_pago` y `comprobante_disponible`), `GET /pedidos/{id}/comprobante` (URL firmada de cinco minutos; sin pagar, 409; firma vencida o tocada, 403). `POST /pedidos` no cambia |

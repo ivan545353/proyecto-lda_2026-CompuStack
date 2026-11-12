@@ -477,6 +477,9 @@ la §1.3 se nombran por su letra.
 | HL-72 | `consultar()` traduce **el** estado del pago | Una `external_reference` puede tener **varios** pagos: el comprador reintenta dentro de Checkout Pro tras un rechazo. Y un `approved` no dice por cuánto | Manda el `approved`; si no, uno en curso (`pending`, `in_process`, `authorized`) es pendiente; rechazado sólo si todos lo fueron; `refunded` o un estado desconocido, pendiente; otra moneda no cuenta. Un aprobado por otro importe queda `aprobado` con `importe_distinto`, no se acredita solo y el pedido dice «en revisión» | G |
 | HL-73 | `vence_at` es un `TIMESTAMP NOT NULL` | En MariaDB con `explicit_defaults_for_timestamp` apagado, el primer `TIMESTAMP NOT NULL` sin `DEFAULT` recibe `ON UPDATE CURRENT_TIMESTAMP`: guardar la `url_pago` le pisaba el vencimiento con la hora de la sesión, y el intento de Mercado Pago nacía vencido. Los tests del simulador no lo veían (no hay `UPDATE`) | Una migración (`fix_timestamps_sin_on_update`) les da `DEFAULT` explícito (`useCurrent()->change()`) a `vence_at` y a **`pagos.fecha`** (Etapa 1), que tenía la misma trampa: hoy ningún camino actualiza un pago, pero el primero le cambiaría la fecha del cobro. Los 10.146 pagos de la base conservaron su fecha. Un test de comportamiento por columna | G |
 | HL-74 | «La app abre `url_pago` y el usuario paga con la cuenta compradora de prueba» | La pestaña personalizada usa las cookies del Chrome del teléfono: si ahí está abierta una cuenta **real** de Mercado Pago, paga con ella, y Mercado Pago rechaza mezclar una parte de prueba con una real («Una de las partes con las que intentás hacer el pago es de prueba»). La app de Mercado Pago, si está instalada, también puede quedarse con el enlace | Nada en el código: antes de probar (y en la defensa) se cierra la cuenta real en Chrome, o se usa el emulador, y se entra con el comprador de prueba. Anotado en el `README` de la app | G |
+| HL-75 | «El detalle trae los intentos; el listado, `fecha` y `total`» | Los intentos completos en el detalle serían un listado sin paginar (regla 15), y `total` a la vista rompe la regla 21 | El detalle lleva sólo `ultimo_pago` (el que decide `estado_pago`); los intentos, por `GET /pedidos/{id}/pagos`, que pagina. El total va en `importes`, que sin `tienda.ver_precios` no viaja. La fecha se llama `creado`, como en `POST /pedidos`, y la cantidad de productos es `unidades` (suma de cantidades) | H |
+| HL-76 | «Mis pedidos: lista paginada» y el detalle con «renglones, los dos estados como insignias» | Probada en el teléfono, la primera versión (renglones separados por una línea, todo en `FilaDato`) se leía como un bloque de texto: había que leer todo para saber qué se miraba. Y un pedido pagado mostraba dos insignias «Pagado» (`estado_texto` y `estado_pago_texto` dicen lo mismo) | Cada pedido en su tarjeta (número y total arriba, fecha y unidades atenuadas, estados al pie); el detalle con una cabecera (total grande, estados, una sola indicación) y tarjetas por sección con «etiqueta … valor»; dos insignias con el mismo texto se muestran como una. El listado usa el `Paginador` del catálogo, no un scroll que suma páginas: un cliente puede tener muchos pedidos | H |
+| HL-77 | «`reserva_vence` es el “Pagalo antes del…” mientras está pendiente» | Sin la tarea programada corriendo (`tienda:vencer-reservas`), un pedido vencido sigue «Esperando el pago» y la app ofrecía «Pagar» | No cambia el contrato: la tarea es la que cancela. La app, si el plazo pasó y el pago sigue `pendiente` o `rechazado`, dice «Venció el plazo para pagarlo.» y no ofrece pagar (`Pedido.vencido`) | H |
 
 ---
 
@@ -1813,9 +1816,9 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 | Cobro de contado | — (web: cobro) | — | `venta.cobrar` | F | Hecho |
 | Pago por pasarela | Pago, Resultado | `POST /pedidos/{id}/pagos` | `tienda.comprar` | G | Hecho |
 | Resultado del pago | Resultado, Detalle | `GET /pedidos/{id}/pagos/{intento}` | `tienda.ver_pedidos` | G | Hecho |
-| Mis pedidos | Mis pedidos | `GET /pedidos` | `tienda.ver_pedidos` | H | Pendiente |
-| Detalle del pedido | Detalle | `GET /pedidos/{id}` | `tienda.ver_pedidos` | H | Pendiente |
-| Comprobante del pedido | Detalle | `GET /pedidos/{id}/comprobante` | `tienda.ver_pedidos` | H | Pendiente |
+| Mis pedidos | Mis pedidos | `GET /pedidos` | `tienda.ver_pedidos` | H | Hecho |
+| Detalle del pedido | Detalle | `GET /pedidos/{id}` | `tienda.ver_pedidos` | H | Hecho |
+| Comprobante del pedido | Detalle | `GET /pedidos/{id}/comprobante` | `tienda.ver_pedidos` | H | Hecho |
 | Dirección del servidor | Ajustes (Cuenta → Servidor) | `GET /categorias` (sólo como prueba) | — | B | Hecho |
 
 ---
@@ -1877,7 +1880,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | F — Confirmación del pedido | [x] | [x] | [x] `api.md` r5, `modelo-datos` §4 y §5, `trazabilidad` §15 (los dos lados), HL-61 a HL-64, Q-1 (`envio.costo`), D-22 y el tramo K, `README` y `ARQUITECTURA` de la app | Cerrado |
 | K — Cuenta editable (entre F y G) | [x] | [x] | [x] `api.md` r6 y r7, `modelo-datos` §1, `trazabilidad` §15 (los dos lados), HL-65 a HL-69, regla 34 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
 | G — Pagos | [x] | [x] | [x] `api.md` r8, `modelo-datos` §5 y §10, `trazabilidad` §15 (los dos lados, y las filas de HL-69 del K), HL-70 a HL-74, Q-1 cerrada (`intento_minutos`), D-23 (sin simulador en la app), `README` y `ARQUITECTURA` de la app | Cerrado (Mercado Pago anduvo de punta a punta; falta anotar la prueba en `pruebas-etapa-2.md`, y quitar el simulador del backend) |
-| H — Consulta de compras | [ ] | [ ] | [ ] | Pendiente |
+| H — Consulta de compras | [x] | [x] | [x] `api.md` r9, `trazabilidad` §15 (los dos lados), HL-75 a HL-77, `README` y `ARQUITECTURA` de la app | Cerrado (falta anotar en `pruebas-etapa-2.md` el test del pedido ajeno por su nombre, y probar el comprobante desde el teléfono) |
 | I — Pruebas, documentación y demostración | [ ] | [ ] | [ ] | Pendiente |
 | J — Contenido que invita a comprar (opcional) | — | [ ] | [ ] | Opcional, al final |
 

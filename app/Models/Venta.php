@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
 use LogicException;
 
 /**
@@ -415,6 +416,20 @@ class Venta extends Model
     public function scopeDelCliente(Builder $query, Cliente $cliente): Builder
     {
         return $query->where('ventas.cliente_id', $cliente->id)->where('ventas.canal', 'online');
+    }
+
+    /**
+     * Mis pedidos (tramo H): del más nuevo al más viejo, con lo que el listado lee ya traído
+     * (el último intento y las unidades, sumadas por la base). Sin ficha de cliente, ninguno.
+     */
+    public static function paginaDelCliente(?Cliente $cliente, int $pagina, int $porPagina): LengthAwarePaginator
+    {
+        return ($cliente === null ? self::query()->whereKey([]) : self::delCliente($cliente))
+            ->with('ultimoIntentoPago')
+            ->withSum('lineas as unidades', 'cantidad')
+            ->orderByDesc('ventas.created_at')
+            ->orderByDesc('ventas.id')
+            ->paginate($porPagina, ['ventas.*'], 'pagina', $pagina);
     }
 
     /**

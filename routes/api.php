@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\ProductoController;
 use App\Http\Controllers\Api\V1\RegistroController;
 use App\Http\Controllers\Api\V1\SesionController;
 use App\Http\Controllers\Api\V1\SimuladorController;
+use App\Impresion\ComprobanteVenta;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -49,6 +50,11 @@ Route::prefix('v1')->group(function () {
             Route::post('registro', [RegistroController::class, 'store']);
             Route::post('sesion', [SesionController::class, 'store']);
         });
+
+        // El comprobante, abierto por el navegador sin credencial: la firma temporal es la
+        // autorización (D-22). La pide `GET pedidos/{pedido}/comprobante`; vencida o tocada, 403.
+        Route::get('pedidos/{pedido}/comprobante.pdf', [PedidoController::class, 'descargarComprobante'])
+            ->whereNumber('pedido')->middleware('signed')->name(ComprobanteVenta::RUTA);
     });
 
     // Sesión opcional.
@@ -91,6 +97,11 @@ Route::prefix('v1')->group(function () {
 
         // Leer los pagos (tramo G). Si el intento está pendiente, `show` consulta al proveedor antes.
         Route::middleware('can:tienda.ver_pedidos')->group(function () {
+            // Mis pedidos (tramo H). Sólo los online de la cuenta; ajeno o inexistente, 404.
+            Route::get('pedidos', [PedidoController::class, 'index']);
+            Route::get('pedidos/{pedido}', [PedidoController::class, 'show'])->whereNumber('pedido');
+            Route::get('pedidos/{pedido}/comprobante', [PedidoController::class, 'comprobante'])->whereNumber('pedido');
+
             Route::get('pedidos/{pedido}/pagos', [PagoPedidoController::class, 'index'])->whereNumber('pedido');
             Route::get('pedidos/{pedido}/pagos/{intento}', [PagoPedidoController::class, 'show'])
                 ->whereNumber(['pedido', 'intento']);

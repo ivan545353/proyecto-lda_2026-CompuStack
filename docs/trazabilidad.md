@@ -1269,3 +1269,44 @@ Servidor (`compustack`) y app (`compustack-app`). La app pasó de 546 a **673 te
 
 > **La app no ofrece el simulador** (D-23): con «simulador» se quería decir las cuentas de prueba de Mercado Pago.
 > El backend lo sigue teniendo hasta que se quite; la app manda siempre `"pasarela": "mercadopago"`.
+
+### Tramo H — Consulta de compras
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Venta::paginaDelCliente()` | Mis pedidos sobre `delCliente()` (sólo online, HL-70), del más nuevo al más viejo con desempate por `id`; trae el último intento y suma las unidades en la base (A-26), sin una consulta por pedido | Modificado |
+| `PedidoController@index`, `@show`, `@comprobante`, `@descargarComprobante` y las rutas | Los cuatro endpoints de §7.6; el detalle busca por dueño con `IntentoPagoService::pedidoDe()` (ajeno: 404); la descarga es pública con `signed` | Modificado |
+| `PedidoListadoResource` | El renglón: los dos estados por separado, `unidades`; sin `tienda.ver_precios`, sin `importes` | Nuevo |
+| `PedidoDetalleResource` | Extiende `PedidoResource` (renglones congelados, dirección, `reserva_vence`) y suma `estado_pago`, `ultimo_pago` y `comprobante_disponible`; `POST /pedidos` no cambia | Nuevo |
+| `App\Impresion\ComprobanteVenta` | El PDF de la venta en un lugar, para la web y la tienda; el enlace firmado y temporal (D-22) sólo para lo cobrado (409 si no) | Nuevo |
+| `VentaController::pdf` | Delega el armado del PDF en `ComprobanteVenta`; conserva el aviso de la cancelada | Modificado |
+| `config/tienda.php` | `comprobante_minutos` 5 | Modificado |
+| `docs/api.md` | Revisión 9: §7.6 consulta de compras | Modificado |
+| `tests/Feature/Api/PedidoConsultaTest`, `Api/PedidoEscalaTest` | El pedido ajeno 404 igual que el inexistente; el mostrador no aparece; orden y paginado; el precio congelado; los dos estados en cada situación del pago; el comprobante (firmado, ajeno, sin pagar, vencido o tocado); las consultas del listado no crecen con los pedidos | Nuevo |
+
+> **El filtro por dueño es la consulta.** Listado, detalle y comprobante parten de `Venta::delCliente()`: un pedido
+> ajeno no se encuentra, y la respuesta es idéntica a la de uno que no existe.
+>
+> **El comprobante se abre sin credencial.** La app pide el enlace con su credencial; el navegador baja el PDF con
+> una firma de cinco minutos que nombra el pedido. La credencial nunca viaja en una URL.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Pedido` (+ `UltimoPago`) | El detalle de §7.6 en el mismo modelo de `POST /pedidos`: `estado_pago`, `ultimo_pago` y `comprobante_disponible` opcionales; `accionDePago(ahora)` («Pagar», «Reintentar» o nada) y `vencido(ahora)` | Modificado |
+| `PedidoResumen` | El renglón de `GET /pedidos` contra su JSON: los dos estados, `unidades`; sin `tienda.ver_precios`, sin `importes` | Nuevo |
+| `PedidoService` | `GET /pedidos` (paginado), `GET /pedidos/{id}` y `GET /pedidos/{id}/comprobante` (`EnlaceComprobante`: `url` y `vence`) | Modificado |
+| `PedidoRepository` | `listar`, `detalle` (ajeno o inexistente: `NoEncontrado`) y `abrirComprobante` (pide la URL en el toque y la abre con `NavegadorExterno`; no la guarda); la misma operación no sale dos veces mientras corre | Modificado |
+| `MisPedidosViewModel`, `MisPedidosVista` | Mis pedidos por páginas con el `Paginador`; «traer para actualizar» vuelve a pedir la que se ve; los seis estados | Nuevo |
+| `PedidoViewModel`, `PedidoVista` | El detalle: cabecera (total, estados, «Pagalo antes del…» o «Venció el plazo…»), renglones congelados, entrega y pago; una sola acción («Pagar», «Reintentar» → `Rutas.pagoDe`, o «Descargar comprobante»); al volver al frente, se vuelve a pedir | Nuevo |
+| `InsigniaEstado` e `InsigniasPedido`, `TarjetaPedido`, `CabeceraPedido`, `TarjetaSeccion` y `FilaClaveValor`, `RenglonPedido`, `TraerParaActualizar` (`ui/comun`) | Los estados con ícono y texto (dos iguales, una sola); la tarjeta de un pedido; las piezas del detalle; el `RefreshIndicator` | Nuevo |
+| `Rutas`, `router.dart`, `CuentaVista`, `fechaLocal` | `/cuenta/pedidos` y `/cuenta/pedidos/:id`, con sesión; «Mis pedidos» en Perfil (regla 34); la fecha sin hora | Modificado |
+| `test/data/{models/pedido,models/pedido_resumen,services/pedido_service,repositories/pedido_repository}_test`, `test/ui/pedidos/*`, `PedidoServiceFalso` | Serialización contra `api.md`; **el pedido ajeno es `NoEncontrado`, igual que uno que no existe** (`pedido_repository_test`, «el pedido ajeno es NoEncontrado, igual que uno que no existe»); el paginado; el comprobante (en el toque, 409, sin red, doble toque); los seis estados de las dos vistas; la guarda | Nuevo y modificado |
+
+> **La app no distingue ajeno de inexistente**, porque el servidor no lo distingue: los dos son «no existe».
+>
+> **Menos texto, más estructura** (HL-76): tras la prueba en el teléfono, cada pedido va en su tarjeta y el detalle
+> en una cabecera y tarjetas por sección, y Mis pedidos pasó de sumar páginas al llegar al final al paginador.
