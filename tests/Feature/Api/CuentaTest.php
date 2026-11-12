@@ -246,19 +246,25 @@ describe('sesión', function () {
 |--------------------------------------------------------------------------
 */
 
-test('el perfil muestra la cuenta de quien tiene la sesión, sin datos fiscales', function () {
+test('el perfil muestra la cuenta de quien tiene la sesión, sin documento hasta que se cargue', function () {
     $credencial = $this->postJson('/api/v1/registro', ($this->tiendaRegistro)())->json('datos.credencial');
 
     app('auth')->forgetGuards();
     $respuesta = $this->getJson('/api/v1/perfil', ['Authorization' => 'Bearer '.$credencial]);
 
+    // El registro guarda `dni` sin número: sin número, el tipo no viaja (HL-65).
     $respuesta->assertOk()->assertExactJson(['datos' => [
-        'nombre'       => 'Lucía',
-        'apellido'     => 'Paredes',
-        'email'        => 'lucia@correo.local',
-        'telefono'     => '297-4001122',
-        'razon_social' => 'Lucía Paredes',
-        'direccion'    => null,
+        'nombre'              => 'Lucía',
+        'apellido'            => 'Paredes',
+        'email'               => 'lucia@correo.local',
+        'telefono'            => '297-4001122',
+        'razon_social'        => 'Lucía Paredes',
+        'tipo_doc'            => null,
+        'tipo_doc_texto'      => null,
+        'nro_doc'             => null,
+        'condicion_iva'       => 'consumidor_final',
+        'condicion_iva_texto' => 'Consumidor final',
+        'direccion'           => null,
     ]]);
 });
 

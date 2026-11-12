@@ -466,6 +466,11 @@ la §1.3 se nombran por su letra.
 | HL-62 | `marcarPagada(Venta, ?User)` | Exigía `User`: en la Etapa 1 siempre cobra una persona | Se ensancha en el F; lo aprovecha la acreditación de la pasarela del G, que no tiene cajero | F |
 | HL-63 | `cancelarVencidos()` excluye los pedidos con un intento de pago pendiente | Los intentos de pago nacen en el G: en el F no hay qué mirar | El F cancela todo pedido vencido; el G agrega la exclusión, con su test | F, G |
 | HL-64 | La confirmación nombra `carrito_id` (D-8) | Ni `GET /carrito` ni el checkout exponían el `id`: la app no tenía de dónde sacarlo | `CarritoResource` suma `id` (null si el carrito no se guardó); `api.md` revisión 5 | F |
+| HL-65 | «Juntos o ninguno»: sin documento, `tipo_doc` y `nro_doc` vacíos | `clientes.tipo_doc` es enum **no nulo** y el registro guarda `dni` sin número | Sin documento = `nro_doc` nulo, `tipo_doc` queda como estaba; el perfil manda los tres en `null` si no hay número | K |
+| HL-66 | DNI de 7 u 8 dígitos; CUIT y CUIL con dígito verificador | `ReglasFiscales` (la ficha del cajero) acepta DNI de 6 a 9 y no revisa el verificador, y los tests de la Etapa 1 usan CUIT inventados | La regla estricta vive aparte (`DocumentoTienda`), sólo en la API; la web no cambia. Por ser el `PATCH` parcial, un dato que cargó el cajero no traba al cliente que no lo toca | K |
+| HL-67 | El documento es opcional | `UNIQUE(tipo_doc, nro_doc)`, y Responsable inscripto y Monotributo exigen documento (`ReglasFiscales::EXIGEN_DOCUMENTO`) | 422 en `nro_doc` si es de otro cliente (también si choca al guardar) o si esa condición lo quiere quitar | K |
+| HL-68 | «La dirección predeterminada (la crea, la cambia o la quita)» | El cliente puede tener varias, cargadas en la web, y `DireccionService` no deja ninguna sin predeterminada | `direccion: null` borra la predeterminada con `DireccionService::eliminar` y asciende la más antigua; el perfil propone esa. Ningún pedido apunta a `direcciones` (copia `entrega_*`) | K |
+| HL-69 | La dirección de la API se valida como la de la web | La web valida `provincia` con `Rule::in(Direccion::PROVINCIAS)` y arma el selector con esa lista; `PATCH /perfil` y `POST /pedidos` sólo pedían `string\|max:100`: «Chubutt» quedaba en el pedido y en la predeterminada, y el selector del cajero la mostraba vacía | Los dos requests suman `Rule::in(Direccion::PROVINCIAS)`, 422 en `direccion.provincia` con el texto de la web. Las 24 van escritas en el contrato (`api.md` revisión 7, §5), sin endpoint: son fijas. Lo ya guardado no se corrige (M-16): la app hace elegir de nuevo una provincia fuera de la lista | K |
 
 ---
 
@@ -1342,8 +1347,8 @@ el orden.
   `ActualizarPerfilRequest`: `nombre` y `apellido` (100 cada uno, juntos 150: son la razón social,
   HL-53), `telefono` (30, opcional), `tipo_doc` (`dni`, `cuit`, `cuil`) y `nro_doc` **juntos o ninguno**
   (DNI de 7 u 8 dígitos; CUIT o CUIL de 11 con su dígito verificador), y `direccion` con los largos de
-  `direcciones` (o `null` para quitarla). `email`, `condicion_iva`, `razon_social` e importes,
-  `prohibited`.
+  `direcciones` (o `null` para quitarla) y la provincia de la lista cerrada, también en `POST /pedidos`
+  (HL-69). `email`, `condicion_iva`, `razon_social` e importes, `prohibited`.
 - `PerfilService::actualizar(User, array)`: en una transacción, `users` (nombre y apellido), `clientes`
   (`razon_social` = nombre y apellido, teléfono y documento) y la dirección predeterminada (la crea, la
   cambia o la quita). Devuelve el perfil como `GET`. Un pedido ya hecho no cambia: su dirección está
@@ -1360,11 +1365,13 @@ el orden.
 
 **Tareas de la app.**
 - `Perfil` lee los campos nuevos; `SessionRepository.actualizarPerfil()`.
-- **Mi cuenta editable**: el mismo formulario que el paso 3, con «Guardar».
+- **Mi cuenta editable**: el mismo formulario que el paso 3, con «Guardar», y la dirección predeterminada
+  (cargarla, cambiarla o quitarla; se sumó al hacer el lado de app, el contrato ya lo admitía).
 - **Paso 3 de la confirmación («Tus datos»)**: los datos propuestos y editables; «Continuar» guarda en la
   cuenta si cambiaron (no toca el carrito: la reserva sigue). La dirección del paso 4 sigue valiendo
   sólo para el pedido, con «Guardarla en mi cuenta» como opción.
 - La condición frente al IVA se ve y se explica («La carga CompuStack»); no se edita.
+- La provincia, con un selector de la lista de `api.md` §5 (revisión 7, HL-69), en Mi cuenta y en el paso 4.
 
 **Tests de la app.** Modelos contra el JSON nuevo; el modelo de vista del formulario (valida como el
 servidor, no envía dos veces, cada 422 junto a su campo); el paso 3 guarda y sigue; widgets en los seis
@@ -1789,7 +1796,7 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 | Registro | Registro | `POST /registro` | Pública, con límite | D | Hecho |
 | Inicio y cierre de sesión | Inicio de sesión, Perfil | `POST` y `DELETE /sesion` | Pública / protegida | D | Hecho |
 | Datos básicos | Mi cuenta | `GET /perfil` | Protegida | D | Hecho |
-| Editar la cuenta | Mi cuenta, Confirmación (paso 3) | `PATCH /perfil` | Protegida | K | Pendiente |
+| Editar la cuenta | Mi cuenta, Confirmación (paso 3) | `PATCH /perfil` | Protegida | K | Hecho |
 | Sesión vencida | Todas | Cualquier protegida (401) | — | B, D | B hecho (mecanismo: 401, `SessionRepository`, guarda, estado); D pendiente |
 | Carrito | Carrito, Ficha, Agregado | `/carrito`, `/carrito/lineas` | `tienda.comprar` | E | Hecho |
 | Vaciar | Carrito | `DELETE /carrito` | `tienda.comprar` | E | Hecho |
@@ -1861,7 +1868,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | D — Cuenta y precios | [x] | [x] | [x] `api.md` r3, `modelo-datos` (permisos de tienda), `trazabilidad` §15 (los dos lados), D-21, HL-55 y HL-56, `README` y `ARQUITECTURA` de la app | Cerrado |
 | E — Carrito y reserva | [x] | [x] | [x] `api.md` r4, `modelo-datos` §4, `trazabilidad` §15 (los dos lados), HL-57 a HL-60, Q-1 (`cantidad_maxima`), reglas 31 y 32 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
 | F — Confirmación del pedido | [x] | [x] | [x] `api.md` r5, `modelo-datos` §4 y §5, `trazabilidad` §15 (los dos lados), HL-61 a HL-64, Q-1 (`envio.costo`), D-22 y el tramo K, `README` y `ARQUITECTURA` de la app | Cerrado |
-| K — Cuenta editable (entre F y G) | [ ] | [ ] | [ ] | Pendiente |
+| K — Cuenta editable (entre F y G) | [x] | [x] | [x] `api.md` r6 y r7, `modelo-datos` §1, `trazabilidad` §15 (los dos lados), HL-65 a HL-69, regla 34 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
 | G — Pagos | [ ] | [ ] | [ ] | Pendiente |
 | H — Consulta de compras | [ ] | [ ] | [ ] | Pendiente |
 | I — Pruebas, documentación y demostración | [ ] | [ ] | [ ] | Pendiente |

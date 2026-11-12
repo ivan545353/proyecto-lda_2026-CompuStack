@@ -26,7 +26,7 @@ use Illuminate\Validation\Rule;
 final class ReglasFiscales
 {
     /** Condiciones que obligan a identificar al cliente. */
-    private const EXIGEN_DOCUMENTO = ['responsable_inscripto', 'monotributo'];
+    public const EXIGEN_DOCUMENTO = ['responsable_inscripto', 'monotributo'];
 
     /**
      * @param  string  $prefijo    'cliente.' en el formulario de usuarios, '' en el de clientes

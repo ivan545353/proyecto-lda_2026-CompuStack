@@ -61,6 +61,8 @@ Route::prefix('v1')->group(function () {
         // Sin permiso propio: cerrar la sesión es de toda cuenta, como cambiar la contraseña.
         Route::delete('sesion', [SesionController::class, 'destroy']);
         Route::get('perfil', [PerfilController::class, 'show']);
+        // La cuenta propia, como leerla (D-22): lo fiscal que decide el comprobante no viaja.
+        Route::patch('perfil', [PerfilController::class, 'update']);
 
         // El carrito (tramo E). `{linea}` sin binding implícito: el servicio la busca dentro del
         // carrito del usuario, y una ajena es 404 igual que una que no existe.

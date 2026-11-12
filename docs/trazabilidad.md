@@ -1181,3 +1181,40 @@ Servidor (`compustack`) y app (`compustack-app`). La app pasó de 546 a **673 te
 >
 > **El cierre y el pago son hermanas de `/checkout`, no hijas**: se llega con `go` y «atrás» va al inicio, así no
 > se vuelve a una confirmación ya hecha.
+
+### Tramo K — Cuenta editable
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `PerfilResource` | Suma `tipo_doc` + `_texto`, `nro_doc` (los tres en `null` sin número, HL-65) y `condicion_iva` + `_texto`, de sólo lectura (D-22) | Modificado |
+| `ActualizarPerfilRequest` | `PATCH /perfil` parcial: nombre y apellido (juntos 150, contra lo guardado si viene uno), teléfono, documento juntos o ninguno, dirección anidada; lo fiscal, el correo y los importes, `prohibited`; quitar el documento con RI o Monotributo, 422 (HL-67) | Nuevo |
+| `App\Rules\DocumentoTienda` | DNI de 7 u 8; CUIT y CUIL de 11 con dígito verificador. Sólo en la API: la ficha del cajero no cambia (HL-66) | Nuevo |
+| `PerfilService::actualizar()` | Una transacción con la ficha bloqueada: `users`, `clientes` (la razón social sigue al nombre sólo si cambió) y la predeterminada por `DireccionService` (HL-68); el choque del documento al guardar, 422 | Nuevo |
+| `PerfilController::update` y la ruta | `PATCH /perfil`, protegida como el `GET`, sin permiso aparte; devuelve el perfil con `mensaje` | Nuevo |
+| `ReglasFiscales::EXIGEN_DOCUMENTO`, `ConfirmarPedidoRequest::CAMPOS_DIRECCION` | Pasan a públicas para reusarlas, sin cambiar lo que hacen | Modificado |
+| `docs/api.md` | Revisión 6: `PATCH /perfil` y los datos fiscales del `GET` | Modificado |
+| `tests/Feature/Api/PerfilEdicionTest`, `Api/CuentaTest` | Lectura, validación en cada campo, guardado, la razón social, lo que no vino no se toca, el pedido ya hecho no cambia, el cajero ve lo mismo, 401 y la cuenta de gestión | Nuevo y modificado |
+
+> **El `PATCH` es parcial a propósito**: el paso 4 de la compra guarda sólo la dirección, y un CUIT que el
+> cajero cargó sin verificador no le impide al cliente cambiar su teléfono.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Perfil` (documento y condición frente al IVA) y `CambiosPerfil` | Lo nuevo de §7.2 contra su JSON (sin número, los tres del documento en `null`); el cuerpo del `PATCH` sólo con lo que cambió, `Nuevo(null)` para quitar | Nuevo y modificado |
+| `AuthService.actualizarPerfil` y `SessionRepository.actualizarPerfil` | `PATCH /perfil` con el perfil guardado y el `mensaje`; sin red falla (regla 27) | Modificado |
+| `Validar` (`documento`, `datosPersonales`, `direccion`) y `Cambios` | Valida como el servidor: DNI 7 u 8, CUIT y CUIL con dígito verificador, juntos 150, largos de `direcciones` y la provincia de la lista (HL-69); qué cambió respecto de lo guardado | Nuevo y modificado |
+| `FormularioDatos` y `FormularioDireccion` | El mismo formulario en Mi cuenta y en la compra; el correo, la razón social y la condición se ven y no se editan (D-22) | Nuevo |
+| `SelectorOpciones`, `SelectorLista` y `Casilla` | DNI, CUIT o CUIL sin depender del color; la provincia de las 24 de `api.md` §5, sin texto libre; «Guardarla en mi cuenta» | Nuevo |
+| `MiCuentaViewModel` y `MiCuentaVista` | Mi cuenta editable: datos y dirección predeterminada (cargarla, cambiarla o quitarla); «Guardar» una vez, cada 422 junto a su campo | Modificado |
+| `CheckoutViewModel` y `CheckoutVista` | Paso 3 editable que guarda si cambió y no toca el carrito; en el paso 4, «Guardarla en mi cuenta» manda sólo la dirección | Modificado |
+
+> **Mi cuenta también edita y quita la dirección predeterminada**: se sumó al hacer el lado de app (el contrato
+> ya lo admitía, `direccion` objeto o `null`). Sin ella, la dirección sólo se podía cargar desde una compra y nunca
+> quitar.
+>
+> **Una provincia guardada antes de la revisión 7 que no está en la lista llega sin elegir** (HL-69): la app no la
+> da por buena ni la manda tal cual.

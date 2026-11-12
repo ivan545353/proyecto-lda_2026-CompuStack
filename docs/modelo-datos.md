@@ -83,6 +83,8 @@ La causa de fondo es que el negocio tiene acciones que no son CRUD, y un modelo 
 2. Los datos fiscales (CUIT, condición IVA) sólo aplican a clientes. Meterlos en `users` deja cinco columnas siempre nulas para todos los empleados.
 3. `condicion_iva` es la que decide si emitís **Factura A o B**. Es un dato del sujeto de la operación, no de la cuenta de acceso.
 
+**Qué edita el cliente desde la tienda (tramo K, D-22).** La ficha es una sola y tiene dos entradas: el cajero, en la web, y el propio cliente, con `PATCH /perfil` (`PerfilService`). El cliente edita nombre y apellido (viven en `users`; `razon_social` los sigue cuando cambian), `telefono`, el documento (`tipo_doc` + `nro_doc`, juntos o ninguno) y su dirección predeterminada. **No** edita `condicion_iva` (decide Factura A o B: declararla mal es un problema fiscal del local), `email` ni `razon_social` directamente. La tienda pide más que el cajero: DNI de 7 u 8 dígitos y el dígito verificador del CUIT o CUIL (HL-66). `tipo_doc` no admite vacío: «sin documento» es `nro_doc` nulo, y el registro guarda `dni` de relleno, que la API no muestra (HL-65). Quien es Responsable inscripto o Monotributo no puede quitarse el documento (HL-67).
+
 `ventas.cliente_id` es nullable: la venta rápida de mostrador a consumidor final no necesita identificar a nadie, y ARCA acepta doc tipo 99 para esos casos.
 
 **Por qué no tiene `activo`.** Es la única excepción del proyecto a "lo que está
@@ -125,7 +127,7 @@ dígito verificador.
 ### `direcciones`
 `id, cliente_id FK, calle, numero, piso_depto, codigo_postal, localidad, provincia, es_predeterminada`
 
-Sólo para envíos. Un cliente puede tener varias; la que se usa se **copia** al pedido, no se referencia. En la Etapa 2 la app no administra direcciones: el envío mínimo copia la dirección en la propia venta (§5). Las varias direcciones desde la app y la tabla `envios` (§7) son de la Etapa 4.
+Sólo para envíos. Un cliente puede tener varias; la que se usa se **copia** al pedido, no se referencia. En la Etapa 2 la app no administra direcciones: el envío mínimo copia la dirección en la propia venta (§5). Desde el tramo K el cliente edita **una**, la predeterminada (la crea, la cambia o la quita, siempre por `DireccionService`); si la quita y tenía otras cargadas en el local, asciende la más antigua (HL-68). Un pedido ya hecho no cambia: su dirección está copiada. Las varias direcciones desde la app y la tabla `envios` (§7) son de la Etapa 4.
 
 **Invariante:** si el cliente tiene al menos una dirección, exactamente una
 tiene `es_predeterminada`. El esquema no puede expresarlo —un `boolean` con

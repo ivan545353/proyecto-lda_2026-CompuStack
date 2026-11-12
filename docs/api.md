@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 5** · Etapa 2, tramo F. Base: `/api/v1`.
+**Revisión 7** · Etapa 2, tramo K. Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -9,7 +9,8 @@ revisión** y se anota en el registro de cambios.
 
 La revisión 1 fijó las convenciones, el formato de error, la credencial y el paginado. La 2 suma el
 catálogo público (§7.1). La 3, la cuenta (§7.2), los precios y el orden por precio. La 4, el carrito y
-el checkout con la reserva (§7.3). La 5, la confirmación del pedido (§7.4) y la dirección del perfil.
+el checkout con la reserva (§7.3). La 5, la confirmación del pedido (§7.4) y la dirección del perfil. La 6,
+la cuenta editable (`PATCH /perfil`) y los datos fiscales en el perfil. La 7, la provincia de lista cerrada (§5).
 Los demás endpoints entran por tramo (G pagos, H consulta de compras).
 
 ## 1. Reglas generales
@@ -162,6 +163,22 @@ El umbral está en `config/tienda.php` (`disponibilidad.ultimas_unidades`).
 **Imagen**: URL absoluta con el host del pedido (`/storage/…`), de modo que la misma respuesta sirve
 al emulador (`10.0.2.2`) y a un teléfono por la IP de la red. Sin foto, la URL de la imagen por
 omisión (`/img/producto-sin-imagen.svg`), nunca `null`.
+
+**Provincia** (desde la revisión 7): en toda dirección que se manda (`PATCH /perfil`, `POST /pedidos`),
+`provincia` es **una de esta lista cerrada**, escrita igual (mayúsculas y tildes). Es la lista con la que
+la web valida y arma su selector (`Direccion::PROVINCIAS`), en este orden:
+
+```json
+["Buenos Aires", "Ciudad Autónoma de Buenos Aires", "Catamarca", "Chaco", "Chubut", "Córdoba",
+ "Corrientes", "Entre Ríos", "Formosa", "Jujuy", "La Pampa", "La Rioja", "Mendoza", "Misiones",
+ "Neuquén", "Río Negro", "Salta", "San Juan", "San Luis", "Santa Cruz", "Santa Fe",
+ "Santiago del Estero", "Tierra del Fuego", "Tucumán"]
+```
+
+Fuera de la lista es 422 en `direccion.provincia` con «Elegí una provincia de la lista.», el mismo texto
+que la web. No hay endpoint de provincias: son 24 fijas y la app las lleva en el código. Una dirección
+guardada antes de la revisión 7 puede traer en `GET /perfil` una provincia que no está en la lista: el
+cliente la tiene que **elegir de nuevo** antes de mandarla.
 
 ## 6. Textos para el cliente
 
@@ -392,7 +409,8 @@ Pública, con el límite `tienda-acceso` (§4). Crea la cuenta y deja la sesión
 ```
 
 - El cliente se crea con razón social «nombre apellido», documento DNI **sin número**, consumidor final, y
-  el correo y el teléfono de la cuenta. Los datos fiscales los completa el local; la app no los edita.
+  el correo y el teléfono de la cuenta. El documento lo carga después con `PATCH /perfil`; la condición
+  frente al IVA, el local.
 - El rol y el estado no se eligen: `rol_id` o `activo` en el cuerpo se ignoran.
 - Errores: 422 `validacion` (cada error en su campo; el correo repetido dice «Ya hay una cuenta con ese
   correo.»), 429 `demasiados_intentos`.
@@ -431,7 +449,7 @@ cuerpo. Errores: 401 `sin_sesion` / `sesion_invalida`.
 
 #### `GET /api/v1/perfil`
 
-Protegida, sin permiso propio. La cuenta de quien tiene la sesión. Sólo lectura.
+Protegida, sin permiso propio. La cuenta de quien tiene la sesión. Se edita con `PATCH /perfil`.
 
 ```json
 {
@@ -441,6 +459,11 @@ Protegida, sin permiso propio. La cuenta de quien tiene la sesión. Sólo lectur
     "email": "lucia@correo.local",
     "telefono": "297-4001122",
     "razon_social": "Lucía Paredes",
+    "tipo_doc": "dni",
+    "tipo_doc_texto": "DNI",
+    "nro_doc": "38123456",
+    "condicion_iva": "consumidor_final",
+    "condicion_iva_texto": "Consumidor final",
     "direccion": {
       "calle": "San Martín",
       "numero": "1234",
@@ -453,10 +476,92 @@ Protegida, sin permiso propio. La cuenta de quien tiene la sesión. Sólo lectur
 }
 ```
 
-- `telefono` es `null` si no lo cargó. No viajan el documento ni la condición frente al IVA.
-- `direccion` (desde la revisión 5): la predeterminada, de sólo lectura, para proponerla en el envío;
-  `null` si no tiene. La app la puede editar **sólo para ese pedido** (`POST /pedidos`).
+- `telefono` es `null` si no lo cargó.
+- `tipo_doc` (`dni`, `cuit`, `cuil`) + `tipo_doc_texto` y `nro_doc` (desde la revisión 6): los tres en `null`
+  si no hay número. Una cuenta recién registrada no tiene documento.
+- `condicion_iva` + `condicion_iva_texto` (desde la revisión 6): **sólo para verse**. Decide el tipo de
+  comprobante y la carga el local (D-22): la app la explica, no la edita.
+- `direccion` (desde la revisión 5): la predeterminada, para proponerla en el envío; `null` si no tiene. En
+  `POST /pedidos` se puede cambiar **sólo para ese pedido**; en la cuenta, con `PATCH /perfil`. Si es
+  anterior a la revisión 7, su `provincia` puede no estar en la lista de §5: la app no la da por buena y
+  pide elegirla de nuevo.
 - Errores: 401 `sin_sesion` / `sesion_invalida`.
+
+#### `PATCH /api/v1/perfil`
+
+Protegida, sin permiso propio (revisión 6). Edita la cuenta propia. **Parcial**: se cambia sólo lo que viene
+en el cuerpo; una clave que no viene no se toca (el paso 4 de la compra puede mandar sólo `direccion`).
+
+| Campo | Tipo | Notas |
+| --- | --- | --- |
+| `nombre`, `apellido` | texto, hasta 100 | No vacíos. Juntos hasta 150 (la razón social); si viene uno, se mide con el otro guardado |
+| `telefono` | texto, hasta 30, o `null` | `null` lo quita |
+| `tipo_doc` + `nro_doc` | `dni` / `cuit` / `cuil` + texto | **Juntos o ninguno**. DNI de 7 u 8 dígitos; CUIT o CUIL de 11 con su dígito verificador. Puntos, guiones y espacios se sacan. Los dos en `null` lo quitan |
+| `direccion` | objeto o `null` | `calle` (150), `numero` (10), `piso_depto` (20, opcional), `codigo_postal` (10), `localidad` (100), `provincia` (**una de la lista cerrada**, §5). `null` la quita |
+
+```json
+{
+  "nombre": "Lucía",
+  "apellido": "Paredes Ruiz",
+  "tipo_doc": "cuit",
+  "nro_doc": "20-12345678-6",
+  "direccion": {
+    "calle": "San Martín",
+    "numero": "1234",
+    "piso_depto": null,
+    "codigo_postal": "9000",
+    "localidad": "Comodoro Rivadavia",
+    "provincia": "Chubut"
+  }
+}
+```
+
+**200**, con el perfil como lo devuelve el `GET` y un `mensaje`:
+
+```json
+{
+  "datos": {
+    "nombre": "Lucía",
+    "apellido": "Paredes Ruiz",
+    "email": "lucia@correo.local",
+    "telefono": "297-4001122",
+    "razon_social": "Lucía Paredes Ruiz",
+    "tipo_doc": "cuit",
+    "tipo_doc_texto": "CUIT",
+    "nro_doc": "20123456786",
+    "condicion_iva": "consumidor_final",
+    "condicion_iva_texto": "Consumidor final",
+    "direccion": {
+      "calle": "San Martín",
+      "numero": "1234",
+      "piso_depto": null,
+      "codigo_postal": "9000",
+      "localidad": "Comodoro Rivadavia",
+      "provincia": "Chubut"
+    }
+  },
+  "mensaje": "Guardamos tus datos."
+}
+```
+
+- Es la misma ficha que el cajero ve y corrige en la web. La razón social sigue a nombre y apellido **cuando
+  cambian**; si no vienen, se conserva la que haya (también una que ajustó el cajero).
+- `direccion` edita la predeterminada (o la crea). Con `null` se borra; si el cliente tenía otras, cargadas
+  en el local, la más antigua pasa a ser la predeterminada y el perfil la propone. Un pedido ya hecho **no
+  cambia**: su dirección está copiada.
+- `email`, `condicion_iva`, `razon_social` y cualquier importe (`precio`, `total`…) se rechazan con 422 en su
+  campo: no se corrigen ni se ignoran.
+- Errores: 401 `sin_sesion` / `sesion_invalida`; 422 `validacion`, con las claves de la dirección anidadas
+  (`direccion.calle`, `direccion.provincia`). Casos con mensaje propio: un documento de otro cliente («Ese documento ya está cargado
+  en otra cuenta. Si es tuyo, avisanos.») y quitar el documento con Responsable inscripto o Monotributo.
+
+```json
+{
+  "mensaje": "Ese CUIT no es válido: revisá el último dígito.",
+  "codigo": "validacion",
+  "errores": { "nro_doc": [ "Ese CUIT no es válido: revisá el último dígito." ] }
+}
+```
 
 ### 7.3 Carrito y checkout (tramo E)
 
@@ -669,7 +774,7 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
 | `carrito_id` | cuerpo | entero | sí | El `id` que trae el resumen del checkout (y `GET /carrito`). Ajeno o inexistente: 404 |
 | `medio_pago` | cuerpo | texto | sí | `contado` (efectivo o transferencia, en el local) o `pasarela` |
 | `modo_entrega` | cuerpo | texto | sí | `retiro`; `envio` sólo con `tienda.envio.habilitado` |
-| `direccion` | cuerpo | objeto | con `envio` | `calle` (150), `numero` (10), `piso_depto` (20, opcional), `codigo_postal` (10), `localidad` (100), `provincia` (100). Con `retiro`, mandarla es 422 |
+| `direccion` | cuerpo | objeto | con `envio` | `calle` (150), `numero` (10), `piso_depto` (20, opcional), `codigo_postal` (10), `localidad` (100), `provincia` (**una de la lista cerrada**, §5). Con `retiro`, mandarla es 422 |
 | importes | cuerpo | — | — | `precio`, `total`, `subtotal`, `costo_envio`, etc.: **prohibidos** (422). Los calcula el servidor |
 
 1. Bloquea el carrito. Si ya es un pedido, devuelve **ese** pedido con **200** (D-8): el reintento
@@ -736,7 +841,8 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
   se reusa; el siguiente `GET /carrito` trae uno nuevo, con otro `id`.
 - Errores: 401 `sin_sesion` / `sesion_invalida`, 403 `sin_permiso`, 404 `no_encontrado` (carrito
   ajeno o inexistente), 409 `checkout_vencido`, 409 `carrito_cambio`, 409 `regla_de_negocio` (cuenta
-  sin ficha de cliente), 422 `validacion`.
+  sin ficha de cliente), 422 `validacion` (con envío, una provincia fuera de la lista de §5 va en
+  `direccion.provincia`).
 
 ## Registro de cambios
 
@@ -746,4 +852,6 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
 | 2 | C | `GET /categorias`, `GET /productos` y `GET /productos/{id}`: catálogo público sin precios; criterio de novedad (ventana y tope); galería nunca vacía; el árbol de categorías se pagina por raíz |
 | 3 | D | `POST /registro`, `POST` y `DELETE /sesion`, `GET /perfil`; clave `precios` con `tienda.ver_precios`; `orden=precio_asc` y `precio_desc` (401 sin sesión, 403 sin permiso); cambiar o restablecer la contraseña revoca las credenciales |
 | 5 | F | `POST /pedidos` (201 al crear, 200 en el reintento con el mismo `carrito_id`; se emite `checkout_vencido`); `id` del carrito en `GET /carrito` y en el checkout; `direccion` en `GET /perfil`; el costo del envío pasa a `8000.00` |
+| 6 | K | `PATCH /perfil` (parcial; documento con dígito verificador; lo fiscal, el correo y los importes, 422); `GET /perfil` suma `tipo_doc` + `_texto`, `nro_doc` y `condicion_iva` + `_texto` |
+| 7 | K | `direccion.provincia` en `PATCH /perfil` y `POST /pedidos`: de texto de hasta 100 a **una de la lista cerrada** de 24 (§5), 422 «Elegí una provincia de la lista.»; una dirección vieja puede traer en `GET /perfil` una fuera de la lista (HL-69) |
 | 4 | E | `GET` y `DELETE /carrito`, `POST /carrito/lineas`, `PATCH` y `DELETE /carrito/lineas/{linea}`, `POST /carrito/checkout`; se emiten `stock_insuficiente` y `carrito_cambio` (con `cambios`); importes en la solicitud, 422; dónde se guarda el carrito y cómo se asocia a la cuenta |

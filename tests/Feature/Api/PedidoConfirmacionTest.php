@@ -270,6 +270,43 @@ test('un envio sin direccion completa es 422', function () {
     ], $bearer)->assertStatus(422)->assertJsonValidationErrors(['direccion.calle', 'direccion.codigo_postal'], 'errores');
 });
 
+test('con envio, una provincia fuera de la lista es 422 en su campo y no crea el pedido (HL-69)', function () {
+    [$cuenta, $bearer] = ($this->tiendaCuentaCon)();
+    $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)());
+
+    $this->postJson('/api/v1/pedidos', [
+        'carrito_id' => $carritoId, 'medio_pago' => 'contado', 'modo_entrega' => 'envio',
+        'direccion'  => [...$this->tiendaDireccion, 'provincia' => 'Chubutt'],
+    ], $bearer)
+        ->assertStatus(422)
+        ->assertJsonPath('errores', ['direccion.provincia' => ['Elegí una provincia de la lista.']]);
+
+    expect(Venta::count())->toBe(0);
+});
+
+test('con envio, una provincia de la lista queda en el pedido', function () {
+    [$cuenta, $bearer] = ($this->tiendaCuentaCon)();
+    $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)());
+
+    $this->postJson('/api/v1/pedidos', [
+        'carrito_id' => $carritoId, 'medio_pago' => 'contado', 'modo_entrega' => 'envio',
+        'direccion'  => [...$this->tiendaDireccion, 'provincia' => 'Tierra del Fuego'],
+    ], $bearer)
+        ->assertCreated()
+        ->assertJsonPath('datos.direccion.provincia', 'Tierra del Fuego');
+});
+
+test('con retiro, la provincia no se pide: sin direccion se confirma', function () {
+    [$cuenta, $bearer] = ($this->tiendaCuentaCon)();
+    $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)());
+
+    $this->postJson('/api/v1/pedidos', [
+        'carrito_id' => $carritoId, 'medio_pago' => 'contado', 'modo_entrega' => 'retiro',
+    ], $bearer)
+        ->assertCreated()
+        ->assertJsonPath('datos.direccion', null);
+});
+
 test('con retiro, mandar una direccion se rechaza', function () {
     [$cuenta, $bearer] = ($this->tiendaCuentaCon)();
     $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)());

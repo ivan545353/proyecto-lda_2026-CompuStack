@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api;
 
+use App\Models\Direccion;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -11,7 +12,7 @@ use Illuminate\Validation\Rule;
  */
 class ConfirmarPedidoRequest extends FormRequest
 {
-    private const CAMPOS_DIRECCION = [
+    public const CAMPOS_DIRECCION = [
         'calle' => 150, 'numero' => 10, 'piso_depto' => 20,
         'codigo_postal' => 10, 'localidad' => 100, 'provincia' => 100,
     ];
@@ -32,6 +33,7 @@ class ConfirmarPedidoRequest extends FormRequest
                 ? ['nullable', 'string', "max:{$largo}"]
                 : ['required_if:modo_entrega,envio', 'string', "max:{$largo}"];
         }
+        $direccion['direccion.provincia'][] = Rule::in(Direccion::PROVINCIAS);   // la lista de la web (HL-69)
 
         return [
             'carrito_id'   => ['required', 'integer'],
@@ -53,6 +55,7 @@ class ConfirmarPedidoRequest extends FormRequest
             'medio_pago.in'               => 'Elegí pagar de contado o por Mercado Pago.',
             'direccion.*.required_if'     => 'Completá este dato de la dirección del envío.',
             'direccion.required_if'       => 'Para el envío necesitamos la dirección.',
+            'direccion.provincia.in'      => 'Elegí una provincia de la lista.',
         ];
     }
 
