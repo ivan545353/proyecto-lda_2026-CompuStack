@@ -1310,3 +1310,32 @@ Servidor (`compustack`) y app (`compustack-app`). La app pasó de 546 a **673 te
 >
 > **Menos texto, más estructura** (HL-76): tras la prueba en el teléfono, cada pedido va en su tarjeta y el detalle
 > en una cabecera y tarjetas por sección, y Mis pedidos pasó de sumar páginas al llegar al final al paginador.
+
+### Tramo I — Pruebas, documentación y demostración
+
+El I cierra lo que la consigna pide presentar.
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `docs/api.md` | Revisión 10, final: las 24 rutas pedidas al servidor y comparadas con sus ejemplos; sin cambio de forma | Modificado |
+| `docs/pruebas-etapa-2.md` | Qué se probó en cada repositorio, los tests que importan por su nombre, dificultades y pendientes (P-10) | Nuevo |
+| `docs/seguridad-etapa-2.md` | El riesgo detectado y su solución: la cuenta desactivada que seguía operando por la API (P-9, §1.3 A del plan) | Nuevo |
+| `docs/demostracion-etapa-2.md` | El guion de la defensa, en el orden de la consigna, con los datos del seeder | Nuevo |
+| `README.md`, `.env.example` | La Etapa 2 en el README: la API, la tarea de la tienda, `serve --host=0.0.0.0`, `schedule:work`, las claves nuevas (HL-79); el aviso del simulador (HL-80) | Modificado |
+| `config/tienda.php`, `phpunit.xml` | El simulador, apagado por omisión (HL-80); los tests lo encienden, porque sus rutas se registran al arrancar | Modificado |
+
+> **El I no agrega componentes de código**, salvo el valor por omisión de una llave.
+>
+> **El contrato se verificó contra el servidor, no contra los tests.** Los tests fijan las formas; la
+> revisión final pidió cada ruta a `php artisan serve` y comparó la respuesta con su ejemplo. Encontró la ruta
+> del simulador publicada en desarrollo (HL-80), algo que ningún test podía ver porque cada test fija la llave.
+
+### Cierre de la Etapa 2
+
+**Cada exigencia de la consigna tiene su componente en las tablas de los tramos A a I** (la §2 del plan
+las enumera con el tramo que las cierra), y la matriz de seguimiento del plan (§13) está toda en «Hecho».
+Los servicios de la Etapa 1 que la tienda reutiliza —`VentaService`, `PagoService`, `StockService`,
+`UsuarioService`— figuran en el tramo que los extendió, con sus métodos nuevos o modificados: la tienda no
+tiene un camino paralelo. Lo que no se hizo tiene su motivo escrito: lo que la consigna no pide es la
+Etapa 4 del plan (§5), y lo que quedó abierto está en `pendientes-usabilidad.md` con su número (#85, el
+retiro del simulador). Falta, para dar la etapa por presentada, ensayar el guion dos veces.

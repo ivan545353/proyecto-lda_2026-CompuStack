@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 9** · Etapa 2, tramo H. Base: `/api/v1`.
+**Revisión 10** (final de la Etapa 2) · tramo I. Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -12,7 +12,9 @@ catálogo público (§7.1). La 3, la cuenta (§7.2), los precios y el orden por 
 el checkout con la reserva (§7.3). La 5, la confirmación del pedido (§7.4) y la dirección del perfil. La 6,
 la cuenta editable (`PATCH /perfil`) y los datos fiscales en el perfil. La 7, la provincia de lista cerrada (§5).
 La 8, los pagos (§7.5): intentos por Mercado Pago y por el simulador. La 9, la consulta de compras (§7.6):
-mis pedidos, el detalle y el comprobante por enlace firmado.
+mis pedidos, el detalle y el comprobante por enlace firmado. La 10 no cambia ninguna forma: es la revisión
+final, con cada endpoint pedido al servidor y sus ejemplos comparados con las respuestas reales (§7, al
+principio).
 
 ## 1. Reglas generales
 
@@ -193,6 +195,18 @@ Tres grupos de rutas (`routes/api.php`): **pública** (no lee la credencial), **
 (sin credencial es visitante; con una inválida, 401 `sesion_invalida`) y **protegida**. El registro y
 el inicio de sesión son públicos, con el límite `tienda-acceso`; cerrar sesión y el perfil, protegidos.
 
+**Verificación de la revisión 10** (12/11/2026). Las 24 rutas de `php artisan route:list --path=api/v1` son
+las de este documento. Con `php artisan serve` y la base de demostración se pidió cada una con `curl`, con
+una cuenta registrada para la prueba: catálogo (con y sin sesión, orden por precio, novedades), registro,
+sesión, perfil y su edición, carrito, checkout y su reintento, pedido y su reintento (mismo número), intento
+de Mercado Pago de prueba y su repetición (el mismo intento), consulta del intento, Mis pedidos, detalle,
+comprobante sin pagar (409), el PDF sin firma (403), el pedido ajeno (404 **idéntico byte a byte** al
+inexistente), el 405 con `Allow`, la ruta inexistente y el cierre de sesión. Formas, códigos y mensajes
+coinciden; los ejemplos se alinearon con los ids y las imágenes del catálogo de demostración. Dos casos no se
+pidieron a mano y los fija un test: el 429 (`Api/ContratoTest`, `Api/CuentaTest`) y el 200 del comprobante de
+un pedido pagado (`Api/PedidoConsultaTest`, «el comprobante de un pedido pagado da una url firmada…»), que se
+recorre en el ensayo del guion.
+
 ### 7.1 Catálogo (tramo C)
 
 **Precios.** Con una credencial válida cuyo rol tiene `tienda.ver_precios`, cada producto (listado y
@@ -220,14 +234,14 @@ Pública. El árbol de categorías visibles, con `hijas` anidadas (hasta tres ni
       "id": 1,
       "nombre": "Componentes",
       "hijas": [
-        { "id": 6, "nombre": "Placas de video", "hijas": [] },
-        { "id": 8, "nombre": "Memorias RAM", "hijas": [] }
+        { "id": 2, "nombre": "Placas de video", "hijas": [] },
+        { "id": 4, "nombre": "Memorias RAM", "hijas": [] }
       ]
     },
     {
-      "id": 2,
+      "id": 7,
       "nombre": "Almacenamiento",
-      "hijas": [ { "id": 13, "nombre": "Discos SSD", "hijas": [] } ]
+      "hijas": [ { "id": 9, "nombre": "Discos SSD", "hijas": [] } ]
     }
   ],
   "pagina": 1,
@@ -240,7 +254,7 @@ Pública. El árbol de categorías visibles, con `hijas` anidadas (hasta tres ni
 
 - **Se pagina por raíz** y cada raíz trae su rama entera: un listado pagina siempre (§2), también éste,
   y el árbol no se corta a la mitad. `total` cuenta **raíces**, no categorías. Con el catálogo de
-  demostración (5 raíces) todo llega en la primera página.
+  demostración (9 raíces) todo llega en la primera página.
 - Una hoja trae `"hijas": []`, nunca la clave ausente. Las categorías vienen ordenadas por `orden`,
   después `nombre`, después `id`. No viajan `slug`, `ganancia` ni el peso.
 - Errores: 422 `validacion` (`pagina` o `por_pagina` inválidos).
@@ -274,8 +288,8 @@ dos respuestas salen **antes de consultar**: ordenar dejaría deducir los precio
       "codigo": "SSD-WD1TB",
       "nombre": "Disco SSD WD Blue SN580 1TB",
       "descripcion_breve": "Unidad de estado sólido NVMe de 1 TB en formato M.2. Arranca el sistema y abre los programas en segundos, con velocidades de lectura de…",
-      "imagen": "http://10.0.2.2:8000/storage/productos/demo-ssd-wd1tb-1.jpg",
-      "categoria": { "id": 13, "nombre": "Discos SSD" },
+      "imagen": "http://10.0.2.2:8000/storage/productos/demo-ssd-wd1tb-1.webp",
+      "categoria": { "id": 9, "nombre": "Discos SSD" },
       "es_novedad": true,
       "es_destacado": true,
       "disponibilidad": "disponible",
@@ -339,16 +353,16 @@ además la descripción completa, la galería y la marca.
     "codigo": "SSD-WD1TB",
     "nombre": "Disco SSD WD Blue SN580 1TB",
     "descripcion_breve": "Unidad de estado sólido NVMe de 1 TB en formato M.2. Arranca el sistema y abre los programas en segundos, con velocidades de lectura de…",
-    "imagen": "http://10.0.2.2:8000/storage/productos/demo-ssd-wd1tb-1.jpg",
-    "categoria": { "id": 13, "nombre": "Discos SSD" },
+    "imagen": "http://10.0.2.2:8000/storage/productos/demo-ssd-wd1tb-1.webp",
+    "categoria": { "id": 9, "nombre": "Discos SSD" },
     "es_novedad": true,
     "es_destacado": true,
     "disponibilidad": "ultimas_unidades",
     "disponibilidad_texto": "Últimas unidades",
     "descripcion": "Unidad de estado sólido NVMe de 1 TB en formato M.2. Arranca el sistema y abre los programas en segundos, con velocidades de lectura de hasta 4150 MB/s. Se instala directo en la placa madre, sin cables.",
     "galeria": [
-      "http://10.0.2.2:8000/storage/productos/demo-ssd-wd1tb-1.jpg",
-      "http://10.0.2.2:8000/storage/productos/demo-ssd-wd1tb-2.jpg"
+      "http://10.0.2.2:8000/storage/productos/demo-ssd-wd1tb-1.webp",
+      "http://10.0.2.2:8000/storage/productos/demo-ssd-wd1tb-2.webp"
     ],
     "marca": { "id": 9, "nombre": "Western Digital" }
   }
@@ -610,7 +624,7 @@ es `null`. El `id` (desde la revisión 5) es el que nombra la confirmación del 
           "id": 7,
           "codigo": "MOU-0007",
           "nombre": "Mouse Logitech G505",
-          "imagen": "http://10.0.2.2:8000/storage/productos/demo-mouse-g505-1.jpg",
+          "imagen": "http://10.0.2.2:8000/storage/productos/demo-mouse-g505-1.webp",
           "en_tienda": true,
           "disponibilidad": "disponible",
           "disponibilidad_texto": "Disponible"
@@ -1088,9 +1102,10 @@ Errores: 401, 403, 404 (ajeno o inexistente), 409 `regla_de_negocio` (todavía s
 | 1 | A | Convenciones, formato de respuesta y de error, credencial, paginado, límite de intentos |
 | 2 | C | `GET /categorias`, `GET /productos` y `GET /productos/{id}`: catálogo público sin precios; criterio de novedad (ventana y tope); galería nunca vacía; el árbol de categorías se pagina por raíz |
 | 3 | D | `POST /registro`, `POST` y `DELETE /sesion`, `GET /perfil`; clave `precios` con `tienda.ver_precios`; `orden=precio_asc` y `precio_desc` (401 sin sesión, 403 sin permiso); cambiar o restablecer la contraseña revoca las credenciales |
+| 4 | E | `GET` y `DELETE /carrito`, `POST /carrito/lineas`, `PATCH` y `DELETE /carrito/lineas/{linea}`, `POST /carrito/checkout`; se emiten `stock_insuficiente` y `carrito_cambio` (con `cambios`); importes en la solicitud, 422; dónde se guarda el carrito y cómo se asocia a la cuenta |
 | 5 | F | `POST /pedidos` (201 al crear, 200 en el reintento con el mismo `carrito_id`; se emite `checkout_vencido`); `id` del carrito en `GET /carrito` y en el checkout; `direccion` en `GET /perfil`; el costo del envío pasa a `8000.00` |
 | 6 | K | `PATCH /perfil` (parcial; documento con dígito verificador; lo fiscal, el correo y los importes, 422); `GET /perfil` suma `tipo_doc` + `_texto`, `nro_doc` y `condicion_iva` + `_texto` |
 | 7 | K | `direccion.provincia` en `PATCH /perfil` y `POST /pedidos`: de texto de hasta 100 a **una de la lista cerrada** de 24 (§5), 422 «Elegí una provincia de la lista.»; una dirección vieja puede traer en `GET /perfil` una fuera de la lista (HL-69) |
-| 4 | E | `GET` y `DELETE /carrito`, `POST /carrito/lineas`, `PATCH` y `DELETE /carrito/lineas/{linea}`, `POST /carrito/checkout`; se emiten `stock_insuficiente` y `carrito_cambio` (con `cambios`); importes en la solicitud, 422; dónde se guarda el carrito y cómo se asocia a la cuenta |
 | 8 | G | §7.5: `POST`, `GET /pedidos/{id}/pagos`, `GET /pedidos/{id}/pagos/{intento}` (consulta al proveedor si está pendiente) y `POST /simulador/intentos/{intento}/aprobar` y `/rechazar` (sólo con el simulador encendido); la forma del intento con `pedido.estado_pago`; la tabla del estado del pago y qué pasa si el pago falla (D-9) |
 | 9 | H | §7.6: `GET /pedidos` (sólo online, del más nuevo al más viejo, con los dos estados y `unidades`), `GET /pedidos/{id}` (la forma de `POST /pedidos` más `estado_pago`, `ultimo_pago` y `comprobante_disponible`), `GET /pedidos/{id}/comprobante` (URL firmada de cinco minutos; sin pagar, 409; firma vencida o tocada, 403). `POST /pedidos` no cambia |
+| 10 | I | Sin cambio de forma. Revisión final: cada endpoint pedido al servidor y comparado con su ejemplo (§7, «Verificación de la revisión 10»); los ejemplos, con los ids y las imágenes (`.webp`) del catálogo de demostración; este registro, en orden |

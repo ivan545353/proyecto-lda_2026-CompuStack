@@ -1,7 +1,8 @@
 # CompuStack - Sistema de Gestión - Tienda Informática
 
 Migración a Laravel 12 del sistema de gestión desarrollado en Laboratorio de
-Programación. Proyecto Integrador, **Etapa 1**.
+Programación. Proyecto Integrador, **Etapas 1 y 2**: el sistema de gestión (Blade) y
+la API de la tienda móvil (Flutter, en su propio repositorio).
 
 Laboratorio de Desarrollo de Aplicaciones · Ingeniería en Sistemas
 Universidad Nacional de la Patagonia Austral — Unidad Académica Caleta Olivia
@@ -21,6 +22,14 @@ Universidad Nacional de la Patagonia Austral — Unidad Académica Caleta Olivia
 | 6    | Ventas y pagos                               | Completada |
 | 7    | Panel de métricas y exportación a PDF        | Completada |
 | 8    | Cierre: pruebas, seguridad, documentación    | Pendiente  |
+
+**Etapa 2 — la tienda móvil.** Este repositorio suma la API `/api/v1` que consume la app:
+catálogo público sin precios, registro e inicio de sesión con credencial, carrito con reserva
+de stock, confirmación del pedido como venta online, pagos con **Mercado Pago de prueba**
+(Checkout Pro, verificado por consulta al proveedor) y consulta de los pedidos. Se hizo por
+tramos (A a I, con el K entre el F y el G); el estado de cada uno está en
+`docs/plan-etapa-2.md` §14.4. La Fase 8 de la Etapa 1 no se hizo: sus tareas quedaron
+como dice la §8 de `docs/plan-fase-7-5.md`.
 
 El sistema administra el catálogo y las personas, y compra: proveedores con los
 productos que provee cada uno y a qué precio, órdenes de compra con máquina de estados
@@ -76,15 +85,17 @@ defectos relevados en la auditoría.
 
 ## Alcance
 
-**Etapa 1 — esta entrega.** Roles y permisos, usuarios, clientes, empleados,
+**Etapa 1.** Roles y permisos, usuarios, clientes, empleados,
 categorías, marcas, productos, proveedores, órdenes de compra, movimientos de
 stock, ventas y pagos. Interfaz renderizada desde Laravel con Blade y Bootstrap.
 
-**Etapa 2.** Tienda pública, carrito con reserva de stock, Mercado Pago,
-facturación electrónica AFIP, envíos con Zipnova, vales y banners.
+**Etapa 2.** La tienda móvil en Flutter y la API de este backend, sobre los mismos
+servicios de la Etapa 1: catálogo, cuenta, carrito con reserva, pedido, pago por
+Mercado Pago de prueba y consulta de compras. Los módulos de gestión conservan su
+interfaz Blade.
 
-**Etapa 3.** API REST sobre los mismos servicios, e integración con la
-aplicación Flutter.
+**Fuera de alcance (Etapa 4 del plan, §5).** Facturación con ARCA, módulo de envíos,
+vales y banners: la consigna no los pide.
 
 **App móvil de la tienda.** Vive en otro repositorio:
 [`ivan545353/compustack-app`](https://github.com/ivan545353/compustack-app) (Flutter, Android,
@@ -106,9 +117,9 @@ Ruta ──► Middleware ──► Form Request ──► Controlador ──►
 Cuatro reglas sostienen el diseño:
 
 1. **La lógica de negocio vive en `app/Services`.** Los controladores traducen
-   entre HTTP y el servicio, sin reglas propias. En la Etapa 3 los controladores
-   de la API llaman a los mismos servicios y devuelven JSON en vez de vistas; si
-   la lógica quedara en el controlador habría que reescribirla.
+   entre HTTP y el servicio, sin reglas propias. Desde la Etapa 2 los controladores
+   de la API (`Api/V1`) llaman a los mismos servicios y devuelven JSON en vez de
+   vistas; si la lógica hubiera quedado en el controlador, habría que haberla reescrito.
 2. **La validación de entrada vive en Form Requests.** Una capa que puede
    rechazar, no un setter que vacía el valor en silencio.
 3. **Los permisos son claves nombradas y se deniegan por defecto.** No hay
@@ -186,6 +197,9 @@ valor real.
 | `APP_FAKER_LOCALE`                          | `es_AR`, para los datos ficticios                                      |
 | `ADMIN_EMAIL`                               | Cuenta del administrador que crea el seeder                            |
 | `ADMIN_PASSWORD`                            | Si queda vacía, el seeder genera una al azar y la imprime una sola vez |
+| `SANCTUM_EXPIRATION`                        | Vigencia de la credencial de la API, en minutos. Vacía: 10080 (7 días) |
+| `TIENDA_SIMULADOR`                          | Simulador de pagos del backend. **`false`**: los pagos son Mercado Pago de prueba (D-23) |
+| `MERCADOPAGO_ACCESS_TOKEN`                  | Token **de prueba** del vendedor de prueba. Vacío: Mercado Pago no se ofrece |
 
 Datos de la empresa que imprime el pedido al proveedor. Están en `.env` y no en una
 tabla porque cambian al instalar el sistema, no durante su uso:
@@ -206,8 +220,9 @@ cuentas de demostración comparten la contraseña `demo1234`:
 | `cajero@sistema.local`         | Cajero                  | Sí                 |
 | `cliente@sistema.local`        | Cliente (ámbito tienda) | No                 |
 
-La cuenta de cliente existe para que el modelo esté completo, pero el login la
-rechaza: en la Etapa 1 no hay tienda a la que entrar.
+La cuenta de cliente es de la tienda: entra por la app (la API), no por la web, que la
+rechaza porque no es una cuenta de gestión. Al revés, las cuentas de gestión no entran por
+la API. La app también permite registrar cuentas de cliente nuevas.
 
 La cuenta de administrador es aparte y su contraseña nunca se escribe en el
 código.
@@ -218,6 +233,17 @@ código.
 php artisan serve      # http://localhost:8000
 npm run dev            # recarga de assets en desarrollo
 ```
+
+Con la app móvil hacen falta dos cosas más:
+
+```bash
+php artisan serve --host=0.0.0.0   # que el teléfono lo alcance por la IP de la red (HL-12)
+php artisan schedule:work          # la tarea programada, en otra terminal (HL-10)
+```
+
+En la app, *Perfil → Servidor* recibe la dirección: `http://<IP de la máquina>:8000` desde un
+teléfono, `http://10.0.2.2:8000` desde el emulador. Las fotos del catálogo necesitan
+`php artisan storage:link`.
 
 Para volver a una base limpia con datos ficticios:
 
@@ -245,6 +271,17 @@ php artisan compras:generar-reposicion     # la misma tarea, ahora
 
 El comando genera **borradores**, no pedidos: nadie gasta plata sin que una
 persona con `compra.aprobar` autorice el monto.
+
+La tienda suma `tienda:vencer-reservas`, **cada minuto** y sin encimarse: suelta los
+checkouts vencidos, pregunta a Mercado Pago por los intentos que siguen en el aire y
+cancela los pedidos cuya reserva venció sin pago. Sin el planificador corriendo, la
+mercadería reservada no vuelve al disponible y un pedido vencido sigue «Esperando el
+pago» (HL-77). En desarrollo y en la demostración, en lugar del cron:
+
+```bash
+php artisan schedule:work                  # corre el planificador en primer plano
+php artisan tienda:vencer-reservas         # una pasada, ahora
+```
 
 ## Pruebas
 
@@ -412,12 +449,14 @@ app/
 ├── Console/Commands/       compras:generar-reposicion
 ├── Exceptions/             ReglaDeNegocio, StockInsuficiente, TransicionInvalida
 ├── Http/
-│   ├── Controllers/        17 controladores: traducen HTTP ↔ servicio, sin lógica
-│   ├── Middleware/         VerificarUsuarioActivo, VerificarAmbitoGestion
-│   └── Requests/           26 Form Requests: validación de entrada y de filtros
+│   ├── Controllers/        traducen HTTP ↔ servicio, sin lógica; Api/V1: los 11 de la API
+│   ├── Middleware/         VerificarUsuarioActivo, VerificarAmbitoGestion; Api/: ForzarJson,
+│   │                       SesionOpcional, VerificarCuentaTienda
+│   ├── Requests/           Form Requests: validación de entrada y de filtros; Api/: los de la API
+│   └── Resources/Api/      la forma JSON de cada recurso (docs/api.md)
 ├── Models/                 Eloquent, con $table declarado y un scope por filtro
 ├── Providers/              registro de Gates (deny-by-default)
-├── Services/               14 servicios: LA lógica de negocio, que reusa la Etapa 3
+├── Services/               22 servicios: LA lógica de negocio, la misma para la web y la API
 └── Support/                MaquinaEstadosVenta, MaquinaEstadosCompra, Importe,
                             ReglasFiscales, Like, Slug
 
@@ -524,6 +563,11 @@ asumido. Están anotados como pendientes #41 y #42.
 | `docs/trazabilidad.md`          | Componente original → componente Laravel                    |
 | `legacy/README.md`              | Procedencia y estado del sistema congelado                  |
 | `docs/pendientes-usabilidad.md` | Puntos de usabilidad y consistencia a resolver en el cierre |
+| `docs/plan-etapa-2.md`          | Plan de la Etapa 2: decisiones, hallazgos, tramos y su estado |
+| `docs/api.md`                   | El contrato de la API que comparten el backend y la app      |
+| `docs/pruebas-etapa-2.md`       | Qué se probó en la Etapa 2, dificultades y pendientes        |
+| `docs/seguridad-etapa-2.md`     | El riesgo de seguridad detectado y su solución               |
+| `docs/demostracion-etapa-2.md`  | El guion de la defensa de la Etapa 2                         |
 
 ---
 

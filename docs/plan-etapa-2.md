@@ -480,6 +480,9 @@ la §1.3 se nombran por su letra.
 | HL-75 | «El detalle trae los intentos; el listado, `fecha` y `total`» | Los intentos completos en el detalle serían un listado sin paginar (regla 15), y `total` a la vista rompe la regla 21 | El detalle lleva sólo `ultimo_pago` (el que decide `estado_pago`); los intentos, por `GET /pedidos/{id}/pagos`, que pagina. El total va en `importes`, que sin `tienda.ver_precios` no viaja. La fecha se llama `creado`, como en `POST /pedidos`, y la cantidad de productos es `unidades` (suma de cantidades) | H |
 | HL-76 | «Mis pedidos: lista paginada» y el detalle con «renglones, los dos estados como insignias» | Probada en el teléfono, la primera versión (renglones separados por una línea, todo en `FilaDato`) se leía como un bloque de texto: había que leer todo para saber qué se miraba. Y un pedido pagado mostraba dos insignias «Pagado» (`estado_texto` y `estado_pago_texto` dicen lo mismo) | Cada pedido en su tarjeta (número y total arriba, fecha y unidades atenuadas, estados al pie); el detalle con una cabecera (total grande, estados, una sola indicación) y tarjetas por sección con «etiqueta … valor»; dos insignias con el mismo texto se muestran como una. El listado usa el `Paginador` del catálogo, no un scroll que suma páginas: un cliente puede tener muchos pedidos | H |
 | HL-77 | «`reserva_vence` es el “Pagalo antes del…” mientras está pendiente» | Sin la tarea programada corriendo (`tienda:vencer-reservas`), un pedido vencido sigue «Esperando el pago» y la app ofrecía «Pagar» | No cambia el contrato: la tarea es la que cancela. La app, si el plazo pasó y el pago sigue `pendiente` o `rechazado`, dice «Venció el plazo para pagarlo.» y no ofrece pagar (`Pedido.vencido`) | H |
+| HL-78 | §13: «Sesión vencida … D pendiente» | El D la probó de punta a punta (`sesion_vencida_test.dart`; `trazabilidad.md` §15, tramo D): la fila no se actualizó al cerrar el D | La fila pasa a «Hecho» | I |
+| HL-79 | «`README.md` del backend: `schedule:work`, `serve --host=0.0.0.0`, `storage:link`, las variables nuevas» | El README seguía en la Etapa 1: decía que el login rechazaba la cuenta de cliente «porque no hay tienda», ponía la API en una «Etapa 3», y no nombraba `tienda:vencer-reservas` ni las claves de la tienda | README al día (Estado, Alcance, Configuración, Ejecución, Tarea programada, Estructura, Documentación) | I |
+| HL-80 | «Hasta entonces `TIENDA_SIMULADOR=false`» (D-23) | `config/tienda.php` toma `env('TIENDA_SIMULADOR', true)`: sin la clave en `.env`, el simulador se enciende. El `.env` de desarrollo lo tenía encendido (la verificación de `api.md` encontró la ruta `/simulador/…` publicada), y `.env.example` decía «true en la demostración» | El valor por omisión pasa a `false`: sin la clave, apagado. `phpunit.xml` fija `TIENDA_SIMULADOR=true`, porque las rutas del simulador se registran al arrancar y los tests del G las usan (sin eso, 6 de `Api/PagoTest` daban 404). `.env.example` corregido | I |
 
 ---
 
@@ -1807,7 +1810,7 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 | Inicio y cierre de sesión | Inicio de sesión, Perfil | `POST` y `DELETE /sesion` | Pública / protegida | D | Hecho |
 | Datos básicos | Mi cuenta | `GET /perfil` | Protegida | D | Hecho |
 | Editar la cuenta | Mi cuenta, Confirmación (paso 3) | `PATCH /perfil` | Protegida | K | Hecho |
-| Sesión vencida | Todas | Cualquier protegida (401) | — | B, D | B hecho (mecanismo: 401, `SessionRepository`, guarda, estado); D pendiente |
+| Sesión vencida | Todas | Cualquier protegida (401) | — | B, D | Hecho (B: el mecanismo; D: de punta a punta, `sesion_vencida_test.dart`; HL-78) |
 | Carrito | Carrito, Ficha, Agregado | `/carrito`, `/carrito/lineas` | `tienda.comprar` | E | Hecho |
 | Vaciar | Carrito | `DELETE /carrito` | `tienda.comprar` | E | Hecho |
 | Checkout y reserva | Carrito (paso 1 de 5, reservado) | `POST /carrito/checkout` | `tienda.comprar` | E | Hecho |
@@ -1879,23 +1882,57 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | E — Carrito y reserva | [x] | [x] | [x] `api.md` r4, `modelo-datos` §4, `trazabilidad` §15 (los dos lados), HL-57 a HL-60, Q-1 (`cantidad_maxima`), reglas 31 y 32 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
 | F — Confirmación del pedido | [x] | [x] | [x] `api.md` r5, `modelo-datos` §4 y §5, `trazabilidad` §15 (los dos lados), HL-61 a HL-64, Q-1 (`envio.costo`), D-22 y el tramo K, `README` y `ARQUITECTURA` de la app | Cerrado |
 | K — Cuenta editable (entre F y G) | [x] | [x] | [x] `api.md` r6 y r7, `modelo-datos` §1, `trazabilidad` §15 (los dos lados), HL-65 a HL-69, regla 34 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
-| G — Pagos | [x] | [x] | [x] `api.md` r8, `modelo-datos` §5 y §10, `trazabilidad` §15 (los dos lados, y las filas de HL-69 del K), HL-70 a HL-74, Q-1 cerrada (`intento_minutos`), D-23 (sin simulador en la app), `README` y `ARQUITECTURA` de la app | Cerrado (Mercado Pago anduvo de punta a punta; falta anotar la prueba en `pruebas-etapa-2.md`, y quitar el simulador del backend) |
-| H — Consulta de compras | [x] | [x] | [x] `api.md` r9, `trazabilidad` §15 (los dos lados), HL-75 a HL-77, `README` y `ARQUITECTURA` de la app | Cerrado (falta anotar en `pruebas-etapa-2.md` el test del pedido ajeno por su nombre, y probar el comprobante desde el teléfono) |
-| I — Pruebas, documentación y demostración | [ ] | [ ] | [ ] | Pendiente |
+| G — Pagos | [x] | [x] | [x] `api.md` r8, `modelo-datos` §5 y §10, `trazabilidad` §15 (los dos lados, y las filas de HL-69 del K), HL-70 a HL-74, Q-1 cerrada (`intento_minutos`), D-23 (sin simulador en la app), `README` y `ARQUITECTURA` de la app | Cerrado (Mercado Pago anduvo de punta a punta, anotado en `pruebas-etapa-2.md`; quitar el simulador del backend es el pendiente #85) |
+| H — Consulta de compras | [x] | [x] | [x] `api.md` r9, `trazabilidad` §15 (los dos lados), HL-75 a HL-77, `README` y `ARQUITECTURA` de la app | Cerrado (el test del pedido ajeno, nombrado en `pruebas-etapa-2.md`; el comprobante desde el teléfono se prueba en el ensayo) |
+| I — Pruebas, documentación y demostración | [x] `config/tienda.php` y `phpunit.xml` (HL-80) | — | [x] `api.md` r10, `pruebas-etapa-2`, `seguridad-etapa-2`, `demostracion-etapa-2`, `README`, `trazabilidad` §15 (cierre), §13, HL-78 a HL-80, `pendientes` #85, §15 de este plan | Cerrado (los dos ensayos del guion quedan a cargo del autor, fuera de la sesión: §14.5 y §14.6) |
 | J — Contenido que invita a comprar (opcional) | — | [ ] | [ ] | Opcional, al final |
 
 ### 14.5 Al cerrar la etapa
 
-- [ ] Cada fila de la §2 cumplida y señalada en la matriz (§13).
-- [ ] `docs/api.md` en su revisión final.
-- [ ] `trazabilidad.md` §15 con el bloque de cierre.
-- [ ] `docs/pruebas-etapa-2.md`, `docs/seguridad-etapa-2.md` y `docs/demostracion-etapa-2.md`
+- [x] Cada fila de la §2 con su tramo cerrado, y la matriz (§13) toda en «Hecho».
+- [x] `docs/api.md` en su revisión final (r10, verificada contra el servidor).
+- [x] `trazabilidad.md` §15 con el bloque de cierre.
+- [x] `docs/pruebas-etapa-2.md`, `docs/seguridad-etapa-2.md` y `docs/demostracion-etapa-2.md`
       escritos.
 - [ ] El guion de la defensa ensayado dos veces sin tocar código.
-- [ ] Una sección «Cierre de la Etapa 2» al final de este plan, como la §8 de la Fase 7.5: qué
+- [x] Una sección «Cierre de la Etapa 2» al final de este plan, como la §8 de la Fase 7.5: qué
       se hizo, qué se recortó y por qué, qué quedó pendiente con su número.
 
 ### 14.6 Próximo paso
 
-Escribir el **prompt de ejecución** del tramo A, en esta misma conversación, con este plan
-como contexto.
+Los **dos ensayos del guion** (`demostracion-etapa-2.md`) en el equipo de la defensa, sin tocar
+código, a cargo del autor; lo que encuentren, como HL desde el HL-81. Después, si hay tiempo, el tramo J (opcional).
+
+---
+
+## 15. Cierre de la Etapa 2
+
+**La Etapa 2 hizo sus diez tramos obligatorios** (A a I, más el K entre el F y el G) y dejó el J, que
+es opcional, para después de los ensayos. Al cerrar, las dos suites pasaban en verde: **2.217 tests**
+en el backend (6.251 aserciones) y **956** en la app. El contrato (`docs/api.md`, revisión 10) se
+verificó contra el servidor, ruta por ruta.
+
+**Qué se hizo.** Una tienda móvil en Flutter sobre una API `/api/v1` que reutiliza los servicios de la
+Etapa 1: el pedido de la app es una venta con `canal = online`, se cobra por `PagoService` y deja el
+mismo asiento en el kardex. Cada fila de la §2 tiene su tramo cerrado, y la matriz (§13) está toda en
+«Hecho». La promoción (6.3) se cumple con Mercado Pago de prueba, verificado por consulta al proveedor.
+
+**Qué se recortó y por qué.**
+
+| Qué | Por qué |
+| --- | --- |
+| El simulador en la app (D-23) | «Simulador» quería decir la simulación que ya dan las cuentas de prueba de Mercado Pago; una opción que el servidor puede tener apagada dejaba una salida sin destino |
+| Cambiar la contraseña desde la app | Quedó fuera del K: la consigna pide registro, inicio, consulta y cierre de sesión |
+| El tramo J | Es opcional (§9, orden 0) |
+| La facturación, los envíos, los vales y los banners | No es recorte: la consigna no los pide (Etapa 4, §5) |
+
+**Qué quedó pendiente.**
+
+- **#85** de `pendientes-usabilidad.md`: quitar el simulador del backend (ya apagado por omisión, HL-80).
+- **Los dos ensayos del guion** (`demostracion-etapa-2.md`) en el equipo de la defensa: es lo único que
+  falta del criterio de terminado del tramo I. Ahí se prueban también el comprobante desde el teléfono
+  y la duda del total que aparece dos veces en el detalle.
+- Los huecos de test anotados en `pruebas-etapa-2.md` §5.
+
+**Lo que hereda la Etapa 3.** Las bases de la §10: la API versionada, los Resources, `CredencialService`
+como única clase que conoce Sanctum, los permisos de tienda por acción y la interfaz `Pasarela`.

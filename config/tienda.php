@@ -46,7 +46,7 @@ return [
 
     'pagos' => [
         // Habilita el medio «Simulador — no es cobro real» (D-13).
-        'simulador'       => env('TIENDA_SIMULADOR', true),
+        'simulador'       => env('TIENDA_SIMULADOR', false),
         // Vigencia de un intento de pago (Q-1, tramo G): igual que `reservas.pasarela_minutos`, un solo
         // plazo. Si el intento termina después que la reserva, la reserva se estira hasta él (D-9).
         'intento_minutos' => 20,

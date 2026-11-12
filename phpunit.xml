@@ -26,6 +26,8 @@
         <env name="DB_DATABASE" value="lda_2026_testing"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="MERCADOPAGO_ACCESS_TOKEN" value=""/>
+        <!-- Las rutas del simulador se registran al arrancar: los tests del G lo necesitan encendido (HL-80). -->
+        <env name="TIENDA_SIMULADOR" value="true"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
