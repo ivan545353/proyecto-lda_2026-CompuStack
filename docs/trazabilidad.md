@@ -1253,3 +1253,19 @@ Servidor (`compustack`) y app (`compustack-app`). La app pasó de 546 a **673 te
 >
 > **La prueba contra el sandbox real** (antes del paso 4): una preferencia creada con la credencial de prueba
 > volvió con la misma `external_reference`, `expires: true` y el vencimiento exacto del intento.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `IntentoPago` y `PedidoDelIntento` | La forma del intento de §7.5 contra su JSON, con el estado del pago del pedido; sin `tienda.ver_precios`, sin `importe` | Nuevo |
+| `PagoService` | `POST /pedidos/{id}/pagos` (siempre `mercadopago`, D-23; 201 nuevo, 200 el pendiente que ya había), `GET …/pagos` y `GET …/pagos/{intento}`. No usa `/simulador/…` | Nuevo |
+| `PagoRepository` | `traducirFallas`; la misma operación no sale dos veces mientras corre; `ultimo()` para retomar; `abrirPago()` abre `url_pago` con `NavegadorExterno` (D-19, regla 24) | Nuevo |
+| `PagoViewModel` (`EtapaPago`, `PedidoAPagar`) | Pagar, esperar, aprobado, en revisión, rechazado («Reintentar», otro intento sobre el mismo pedido) y sin cobrar, derivados del intento y de `estado_pago`; `vencido` y `error` no son un rechazo (regla 16); al volver al frente consulta (6.9) | Nuevo |
+| `PagoVista` | El total y una sola acción, «Pagar con Mercado Pago»; la espera con «Volver a consultar» y «Abrir Mercado Pago»; escucha `AppLifecycleListener.onResume`; los seis estados | Nuevo |
+| `ImporteDestacado`, `Aviso` (tipo `info`), `Iconos` | El total grande con su etiqueta; un aviso que no es error ni éxito; los íconos de abrir afuera y de consultar | Nuevo y modificado |
+| `router.dart`, `PedidoRegistradoVista` | `/checkout/pago/:id` abre `PagoVista` (sin la confirmación, retoma el último intento); se quitan `PagoProvisorioVista` y `PantallaProvisoria` | Modificado |
+| `test/data/{models/intento_pago,services/pago_service,repositories/pago_repository}_test`, `test/ui/pago/*`, `PagoServiceFalso`, `NavegadorExternoFalso` | Serialización contra `api.md`; doble envío; volver de Mercado Pago consulta; el reintento crea otro intento; los seis estados; la ruta reabierta | Nuevo |
+
+> **La app no ofrece el simulador** (D-23): con «simulador» se quería decir las cuentas de prueba de Mercado Pago.
+> El backend lo sigue teniendo hasta que se quite; la app manda siempre `"pasarela": "mercadopago"`.

@@ -167,9 +167,10 @@ equivocada al implementarla, se plantea y se decide de nuevo antes de escribir c
 | D-11 | **El carrito guarda un precio de referencia, nunca un precio de venta**: `carrito_lineas.contado_referencia` y `lista_referencia` | Para «informar si cambió el precio» hace falta contra qué comparar. La venta se cotiza siempre al precio vigente: la referencia sólo detecta el cambio | Al iniciar el checkout y al confirmar, si el precio vigente difiere de la referencia: 409 `carrito_cambio` con los cambios, y la referencia se actualiza. El segundo intento, ya revisado, pasa. El porqué va en `modelo-datos.md` §4, junto a «el carrito no guarda precios» |
 | D-18 | **La app se llama CompuStack.** Identificador de Android `ar.compustack.tienda`; paquete Dart `compustack`. Ícono: el logo de CompuStack sobre fondo **blanco crema** (`#FAF6EC` al empezar, ajustable) | El identificador (`applicationId`) es el nombre único y permanente de la app en Android: dos apps con el mismo no conviven en un teléfono, y una vez publicada no se cambia. Se escribe como un dominio al revés. `ar.compustack` no exige tener ese dominio mientras la app no se publique, y `tienda` deja lugar para otra app del mismo sistema | El tramo B fija nombre, identificador e ícono. El ícono adaptativo se genera con el asistente *Image Asset* de Android Studio, **sin librería**: el logo como primer plano y el crema como fondo |
 | D-19 | **`url_launcher` entra a la lista de librerías** | Mercado Pago se paga en su propia página (Checkout Pro), que la app tiene que abrir. Es el paquete oficial del equipo de Flutter para eso | Se usa detrás de un servicio propio (`NavegadorExterno`) para que los tests lo reemplacen por un falso y ningún widget lo importe (regla 24). Abre en una pestaña personalizada de Chrome |
-| D-20 | **Mercado Pago es obligatorio**, no recortable | La promoción suma a la calificación final, y se decide tratarla como requisito | Sale de los recortes de la §9 y entra en «no se recorta nunca». El simulador **sigue**: la consigna lo admite para la aprobación, permite mostrar un rechazo a voluntad y es el respaldo si la red falla en la defensa. Las cuentas de prueba se preparan antes del tramo E (§14.2) |
+| D-20 | **Mercado Pago es obligatorio**, no recortable | La promoción suma a la calificación final, y se decide tratarla como requisito | Sale de los recortes de la §9 y entra en «no se recorta nunca». El simulador seguía como respaldo; **D-23 lo saca de la app**: las pruebas son las cuentas de prueba de Mercado Pago. Las cuentas de prueba se preparan antes del tramo E (§14.2) |
 | D-21 | **El catálogo se pagina con números, no con scroll infinito** (decidida en el tramo D) | Elegir la página da control y deja saber dónde se está («Página 5 de 981»); con 20.000 productos el scroll infinito no tiene final a la vista | El pie lleva «anterior», números y «siguiente» en Catálogo y Búsqueda; otra página reemplaza a la que se ve. Reemplaza lo que el tramo C pedía («la página siguiente al acercarse al final») |
 | D-22 | **La cuenta se edita desde la app; lo fiscal que decide el comprobante, no** (decidida al cerrar el tramo F, resuelve Q-2) | Comprar pide los datos de quien compra: cargarlos una vez y que se autocompleten ahorra pasos (regla 30). La condición frente al IVA decide Factura A o B, y declararla mal es un problema fiscal del local; el domicilio de facturación sólo lo pide la facturación con ARCA, que está fuera de alcance (§5) | Tramo K: `PATCH /perfil` con nombre, apellido, teléfono, documento (`tipo_doc` + `nro_doc`, opcional) y la dirección predeterminada. La condición frente al IVA se ve y no se edita. No hay domicilio de facturación. El PDF que baja la app se llama **comprobante**, nunca factura: no es fiscal |
+| D-23 | **El simulador de pagos sale de la app; las pruebas son las cuentas de prueba de Mercado Pago** (decidida al cerrar la app del tramo G; revisa D-20) | Con «simulador» se quería decir la simulación que ya da Mercado Pago con sus cuentas de prueba (vendedor y comprador de prueba, tarjetas que aprueban o rechazan según el titular), no una segunda pasarela propia. Una opción que el servidor puede tener apagada dejaba en la pantalla de pago una salida sin destino (regla 34) | La app ofrece una sola pasarela: «Pagar con Mercado Pago», sin elección. El rechazo a voluntad se muestra con el titular `OTHE` y la aprobación con `APRO`. El backend todavía tiene `PasarelaSimulador`, `/simulador/…`, `TIENDA_SIMULADOR` y el valor `simulador` de `pagos.metodo`: se quitan en un tramo del backend, y hasta entonces `TIENDA_SIMULADOR=false`. `api.md`, `modelo-datos` y `trazabilidad` describen el backend y se corrigen con él |
 
 **Decididas por omisión, con la recomendación.** No bloqueaban y se pueden revisar antes del
 tramo que las usa:
@@ -287,7 +288,7 @@ precios, E carrito y reserva, F confirmación, G pagos, H consulta, I pruebas y 
 | # | La consigna pide | Cómo se cumple | Tramo |
 | --- | --- | --- | --- |
 | 6.1 | Flujo de pago completo asociado al pedido | Contra la interfaz `Pasarela` | G |
-| 6.2 | Simulador **identificado claramente** (aprobación) | En la ruta, en la respuesta y en la pantalla; aprueba o rechaza a voluntad | G |
+| 6.2 | Simulador **identificado claramente** (aprobación) | Las cuentas de prueba de Mercado Pago (D-23): vendedor y comprador de prueba; la tarjeta de prueba aprueba o rechaza según el titular | G |
 | 6.3 | Pasarela en entorno de pruebas (**promoción**) | Mercado Pago en modo de prueba, detrás de la misma interfaz. **Obligatorio en este plan** (D-20) | G |
 | 6.4 | Pendientes, aprobados y rechazados | Estados del intento (más `vencido`) | G |
 | 6.5 | Consultar el resultado | `GET /api/v1/pedidos/{id}/pagos/{intento}` | G |
@@ -357,7 +358,7 @@ precios, E carrito y reserva, F confirmación, G pagos, H consulta, I pruebas y 
 | P-4 | Una compra del catálogo a la consulta del pedido y su pago | — | H |
 | P-5 | El intercambio asincrónico | El registro del interceptor, con la credencial enmascarada | B, I |
 | P-6 | Cómo se protegen precios y operaciones | Los tests de precio omitido y de pedido ajeno | D, H |
-| P-7 | **Un error de conexión y un pago rechazado** | El servidor apagado; el simulador rechazando | B, G |
+| P-7 | **Un error de conexión y un pago rechazado** | El servidor apagado; Mercado Pago de prueba rechazando (titular `OTHE`, D-23) | B, G |
 | P-8 | Decisiones sobre estado, carrito y stock | D-1, D-5, D-8, D-9, D-11, D-16 | I |
 | P-9 | **Un riesgo de seguridad detectado y su solución** | Se elige durante el desarrollo. Candidatos: la cuenta desactivada que seguía operando por la API (§1.3 A) y el orden por precio que filtraba el precio (1.11) | I |
 | P-10 | Pruebas, dificultades y pendiente | Informe de pruebas y `pendientes-usabilidad.md` | I |
@@ -475,6 +476,7 @@ la §1.3 se nombran por su letra.
 | HL-71 | La preferencia vence con `expiration_date_to` | La documentación de Mercado Pago (verificada en el tramo, §14.3) pide además `expires: true`, y la fecha en ISO 8601 con zona | La preferencia lleva `expires`, `expiration_date_from` y `expiration_date_to`; probado contra el sandbox con la credencial de prueba | G |
 | HL-72 | `consultar()` traduce **el** estado del pago | Una `external_reference` puede tener **varios** pagos: el comprador reintenta dentro de Checkout Pro tras un rechazo. Y un `approved` no dice por cuánto | Manda el `approved`; si no, uno en curso (`pending`, `in_process`, `authorized`) es pendiente; rechazado sólo si todos lo fueron; `refunded` o un estado desconocido, pendiente; otra moneda no cuenta. Un aprobado por otro importe queda `aprobado` con `importe_distinto`, no se acredita solo y el pedido dice «en revisión» | G |
 | HL-73 | `vence_at` es un `TIMESTAMP NOT NULL` | En MariaDB con `explicit_defaults_for_timestamp` apagado, el primer `TIMESTAMP NOT NULL` sin `DEFAULT` recibe `ON UPDATE CURRENT_TIMESTAMP`: guardar la `url_pago` le pisaba el vencimiento con la hora de la sesión, y el intento de Mercado Pago nacía vencido. Los tests del simulador no lo veían (no hay `UPDATE`) | Una migración (`fix_timestamps_sin_on_update`) les da `DEFAULT` explícito (`useCurrent()->change()`) a `vence_at` y a **`pagos.fecha`** (Etapa 1), que tenía la misma trampa: hoy ningún camino actualiza un pago, pero el primero le cambiaría la fecha del cobro. Los 10.146 pagos de la base conservaron su fecha. Un test de comportamiento por columna | G |
+| HL-74 | «La app abre `url_pago` y el usuario paga con la cuenta compradora de prueba» | La pestaña personalizada usa las cookies del Chrome del teléfono: si ahí está abierta una cuenta **real** de Mercado Pago, paga con ella, y Mercado Pago rechaza mezclar una parte de prueba con una real («Una de las partes con las que intentás hacer el pago es de prueba»). La app de Mercado Pago, si está instalada, también puede quedarse con el enlace | Nada en el código: antes de probar (y en la defensa) se cierra la cuenta real en Chrome, o se usa el emulador, y se entra con el comprador de prueba. Anotado en el `README` de la app | G |
 
 ---
 
@@ -505,7 +507,7 @@ Sale de la consigna (§2) y de las decisiones (§1.5). Lo que no está acá no s
 | Área | Qué entra |
 | --- | --- |
 | **Cimientos** | Proyecto Flutter para Android, **CompuStack** (`ar.compustack.tienda`), con su ícono (D-18); MVVM con repositorios; `forui` Zinc claro y oscuro; `dio` con interceptores; dirección del servidor configurable; `go_router` con guardas; tráfico en claro sólo en depuración; los seis estados y el botón que se bloquea |
-| **Pantallas** | Inicio, catálogo, búsqueda, ficha, inicio de sesión, registro, perfil, carrito, confirmación en pasos, pago, simulador, resultado, mis pedidos, detalle, ajustes |
+| **Pantallas** | Inicio, catálogo, búsqueda, ficha, inicio de sesión, registro, perfil, carrito, confirmación en pasos, pago, resultado, mis pedidos, detalle, ajustes |
 | **Pruebas** | Serialización contra el contrato, repositorios y modelos de vista con falsos, widgets en los seis estados, guardas |
 | **Documentos** | `README.md` y `ARQUITECTURA.md` |
 
@@ -1391,7 +1393,9 @@ estados.
 ### Tramo G — Pagos
 
 **Objetivo.** El flujo de pago completo contra una interfaz, con el simulador garantizando
-la aprobación y Mercado Pago sumando la promoción.
+la aprobación y Mercado Pago sumando la promoción. **Revisado por D-23:** la app paga sólo
+por Mercado Pago, con sus cuentas de prueba; el simulador del backend se quita en un tramo
+aparte.
 
 **Tareas del backend.**
 - Migraciones:
@@ -1487,27 +1491,25 @@ la aprobación y Mercado Pago sumando la promoción.
 
 **Tareas de la app.**
 - `PagoRepository` (iniciar, consultar intento, listar intentos) y `PagoViewModel`.
-- Pantalla de pago: el importe, la pasarela, «Pagar».
-- **Simulador**: una pantalla que dice en el título y en un cartel fijo **«Simulador de pagos —
-  no es un cobro real»**, con «Aprobar» y «Rechazar».
+- Pantalla de pago: el número de pedido, el importe y una sola acción, «Pagar con Mercado Pago»
+  (D-23: sin simulador ni elección de pasarela).
 - **Mercado Pago**: abre `url_pago` con `NavegadorExterno` en una pestaña personalizada
   (D-19). Cuando la app vuelve al frente (`AppLifecycleState.resumed`), **consulta el
   intento**; mientras esté pendiente, lo dice y ofrece «Volver a consultar». El regreso no
   confirma nada (6.9).
-- La pantalla de pago ofrece las dos pasarelas: **Mercado Pago** primero, y el **simulador**
-  rotulado como tal. Las dos cobran a precio de lista.
+- Cobra a precio de lista. Si la app se reabre en la pantalla de pago, retoma el último intento.
 - Resultado: aprobado (con movimiento), rechazado (con «Reintentar»), pendiente, en revisión.
 
 **Tests de la app.** Modelo de vista: reintentar crea un intento nuevo; al volver de Mercado
-Pago consulta (con `NavegadorExterno` falso); el rechazo ofrece reintento. Widgets del
-simulador (identificado) y del resultado en los seis estados.
+Pago consulta (con `NavegadorExterno` falso); el rechazo ofrece reintento. Widgets de la
+pantalla de pago y del resultado en los seis estados.
 
 **Prueba de punta a punta con Mercado Pago**, a mano y anotada en `docs/pruebas-etapa-2.md`:
 con las cuentas de prueba, un pago aprobado y uno rechazado (Mercado Pago tiene tarjetas de
 prueba para cada resultado), y en los dos el estado del pedido verificado contra lo que dice
 el proveedor.
 
-**Entregable.** Pagar por Mercado Pago de prueba y por el simulador, con aprobación y rechazo.
+**Entregable.** Pagar por Mercado Pago de prueba, con aprobación y rechazo (D-23).
 
 **Criterio de terminado.** Un pago rechazado deja su intento y ninguna fila en `pagos`; un
 reintento aprobado deja un solo pago y un solo descuento de stock; y **un pago real de prueba
@@ -1590,7 +1592,7 @@ informe de pruebas.
   2. registro e inicio de sesión: aparecen los precios;
   3. compra con **Mercado Pago de prueba**: pago con la cuenta compradora, regreso a la app y
      verificación por consulta al proveedor (la promoción);
-  4. compra por el simulador: **rechazo**, reintento, aprobación;
+  4. compra por Mercado Pago de prueba con **rechazo** (titular `OTHE`), reintento y aprobación (D-23);
   5. consulta de los pedidos y de sus pagos;
   6. compra de contado y su cobro en la web, con el pedido encontrado por el filtro de canal;
   7. **error de conexión**: se apaga `php artisan serve` y la app lo dice;
@@ -1691,7 +1693,7 @@ B ──┘                     └───────────────
 **No se recorta nunca:** el precio omitido en el servidor, la idempotencia, el acceso sólo a lo
 propio, los importes del servidor, la revalidación, el registro de intentos, el contrato
 documentado, los seis estados, la reserva por `StockService`, el test de la frontera de
-gestión, **Mercado Pago** (D-20) y **el simulador**.
+gestión y **Mercado Pago** (D-20).
 
 ---
 
@@ -1722,7 +1724,7 @@ eso:
 | **La reserva rompe el stock** | Primera escritura de stock desde fuera del mostrador; concurrencia | Por `StockService`, con bloqueo ordenado por `id`, test de concurrencia por inyección y la invariante de dueños |
 | **Plata aprobada sin registrar** | Mercado Pago aprueba afuera y el descuento puede fallar adentro | La reserva no vence con un intento pendiente; la aprobación se guarda antes de acreditar; el comando reintenta (§1.3 E) |
 | **Mercado Pago llega tarde** | Es obligatorio (D-20) y es la integración con más piezas ajenas: cuentas, aplicaciones, credenciales y una API que cambia | Las cuentas se crean y **una preferencia de prueba se crea a mano antes del tramo E** (§14.2): el riesgo se descubre temprano, no en G. Sin SDK, sólo el cliente `Http` de Laravel |
-| **Mercado Pago falla en la defensa** | Depende de internet y de un servicio ajeno | La misma compra se muestra con el simulador, detrás de la misma interfaz. La prueba de punta a punta anotada en el informe respalda que funcionó |
+| **Mercado Pago falla en la defensa** | Depende de internet y de un servicio ajeno | Sin el simulador (D-23) no hay otro camino en vivo: se prueba la compra el día anterior y en la defensa, antes de empezar. Si falla, la prueba de punta a punta anotada en el informe respalda que funcionó |
 | **No hay internet el día de la defensa** | Mercado Pago necesita salida a internet desde el backend | Se prueba la red antes. Plan B: el punto de acceso del teléfono. Cambia la IP de la máquina, y la pantalla de ajustes de la app lo resuelve sin recompilar |
 | **La tarea programada no corre** | En Windows no hay cron (HL-10) | `schedule:work` en el guion, y la confirmación y el cobro miran su propio vencimiento |
 | **`RolPermisoSeeder` pisa roles editados** | `sync` devuelve cada rol a su definición | Se avisa en el tramo D; en la base de la defensa se corre antes de cualquier ajuste manual |
@@ -1809,8 +1811,8 @@ Herramienta propia (S-1): **no** es la tabla que pide la consigna, que es `traza
 | Confirmar pedido | Confirmación (pasos 2 a 5), Pedido registrado | `POST /pedidos` | `tienda.comprar` | F | Hecho |
 | Canal en ventas | — (web: listado de ventas) | — | `venta.ver` | F | Hecho |
 | Cobro de contado | — (web: cobro) | — | `venta.cobrar` | F | Hecho |
-| Pago por pasarela | Pago, Simulador, Resultado | `POST /pedidos/{id}/pagos`, `/simulador/…` | `tienda.comprar` | G | Pendiente |
-| Resultado del pago | Resultado, Detalle | `GET /pedidos/{id}/pagos/{intento}` | `tienda.ver_pedidos` | G | Pendiente |
+| Pago por pasarela | Pago, Resultado | `POST /pedidos/{id}/pagos` | `tienda.comprar` | G | Hecho |
+| Resultado del pago | Resultado, Detalle | `GET /pedidos/{id}/pagos/{intento}` | `tienda.ver_pedidos` | G | Hecho |
 | Mis pedidos | Mis pedidos | `GET /pedidos` | `tienda.ver_pedidos` | H | Pendiente |
 | Detalle del pedido | Detalle | `GET /pedidos/{id}` | `tienda.ver_pedidos` | H | Pendiente |
 | Comprobante del pedido | Detalle | `GET /pedidos/{id}/comprobante` | `tienda.ver_pedidos` | H | Pendiente |
@@ -1874,7 +1876,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | E — Carrito y reserva | [x] | [x] | [x] `api.md` r4, `modelo-datos` §4, `trazabilidad` §15 (los dos lados), HL-57 a HL-60, Q-1 (`cantidad_maxima`), reglas 31 y 32 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
 | F — Confirmación del pedido | [x] | [x] | [x] `api.md` r5, `modelo-datos` §4 y §5, `trazabilidad` §15 (los dos lados), HL-61 a HL-64, Q-1 (`envio.costo`), D-22 y el tramo K, `README` y `ARQUITECTURA` de la app | Cerrado |
 | K — Cuenta editable (entre F y G) | [x] | [x] | [x] `api.md` r6 y r7, `modelo-datos` §1, `trazabilidad` §15 (los dos lados), HL-65 a HL-69, regla 34 de la app, `README` y `ARQUITECTURA` de la app | Cerrado |
-| G — Pagos | [x] | [ ] | [x] `api.md` r8, `modelo-datos` §5 y §10, `trazabilidad` §15 (servidor, y las filas de HL-69 del K), HL-70 a HL-73, Q-1 cerrada (`intento_minutos`) | En curso (falta la app y la prueba con Mercado Pago) |
+| G — Pagos | [x] | [x] | [x] `api.md` r8, `modelo-datos` §5 y §10, `trazabilidad` §15 (los dos lados, y las filas de HL-69 del K), HL-70 a HL-74, Q-1 cerrada (`intento_minutos`), D-23 (sin simulador en la app), `README` y `ARQUITECTURA` de la app | Cerrado (Mercado Pago anduvo de punta a punta; falta anotar la prueba en `pruebas-etapa-2.md`, y quitar el simulador del backend) |
 | H — Consulta de compras | [ ] | [ ] | [ ] | Pendiente |
 | I — Pruebas, documentación y demostración | [ ] | [ ] | [ ] | Pendiente |
 | J — Contenido que invita a comprar (opcional) | — | [ ] | [ ] | Opcional, al final |
