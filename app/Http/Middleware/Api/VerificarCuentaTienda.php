@@ -8,15 +8,12 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * La mitad API de `VerificarUsuarioActivo` (plan §1.3 A, hallazgo A-5 reabierto).
+ * La frontera de las rutas propias de la tienda (perfil de cliente, carrito, pedidos online,
+ * D-3): una cuenta de gestión no tiene nada de eso. Corre después de `VerificarCuentaActiva`,
+ * que revisa que la cuenta siga activa; acá sólo se mira el ámbito.
  *
- * Con un usuario autenticado por credencial, exige que su cuenta esté activa y sea de
- * la tienda. Se revalida en CADA pedido, no sólo al iniciar sesión: una cuenta
- * desactivada no tiene que seguir operando hasta que su credencial venza. Además,
- * `UsuarioService` revoca las credenciales al desactivar; esto es el cinturón de
- * esa operación.
  * Métodos:
- *   handle()  deja pasar, o lanza el mismo 401 `sesion_invalida` de una credencial vencida
+ *   handle()  deja pasar, o lanza el mismo 401 `sesion_invalida` de una credencial que no sirve
  */
 class VerificarCuentaTienda
 {
@@ -24,7 +21,7 @@ class VerificarCuentaTienda
     {
         $usuario = $request->user();
 
-        if ($usuario !== null && (! $usuario->activo || $usuario->esDeGestion())) {
+        if ($usuario !== null && $usuario->esDeGestion()) {
             throw new AuthenticationException;
         }
 

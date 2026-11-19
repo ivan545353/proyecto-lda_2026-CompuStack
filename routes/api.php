@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\RegistroController;
 use App\Http\Controllers\Api\V1\SesionController;
 use App\Http\Controllers\Api\V1\SimuladorController;
 use App\Http\Controllers\Api\V1\TiendaController;
+use App\Http\Controllers\Api\V1\YoController;
 use App\Impresion\ComprobanteVenta;
 use Illuminate\Support\Facades\Route;
 
@@ -24,7 +25,7 @@ use Illuminate\Support\Facades\Route;
 | El prefijo `api` y el grupo de middlewares `api` (ForzarJson) los pone
 | `withRouting(api: …)` en bootstrap/app.php; acá se agrega la versión.
 |
-| Tres grupos, según lo que exige la ruta (docs/api.md, «Autenticación»). Los
+| Cuatro grupos, según lo que exige la ruta (docs/api.md, «Autenticación»). Los
 | middlewares de cada uno se definen UNA vez, en bootstrap/app.php, como grupos
 | con nombre: las rutas y los tests nombran el mismo grupo, y no hay dos listas
 | que puedan separarse.
@@ -32,6 +33,7 @@ use Illuminate\Support\Facades\Route;
 |   pública          nada. La credencial no se lee.
 |   sesión opcional  el catálogo. Sin credencial sigue como visitante; con una
 |                    inválida, 401 `sesion_invalida`. Con sesión y permiso, agrega precios.
+|   protegida común  credencial válida y cuenta activa, de gestión o de tienda (HL-98).
 |   protegida        credencial válida, cuenta activa y de tienda; el permiso lo pide
 |                    cada ruta.
 |
@@ -51,6 +53,7 @@ Route::prefix('v1')->group(function () {
         Route::get('tienda', [TiendaController::class, 'show']);
 
         // Límite por correo e IP (AppServiceProvider): frena la prueba de contraseñas y el alta en masa.
+        // El inicio de sesión es el mismo para gestión y tienda: el límite también.
         Route::middleware('throttle:tienda-acceso')->group(function () {
             Route::post('registro', [RegistroController::class, 'store']);
             Route::post('sesion', [SesionController::class, 'store']);
@@ -69,10 +72,15 @@ Route::prefix('v1')->group(function () {
         Route::get('productos/{producto}', [ProductoController::class, 'show'])->whereNumber('producto');
     });
 
-    // Protegida.
-    Route::middleware('tienda.protegida')->group(function () {
-        // Sin permiso propio: cerrar la sesión es de toda cuenta, como cambiar la contraseña.
+    // Protegida común: los dos clientes, el mismo endpoint (tramo B de la Etapa 3).
+    Route::middleware('api.protegida')->group(function () {
+        // Sin permiso propio: cerrar la sesión y saber quién soy es de toda cuenta.
         Route::delete('sesion', [SesionController::class, 'destroy']);
+        Route::get('yo', [YoController::class, 'show']);
+    });
+
+    // Protegida de la tienda.
+    Route::middleware('tienda.protegida')->group(function () {
         Route::get('perfil', [PerfilController::class, 'show']);
         // La cuenta propia, como leerla (D-22): lo fiscal que decide el comprobante no viaja.
         Route::patch('perfil', [PerfilController::class, 'update']);

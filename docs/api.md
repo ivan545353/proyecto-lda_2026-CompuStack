@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 13** · tramo L (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
+**Revisión 14** · tramo B de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -15,7 +15,8 @@ La 8, los pagos (§7.5): intentos por Mercado Pago y por el simulador. La 9, la 
 mis pedidos, el detalle y el comprobante por enlace firmado. La 10 no cambia ninguna forma: es la revisión
 final, con cada endpoint pedido al servidor y sus ejemplos comparados con las respuestas reales (§7, al
 principio). La 11 suma `GET /tienda` (§7.1), lo que la tienda ofrece, para el Inicio del tramo J. La 12, la
-transferencia como tercer medio (§7.7). La 13, con qué entregas vale cada medio (D-28): el efectivo, sólo con retiro.
+transferencia como tercer medio (§7.7). La 13, con qué entregas vale cada medio (D-28): el efectivo, sólo con retiro. La 14 abre la Etapa 3: la sesión es
+común a la app y a la administración, con `GET /yo`, vigencia por ámbito y `401 sesion_expirada`.
 
 ## 1. Reglas generales
 
@@ -87,7 +88,8 @@ Un listado pagina siempre:
 | HTTP | `codigo` | Cuándo | Qué hace la app |
 | --- | --- | --- | --- |
 | 401 | `sin_sesion` | Falta la credencial en una ruta protegida | Al login, conservando a dónde iba |
-| 401 | `sesion_invalida` | Credencial vencida, revocada, desconocida, o cuenta desactivada o de gestión | Borra la credencial, «Tu sesión venció», al login |
+| 401 | `sesion_expirada` | Credencial que existía y venció (r14). Mismo `WWW-Authenticate: Bearer` | Borra la credencial, «Tu sesión venció», al login |
+| 401 | `sesion_invalida` | Credencial revocada o desconocida, cuenta desactivada, o cuenta de gestión en una ruta de la tienda | Borra la credencial, «Tu sesión venció», al login |
 | 403 | `sin_permiso` | Falta un permiso de tienda | Explica qué no se puede |
 | 404 | `no_encontrado` | Inexistente, inactivo **o ajeno** (no se distingue) | Pantalla de «no existe» |
 | 405 | `metodo_no_permitido` | Verbo no admitido en esa ruta. Trae `Allow` | Error de programación |
@@ -114,16 +116,26 @@ entera en el renderer y la excepción queda en el log. Un estado HTTP que no fig
 | --- | --- | --- |
 | **Pública** | Nada | No se lee |
 | **Sesión opcional** (catálogo) | Nada; con credencial válida y `tienda.ver_precios`, agrega los precios | **401 `sesion_invalida`**: si no, los precios desaparecerían sin explicación |
-| **Protegida** | Credencial válida, cuenta activa y de tienda, y el permiso de la ruta | 401 |
+| **Protegida común** (`api.protegida`, r14) | Credencial válida y cuenta activa, de gestión o de tienda | 401 |
+| **Protegida** (`tienda.protegida`) | Credencial válida, cuenta activa y de tienda, y el permiso de la ruta | 401 |
 
 - Viaja en `Authorization: Bearer <credencial>`. Cualquier otro valor de `Authorization` cuenta
   como una credencial que no sirve (`sesion_invalida`).
 - Sólo la credencial `Bearer` autentica: una sesión de navegador abierta en el panel **no** sirve
   contra `api/*`.
-- La credencial vence a los 7 días (`SANCTUM_EXPIRATION`, en minutos; vacío = 10080). Al desactivar
-  o dar de baja una cuenta, y al cambiar o restablecer su contraseña, se **revocan** todas sus credenciales; además cada pedido revalida que la
-  cuenta siga activa y sea de tienda.
-- Las cuentas de gestión no pueden usar la API: no tienen ficha de cliente.
+- **Vigencia, según el ámbito de la cuenta** (D-31, r14). La decide un dato de la cuenta y no el cliente que
+  dice ser:
+  - **Tienda: 7 días** (`SANCTUM_EXPIRATION`, en minutos; vacío = 10080). Un teléfono no se comparte, y
+    escribir la contraseña en un celular es caro.
+  - **Gestión: 8 horas, un turno** (`SANCTUM_EXPIRATION_GESTION`; vacío = 480). La pantalla del mostrador
+    se comparte: lo que no se cerró a mano no sobrevive al día siguiente.
+  - Vencida, la credencial da **401 `sesion_expirada`**; revocada o inventada, **401 `sesion_invalida`**.
+    El cliente las explica distinto. Una fila vencida que la limpieza ya borró cuenta como desconocida.
+- Al desactivar o dar de baja una cuenta, y al cambiar o restablecer su contraseña, se **revocan** todas sus
+  credenciales; además cada pedido revalida que la cuenta siga activa.
+- **Entrar es de toda cuenta activa; lo que puede hacer lo deciden sus permisos** (HL-98, r14). Hasta la r13
+  las cuentas de gestión no entraban. Siguen sin entrar a las rutas propias de la tienda (perfil, carrito,
+  pedidos online): no tienen ficha de cliente, y ahí reciben 401 `sesion_invalida`.
 - El inicio de sesión y el registro devuelven una forma propia, no la de Sanctum:
 
 ```json
@@ -139,10 +151,12 @@ entera en el renderer y la excepción queda en el log. Un estado HTTP que no fig
 
 La app trata `credencial` como una cadena opaca.
 
-- Credenciales incorrectas, cuenta de gestión e inactiva dan **el mismo 422 con el mismo mensaje**:
+- Credenciales incorrectas e inactiva dan **el mismo 422 con el mismo mensaje**:
   decir cuál falló permitiría enumerar cuentas.
 - **Límite de intentos** (`tienda-acceso`) en inicio de sesión y registro: 5 por minuto por correo e
-  IP, y 30 por minuto por IP sola. El correo se compara sin distinguir mayúsculas ni espacios.
+  IP, y 30 por minuto por IP sola. Es el mismo para gestión: el endpoint es uno.
+- **Ni la credencial ni la contraseña se escriben en el log**, tampoco cuando el pedido termina en 500
+  (`SesionComunTest`). El correo se compara sin distinguir mayúsculas ni espacios.
 
 ## 5. Las formas que se repiten
 
@@ -423,7 +437,8 @@ en la app. Sin parámetros.
 ### 7.2 Cuenta (tramo D)
 
 Una cuenta de la tienda es un usuario con el rol **Cliente** (ámbito `tienda`, permisos `tienda.ver_precios`,
-`tienda.comprar` y `tienda.ver_pedidos`) y su ficha de cliente. Las cuentas de gestión no entran por acá.
+`tienda.comprar` y `tienda.ver_pedidos`) y su ficha de cliente. Las cuentas de gestión inician y cierran sesión
+por los mismos endpoints (r14), pero no tienen registro ni perfil.
 
 #### `POST /api/v1/registro`
 
@@ -469,7 +484,9 @@ Pública, con el límite `tienda-acceso` (§4). Crea la cuenta y deja la sesión
 Pública, con el límite `tienda-acceso`. Campos `email` y `password`, requeridos; el correo se compara sin
 mayúsculas ni espacios. **200** con la misma forma que el registro. No abre una sesión de navegador.
 
-- Contraseña incorrecta, correo inexistente, cuenta inactiva y cuenta de gestión dan **el mismo 422**, con
+- **La usan los dos clientes** (r14): una cuenta de gestión recibe la misma forma, con su vigencia de 8 horas
+  (§4). Las credenciales se distinguen por cuenta; la forma, no.
+- Contraseña incorrecta, correo inexistente y cuenta inactiva dan **el mismo 422**, con
   el error en `email`. Decir cuál falló permitiría saber qué correos tienen cuenta:
 
 ```json
@@ -484,9 +501,35 @@ mayúsculas ni espacios. **200** con la misma forma que el registro. No abre una
 
 #### `DELETE /api/v1/sesion`
 
-Protegida, sin permiso propio. Cierra la sesión **de este dispositivo**: la credencial con la que llegó el
-pedido deja de servir (después da 401 `sesion_invalida`); las de otros dispositivos siguen. **204** sin
-cuerpo. Errores: 401 `sin_sesion` / `sesion_invalida`.
+Protegida común (r14), sin permiso propio. Cierra la sesión **de este dispositivo**: la credencial con la que
+llegó el pedido deja de servir (después da 401 `sesion_invalida`); las de otros dispositivos siguen. **204**
+sin cuerpo. Errores: 401 `sin_sesion` / `sesion_invalida` / `sesion_expirada`.
+
+#### `GET /api/v1/yo`
+
+Protegida común (r14), sin permiso propio. Quién tiene la sesión, con su rol y sus permisos: los dos clientes
+pintan la interfaz con esto. Pintar no es autorizar: cada endpoint vuelve a pedir su permiso.
+
+```json
+{
+  "datos": {
+    "nombre": "Sofía",
+    "apellido": "Gutiérrez",
+    "email": "vendedor@sistema.local",
+    "rol": { "nombre": "Vendedor", "ambito": "gestion" },
+    "permisos": [
+      "categoria.ver", "cliente.crear", "cliente.ver", "panel.ver_propio", "producto.ver",
+      "venta.crear", "venta.editar", "venta.entregar", "venta.ver"
+    ]
+  }
+}
+```
+
+- `ambito` es `gestion` o `tienda`. Una cuenta de la tienda trae `tienda.ver_precios`, `tienda.comprar` y
+  `tienda.ver_pedidos` (más `tienda.cargar_comprobante` si su rol la tiene).
+- `permisos` viene ordenado y es la lista completa del rol: no se pagina (son decenas, no miles).
+- No trae la ficha de cliente: eso es `GET /perfil`, sólo de la tienda.
+- Errores: 401 `sin_sesion` / `sesion_invalida` / `sesion_expirada`.
 
 #### `GET /api/v1/perfil`
 
@@ -1227,3 +1270,4 @@ falta un comprobante.»).
 | 11 | J | `GET /tienda` (pública): los modos de entrega vigentes con su texto, sin costo (HL-81). Ninguna forma anterior cambia; las rutas pasan a 25 (23 con el simulador apagado) |
 | 12 | L | `medio_pago` = `transferencia` en `POST /pedidos` (precio de contado); los `medios` del checkout pasan a tres y su `texto` dice cómo se paga («Efectivo en el local», «Transferencia bancaria», «Mercado Pago»), igual que `medio_pago_texto`; `GET /pedidos/{id}` suma `transferencia`; §7.7: `POST /pedidos/{id}/comprobante-transferencia` (multipart; 201 con el aviso), la situación `falta_comprobante` → `pendiente` y `en_revision`; permiso `tienda.cargar_comprobante`. Las rutas pasan a 26 (24 con el simulador apagado) |
 | 13 | L | D-28: cada elemento de `medios` del checkout suma `modos_entrega`, las entregas con que vale (`contado` → `["retiro"]`; `transferencia` y `pasarela` → `["retiro", "envio"]`, o sólo `retiro` con el envío apagado). `POST /pedidos` con `contado` y `envio`: 422 en `medio_pago` («El pago en efectivo es sólo para retirar en el local.»). El ejemplo de `POST /pedidos` pasa a retiro, con `medio_pago_texto` «Efectivo en el local» (lo es desde la r12). Las rutas no cambian |
+| 14 | B (Etapa 3) | Sesión común (HL-98): `POST /sesion` emite también a cuentas de gestión, con la misma forma y 8 horas de vigencia (D-31); la de tienda sigue en 7 días. `GET /yo` nuevo (nombre, apellido, email, `rol` con `ambito`, `permisos`). Grupo «protegida común»: `DELETE /sesion` y `GET /yo`. `401 sesion_expirada` para la credencial vencida, que hasta la r13 era `sesion_invalida`. Ninguna forma anterior cambia; las rutas pasan a 27 (25 con el simulador apagado) |

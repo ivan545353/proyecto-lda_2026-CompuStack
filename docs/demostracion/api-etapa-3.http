@@ -1,0 +1,61 @@
+# Colección de peticiones de la Etapa 3: demostrar la API sin depender de las interfaces.
+# Formato `.http` (REST Client de VS Code, cliente HTTP de JetBrains): texto plano, sin librerías.
+# Cada tramo agrega las suyas en su bloque. Contraseña: la de `PersonasDemoSeeder`.
+
+@base = http://localhost:8000/api/v1
+
+### ── Tramo B — Sesión común ───────────────────────────────────────────────
+
+# Una cuenta de gestión inicia sesión por el mismo endpoint que la app (vence en 8 h).
+# @name sesionGestion
+POST {{base}}/sesion
+Accept: application/json
+Content-Type: application/json
+
+{ "email": "vendedor@sistema.local", "password": "demo1234" }
+
+###
+
+# Una cuenta de la tienda, por el mismo endpoint (vence en 7 días).
+# @name sesionTienda
+POST {{base}}/sesion
+Accept: application/json
+Content-Type: application/json
+
+{ "email": "cliente@sistema.local", "password": "demo1234" }
+
+###
+
+# Quién soy: rol y permisos de gestión.
+GET {{base}}/yo
+Accept: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+###
+
+# Quién soy: rol y permisos de la tienda.
+GET {{base}}/yo
+Accept: application/json
+Authorization: Bearer {{sesionTienda.response.body.datos.credencial}}
+
+###
+
+# Sin credencial: 401 sin_sesion.
+GET {{base}}/yo
+Accept: application/json
+
+###
+
+# Cerrar la sesión de gestión: 204. Repetir el GET /yo de gestión da 401 sesion_invalida.
+DELETE {{base}}/sesion
+Accept: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+###
+
+# Límite de intentos: la sexta en un minuto da 429 demasiados_intentos con reintentar_en.
+POST {{base}}/sesion
+Accept: application/json
+Content-Type: application/json
+
+{ "email": "vendedor@sistema.local", "password": "equivocada1" }

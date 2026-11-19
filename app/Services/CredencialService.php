@@ -8,22 +8,25 @@ use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
 
 /**
- * La credencial con la que la app de la tienda se identifica ante la API.
+ * La credencial con la que un cliente —la app de la tienda o la administración— se identifica
+ * ante la API. Es la única clase que sabe que existe Sanctum.
  *
  * Métodos:
- *   iniciar()       verifica correo y contraseña de una cuenta de tienda y emite su credencial
+ *   iniciar()       verifica correo y contraseña de una cuenta activa y emite su credencial
  *   emitir()        crea una credencial nueva y devuelve su forma de docs/api.md §6.4
  *   revocarActual() cierra la sesión de este dispositivo
  *   revocarTodas()  cierra todas las sesiones de la persona (baja, desactivación)
+ *   vencio()        si una credencial que no sirvió existe y la venció el tiempo
  */
 class CredencialService
 {
-    /** Nombre con el que queda registrada, para distinguirla de otras en la tabla. */
-    private const NOMBRE = 'app-tienda';
+    /** Nombre con el que queda registrada, por ámbito, para distinguirlas en la tabla. */
+    private const NOMBRES = ['tienda' => 'app-tienda', 'gestion' => 'administracion'];
 
     /**
-     * Sin abrir sesión web. Inexistente, contraseña incorrecta, inactiva o de gestión dan el
-     * mismo error: decir cuál falló permitiría enumerar cuentas (docs/api.md §4).
+     * Sin abrir sesión web. Entrar es de toda cuenta activa; lo que puede hacer lo deciden sus
+     * permisos (HL-98). Inexistente, contraseña incorrecta o inactiva dan el mismo error: decir
+     * cuál falló permitiría enumerar cuentas (docs/api.md §4).
      *
      * @throws ValidationException
      */
@@ -38,8 +41,7 @@ class CredencialService
 
         if ($usuario === null
             || ! Hash::check($password, $usuario->password)
-            || ! $usuario->activo
-            || $usuario->esDeGestion()) {
+            || ! $usuario->activo) {
             throw ValidationException::withMessages([
                 'email' => 'El correo o la contraseña no son correctos.',
             ]);
@@ -55,10 +57,13 @@ class CredencialService
      */
     public function emitir(User $usuario): array
     {
+        // La vigencia sale del ámbito de la cuenta, que es un dato, y no del cliente que dice ser (D-31).
+        $deGestion = $usuario->esDeGestion();
+
         $nueva = $usuario->createToken(
-            self::NOMBRE,
+            self::NOMBRES[$deGestion ? 'gestion' : 'tienda'],
             ['*'],
-            now()->addMinutes((int) config('sanctum.expiration')),
+            now()->addMinutes((int) config($deGestion ? 'sanctum.expiration_gestion' : 'sanctum.expiration')),
         );
 
         return [
@@ -85,6 +90,25 @@ class CredencialService
         if ($actual instanceof PersonalAccessToken) {
             $actual->delete();
         }
+    }
+
+    /**
+     * Distingue la vencida de la revocada o inventada, que dan el mismo 401 con otro código
+     * (`sesion_expirada` / `sesion_invalida`). Mira las dos cuentas que mira el guard de Sanctum:
+     * el `expires_at` de la fila y la vigencia global contada desde su emisión.
+     */
+    public function vencio(?string $credencial): bool
+    {
+        $token = blank($credencial) ? null : PersonalAccessToken::findToken($credencial);
+
+        if ($token === null) {
+            return false;
+        }
+
+        $global = (int) config('sanctum.expiration');
+
+        return ($token->expires_at !== null && $token->expires_at->isPast())
+            || ($global > 0 && $token->created_at->lte(now()->subMinutes($global)));
     }
 
     /** Revoca todas las credenciales de la persona. */

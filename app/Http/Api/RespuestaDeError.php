@@ -7,6 +7,7 @@ use App\Exceptions\CheckoutVencidoException;
 use App\Exceptions\ReglaDeNegocioException;
 use App\Exceptions\StockInsuficienteException;
 use App\Exceptions\TransicionInvalidaException;
+use App\Services\CredencialService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -82,11 +83,21 @@ final class RespuestaDeError
     }
 
     /**
-     * Falta la credencial, o hay una que no sirve. 
+     * Falta la credencial, o hay una que no sirve. La vencida tiene su código: el cliente la
+     * explica distinto de una revocada (plan Etapa 3 §6).
      */
     private static function sesion(Request $request): JsonResponse
     {
         $conCredencial = filled($request->header('Authorization'));
+
+        if ($conCredencial && app(CredencialService::class)->vencio($request->bearerToken())) {
+            return self::armar(
+                401,
+                'sesion_expirada',
+                'Tu sesión venció. Iniciá sesión de nuevo.',
+                cabeceras: ['WWW-Authenticate' => 'Bearer'],
+            );
+        }
 
         return self::armar(
             401,

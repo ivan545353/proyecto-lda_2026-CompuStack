@@ -1418,3 +1418,43 @@ Corrige y amplía lo hecho a partir de la revisión: no cierra filas nuevas de l
 | Tests: `checkout_vista_test`, `checkout_view_model_test`, `pago_vista_test`, `routing/atras_test`, `pedido_test`, `carrito_test`, `pedido_service_test`, `pedido_repository_test`, `pedido_view_model_test`, `pedido_vista_test` | «Atrás» por pasos con la flecha y el del sistema, el borrador, «Pagar» → detalle, el JSON de r12 y r13, la carga en sus estados, D-28 | Modificado (986 → 1032) |
 
 
+
+
+## 16. Componentes nuevos de la Etapa 3
+
+Mismo formato que la §15: una tabla por tramo y un bloque corto con la decisión que lo condicionó.
+La §15 queda cerrada con la Etapa 2; la tabla que relaciona operaciones con endpoints —la matriz
+de migración que recomienda la consigna— vive en `relevamiento-etapa-3.md`.
+
+### Tramo A — Relevamiento y estrategia de tests
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `docs/relevamiento-etapa-3.md` | El requisito 2 de la consigna y la matriz de migración en una sola tabla por módulo: las 134 rutas web, cada una con su clase (negocio, página, descarga, sesión), su permiso y su endpoint | Nuevo |
+| `docs/pruebas-etapa-3.md` | La estrategia de HL-99 y HL-107: migrar conservando la aserción, partir en dos lo que mezcla escritura y pantalla, y el inventario por tramo | Nuevo |
+| `docs/scripts/volcar-rutas.php` | Las rutas con su controlador y sus middlewares (el `route:list --json` no trae los `can:`) | Nuevo |
+| `docs/scripts/inventario-tests.php` | Cuenta las llamadas de los tests a rutas web retirables, por archivo y por ruta; cada tramo lo corre al empezar y al cerrar | Nuevo |
+
+**La decisión que lo condicionó.** El relevamiento y la matriz describen las mismas rutas (HL-104):
+se escribieron una sola vez, con columnas que cubren las dos tablas. Y el inventario se midió con un
+criterio escrito en un script, no a mano: así el «285» de hoy y el «0» de cada cierre se comparan
+contra lo mismo.
+
+### Tramo B — Autenticación común
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `CredencialService` | Emite también a cuentas de gestión (HL-98); vigencia y nombre de la credencial según el ámbito (D-31); `vencio()` distingue la vencida de la revocada. Sigue siendo la única clase que conoce Sanctum | Modificado |
+| `Middleware/Api/VerificarCuentaActiva` | La revalidación de cuenta activa, común a los dos clientes, en cada pedido | Nuevo |
+| `Middleware/Api/VerificarCuentaTienda` | Queda sólo con la frontera de ámbito de las rutas propias de la tienda (D-3) | Modificado |
+| Grupo `api.protegida` (`bootstrap/app.php`) | Credencial válida y cuenta activa, de gestión o de tienda: `DELETE /sesion` y `GET /yo` | Nuevo |
+| `Api/V1/YoController`, `Resources/Api/YoResource` | `GET /api/v1/yo`: cuenta, rol con ámbito y permisos, para pintar la interfaz de los dos clientes | Nuevo |
+| `RespuestaDeError::sesion()` | `401 sesion_expirada` para la credencial vencida | Modificado |
+| `config/sanctum.php` `expiration_gestion` | La vigencia de un turno, 480 minutos (`SANCTUM_EXPIRATION_GESTION`) | Nuevo |
+| `bearer()` en `tests/Pest.php` | El encabezado con una credencial real: el helper con que D a I llaman a la API | Nuevo |
+| `tests/Feature/Api/SesionComunTest.php` | Mismo endpoint para los dos, `/yo` por rol, cierre de sesión, 429 de gestión, y que ni token ni contraseña van al log | Nuevo |
+
+**La decisión que lo condicionó.** «Entrar es de todos, hacer es de los permisos» (HL-98): el rechazo
+de las cuentas de gestión salió del inicio de sesión. La vigencia la decide el ámbito de la cuenta,
+que es un dato, y no el cliente que dice ser (D-31): 8 horas para gestión, 7 días para la tienda. Las
+rutas propias de la tienda conservan su frontera, porque una cuenta de gestión no tiene ficha de cliente.

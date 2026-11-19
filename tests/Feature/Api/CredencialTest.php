@@ -60,6 +60,24 @@ test('el vencimiento sale de SANCTUM_EXPIRATION', function () {
     expect($emitida['vence'])->toBe(now()->addHour()->utc()->format('Y-m-d\TH:i:s\Z'));
 });
 
+test('la de una cuenta de gestión vence en un turno, ocho horas (D-31)', function () {
+    $this->freezeTime();
+
+    $emitida = $this->credenciales->emitir(admin());
+
+    expect($emitida['vence'])->toBe(now()->addHours(8)->utc()->format('Y-m-d\TH:i:s\Z'));
+});
+
+test('la de gestión sale de SANCTUM_EXPIRATION_GESTION, y no toca la de la tienda', function () {
+    $this->freezeTime();
+    config(['sanctum.expiration_gestion' => 60]);
+
+    expect($this->credenciales->emitir(admin())['vence'])
+        ->toBe(now()->addHour()->utc()->format('Y-m-d\TH:i:s\Z'))
+        ->and($this->credenciales->emitir(($this->tiendaCuenta)())['vence'])
+        ->toBe(now()->addDays(7)->utc()->format('Y-m-d\TH:i:s\Z'));
+});
+
 test('cada emisión es una fila nueva, y la credencial en claro no se guarda', function () {
     $cuenta = ($this->tiendaCuenta)();
 
@@ -249,14 +267,37 @@ test('sesión opcional: con una credencial inválida es 401 sesion_invalida y no
     'no es Bearer'           => ['Basic dXN1YXJpbzpjbGF2ZQ=='],
 ]);
 
-test('sesión opcional: una credencial vencida es 401 sesion_invalida', function () {
+// Era `sesion_invalida` hasta la Etapa 2: la vencida tiene su código propio (plan Etapa 3 §6).
+test('sesión opcional: una credencial vencida es 401 sesion_expirada', function () {
     ($this->rutaDe)('tienda.sesion_opcional');
     $emitida = $this->credenciales->emitir(($this->tiendaCuenta)());
 
     $this->travel(8)->days();
 
     $this->get('/api/v1/_prueba/yo', ($this->encabezado)($emitida))
-        ->assertStatus(401)->assertJsonPath('codigo', 'sesion_invalida');
+        ->assertStatus(401)->assertJsonPath('codigo', 'sesion_expirada')
+        ->assertHeader('WWW-Authenticate', 'Bearer');
+});
+
+test('vencio distingue la vencida de la revocada, la inventada y la vigente', function () {
+    $cuenta  = ($this->tiendaCuenta)();
+    $vigente = $this->credenciales->emitir($cuenta)['credencial'];
+    $vieja   = $this->credenciales->emitir($cuenta)['credencial'];
+    $gestion = $this->credenciales->emitir(admin())['credencial'];
+    PersonalAccessToken::findToken($vieja)->delete();
+
+    expect($this->credenciales->vencio($vigente))->toBeFalse()
+        ->and($this->credenciales->vencio($vieja))->toBeFalse()
+        ->and($this->credenciales->vencio('1|inventada'))->toBeFalse()
+        ->and($this->credenciales->vencio(null))->toBeFalse();
+
+    // Gestión vence en un turno; la de tienda, a los siete días.
+    $this->travel(9)->hours();
+    expect($this->credenciales->vencio($gestion))->toBeTrue()
+        ->and($this->credenciales->vencio($vigente))->toBeFalse();
+
+    $this->travel(7)->days();
+    expect($this->credenciales->vencio($vigente))->toBeTrue();
 });
 
 test('sesión opcional: una credencial revocada es 401 sesion_invalida', function () {

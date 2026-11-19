@@ -66,6 +66,8 @@ test('el checkout ofrece la transferencia aparte del efectivo, con el precio de 
 });
 
 test('confirmar por transferencia congela el precio de contado y reserva hasta que llegue el comprobante', function () {
+    // Sin congelar, el pedido podía cruzar el borde de un segundo y el vencimiento no coincidía.
+    $this->freezeTime();
     [$cuenta, $bearer] = ($this->tiendaCuenta)();
 
     ($this->tiendaPedidoPorTransferencia)($cuenta, $bearer)

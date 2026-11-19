@@ -71,6 +71,17 @@ function admin(): \App\Models\User
 }
 
 /**
+ * El encabezado con una credencial real de esa cuenta, emitida como en `POST /api/v1/sesion`.
+ * Es el helper de la Etapa 3 para llamar a la API (tramo B): con `actingAs($u, 'sanctum')` no
+ * hay credencial, y la vigencia, la revocación y el cierre de sesión quedarían sin probar.
+ * Uso: `$this->getJson('/api/v1/yo', bearer(usuarioCon('venta.crear')))`.
+ */
+function bearer(\App\Models\User $usuario): array
+{
+    return ['Authorization' => 'Bearer '.app(\App\Services\CredencialService::class)->emitir($usuario)['credencial']];
+}
+
+/**
  * Hace la petición con el verbo indicado. Los GET van sin cuerpo; el resto
  * lleva $datos. La usan los datasets de permisos de cada módulo, que recorren
  * todas las rutas con el mismo test.

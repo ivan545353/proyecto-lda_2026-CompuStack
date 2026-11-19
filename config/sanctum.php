@@ -57,6 +57,10 @@ return [
     // «no vence nunca»: el `?:` lo devuelve a 7 días.
     'expiration' => (int) env('SANCTUM_EXPIRATION') ?: 10080,
 
+    // Minutos para una cuenta de gestión: 480 = un turno de 8 h (D-31). La pantalla de la
+    // administración se comparte en el mostrador; el teléfono de la tienda, no.
+    'expiration_gestion' => (int) env('SANCTUM_EXPIRATION_GESTION') ?: 480,
+
     /*
     |--------------------------------------------------------------------------
     | Token Prefix

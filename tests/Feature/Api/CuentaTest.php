@@ -158,7 +158,7 @@ describe('sesión', function () {
         $this->assertGuest('web');
     });
 
-    test('incorrecta, inexistente, inactiva y de gestión dan el mismo 422', function (string $caso) {
+    test('incorrecta, inexistente e inactiva dan el mismo 422', function (string $caso) {
         $datos = match ($caso) {
             'contraseña incorrecta' => ['password' => 'Otra12345'],
             'correo inexistente'    => ['email' => 'nadie@sistema.local'],
@@ -166,11 +166,6 @@ describe('sesión', function () {
                 $this->tiendaCuenta->update(['activo' => false]);
 
                 return [];
-            })(),
-            'cuenta de gestión'     => (function () {
-                User::factory()->conRol('Vendedor')->create(['email' => 'vende@sistema.local', 'password' => 'Secreta123']);
-
-                return ['email' => 'vende@sistema.local'];
             })(),
         };
 
@@ -180,7 +175,34 @@ describe('sesión', function () {
             ->assertJsonPath('errores', ['email' => ['El correo o la contraseña no son correctos.']]);
 
         expect(\Laravel\Sanctum\PersonalAccessToken::count())->toBe(0);
-    })->with(['contraseña incorrecta', 'correo inexistente', 'cuenta inactiva', 'cuenta de gestión']);
+    })->with(['contraseña incorrecta', 'correo inexistente', 'cuenta inactiva']);
+
+    // Era 422 hasta la Etapa 2 (HL-98): entrar es de todos, hacer es de los permisos.
+    test('una cuenta de gestión inicia sesión por el mismo endpoint, con su propia credencial', function () {
+        User::factory()->conRol('Vendedor')->create(['email' => 'vende@sistema.local', 'password' => 'Secreta123']);
+
+        $gestion = ($this->tiendaIniciar)(['email' => 'vende@sistema.local'])->assertOk()
+            ->assertJsonPath('datos.tipo', 'Bearer')
+            ->assertJsonPath('datos.usuario.email', 'vende@sistema.local');
+        $tienda = ($this->tiendaIniciar)()->assertOk();
+
+        expect(array_keys($gestion->json('datos')))->toBe(['credencial', 'tipo', 'vence', 'usuario'])
+            ->and($gestion->json('datos.credencial'))->not->toBe($tienda->json('datos.credencial'))
+            ->and(\Laravel\Sanctum\PersonalAccessToken::pluck('name')->sort()->values()->all())
+            ->toBe(['administracion', 'app-tienda']);
+    });
+
+    test('una cuenta de gestión inactiva da el mismo 422', function () {
+        User::factory()->conRol('Vendedor')->create([
+            'email' => 'vende@sistema.local', 'password' => 'Secreta123', 'activo' => false,
+        ]);
+
+        ($this->tiendaIniciar)(['email' => 'vende@sistema.local'])
+            ->assertStatus(422)
+            ->assertJsonPath('errores', ['email' => ['El correo o la contraseña no son correctos.']]);
+
+        expect(\Laravel\Sanctum\PersonalAccessToken::count())->toBe(0);
+    });
 
     test('sin correo o sin contraseña es 422 con su campo', function (string $campo) {
         ($this->tiendaIniciar)([$campo => ''])
@@ -228,7 +250,8 @@ describe('sesión', function () {
             ->assertJsonPath('codigo', 'sin_sesion');
     });
 
-    test('una credencial vencida da 401 sesion_invalida', function () {
+    // Era `sesion_invalida` hasta la Etapa 2 (plan Etapa 3 §6).
+    test('una credencial vencida da 401 sesion_expirada', function () {
         $credencial = ($this->tiendaIniciar)()->json('datos.credencial');
 
         $this->travel(8)->days();
@@ -236,7 +259,7 @@ describe('sesión', function () {
         app('auth')->forgetGuards();
         $this->deleteJson('/api/v1/sesion', [], ($this->tiendaBearer)($credencial))
             ->assertStatus(401)
-            ->assertJsonPath('codigo', 'sesion_invalida');
+            ->assertJsonPath('codigo', 'sesion_expirada');
     });
 });
 

@@ -26,7 +26,7 @@ Medido sobre el repositorio al cerrar la Etapa 2, no sobre lo que dicen los docu
 | Servicios | **23** |
 | Controladores web (Blade) | **22** |
 | Controladores de API (`Api/V1`) | **13** |
-| Rutas web | **133** — 73 `GET`, 32 `POST`, 15 `PUT`, 2 `PATCH`, 11 `DELETE` |
+| Rutas web | **134** — 74 `GET`, 32 `POST`, 15 `PUT`, 2 `PATCH`, 11 `DELETE` *(el plan decía 133; HL-105)* |
 | Endpoints de API | **~25**, todos de tienda |
 | Vistas Blade | **69** |
 | Componentes JS | **11**, de los cuales **3 ya usan `fetch`** |
@@ -125,6 +125,8 @@ el inicio de sesión y pasa a estar en lo que cada cuenta puede hacer, que es do
 En **44 archivos**. Retirar las rutas de escritura —lo exige la consigna— las rompe todas. Es el
 hallazgo más caro de la etapa y tiene su estrategia en §7, tramo A.
 
+*Medido de nuevo en el tramo A con un criterio escrito: **285 llamadas en 24 archivos** (HL-106).*
+
 ### HL-100 — Tres componentes JS ya usan `fetch`, con sesión
 
 `selects-buscables.js`, `lineas-pedido.js` y `alta-rapida.js` llaman con `credentials: 'same-origin'`
@@ -154,6 +156,39 @@ atómico**: endpoints, pantallas, retiro de rutas y tests, juntos.
 La consigna lo pide con seis columnas por operación (§2 del PDF) y recomienda además la tabla de
 migración con estado. Son dos tablas distintas sobre las mismas ~133 rutas: una describe lo que hay,
 la otra sigue lo que se migra. Conviene escribirlas una sola vez, en un documento propio.
+
+### HL-105 — Son 134 rutas web, no 133
+
+Las correcciones de la Etapa 2 (`59714ef`) sumaron `GET ventas/{venta}/comprobantes-transferencia/
+{comprobante}`, que abre el comprobante que sube el cliente. Es una descarga y va al tramo H. La API
+tiene **24 rutas**. Clasificadas en `relevamiento-etapa-3.md` §1: 62 de negocio, 57 páginas, 12
+descargas y 3 de sesión. **Se retiran 76.**
+
+### HL-106 — Las llamadas de escritura son 285 en 24 archivos
+
+Los «277 en 44» de HL-99 salieron de un criterio que no quedó escrito. El tramo A lo fija:
+`->post|put|patch|delete(Json)?(` con `route('<nombre>')` o una URL literal, aunque el argumento siga
+en la línea siguiente, y sin `/api/`. El script es `docs/scripts/inventario-tests.php`. Los datasets
+de permisos (`pedirRuta`) se cuentan aparte. El inventario por archivo y por tramo está en
+`pruebas-etapa-3.md` §4.
+
+### HL-107 — Vaciar un shell rompe los tests de lectura, no sólo los de escritura
+
+HL-99 sólo contaba escrituras. Pero hay **279 `GET` a rutas de página en 38 archivos**, con **294
+`assertSee` y 88 `assertViewHas`**. No se rompen al retirar una ruta: se rompen al vaciar la pantalla
+(HL-97, regla 37). Cada uno se clasifica como dato (pasa al endpoint) o estructura (se queda en el
+shell). La regla está en `pruebas-etapa-3.md` §3. Pesa sobre todo en H (`VentaModuloTest`: 38 `GET`,
+57 `assertSee`) y en G.
+
+### HL-108 — El catálogo todavía corta a las cuentas de gestión
+
+*Registrado en el tramo B.* El B abrió la sesión a gestión con un grupo nuevo, `api.protegida`
+(`DELETE /sesion`, `GET /yo`). Los otros dos siguen con la frontera de la tienda (D-3):
+`tienda.protegida` y **`tienda.sesion_opcional`**, que es el de `GET /productos`. Una credencial de
+gestión ahí da **401 `sesion_invalida`**, y el cliente de la administración borraría su sesión. El
+tramo D, que comparte `productos` con la administración (regla 36), tiene que sacar ese endpoint de la
+frontera de ámbito y decidir la representación por permiso. No rompe nada hoy: ningún cliente de gestión
+lo llama todavía.
 
 ---
 
@@ -350,6 +385,9 @@ módulos:
 | **H — Ventas y pagos** | Ventas, cobro, entrega, devolución, transferencias, informes, panel | ~23 |
 | **I — Usuarios y accesos** | Personal, roles, cuenta, restablecimiento de contraseña | ~19 |
 
+*Estos «aprox.» cuentan todas las rutas del módulo. Las que cada tramo **retira** (negocio y descarga)
+están medidas en `relevamiento-etapa-3.md` §1: D 21, E 12, F 11, G 9, H 11, I 10.*
+
 **Por qué agrupados así.** Por afinidad de pantallas y de permisos, no por tamaño. D son cuatro CRUD
 casi idénticos: el primero cuesta y los otros tres son molde. H es el más delicado porque toca
 `VentaService` y `PagoService`, que la app ya usa: **ahí es donde un error se ve en los dos clientes**.
@@ -482,6 +520,10 @@ Hay que definirla y documentarla. **Propongo distinguir por cliente**: la admini
 un turno de trabajo; la app, más largo, porque un teléfono no se comparte y volver a escribir la
 contraseña en un celular es caro. Hace falta un número para cada uno y su porqué.
 
+**Decidida en el tramo B.** Por el ámbito de la cuenta y no por el cliente que dice ser, porque el
+ámbito es un dato (regla 9): **gestión, 8 horas** (`SANCTUM_EXPIRATION_GESTION`, 480); **tienda, 7
+días** (`SANCTUM_EXPIRATION`, sin cambio). Vencida, `401 sesion_expirada`. Documentada en `api.md` §4, r14.
+
 ### D-32 — El relevamiento, ¿un documento o dos?
 
 La consigna pide el relevamiento (§2) y recomienda la matriz de migración. **Propongo un documento,
@@ -506,6 +548,9 @@ recibir el dato en lugar de buscarlo, nunca a mover una regla. Y si un tramo pro
 
 La tabla que la consigna recomienda, con una fila por operación. Se arma en el tramo A con todo en
 «Pendiente» y cada tramo mueve sus filas.
+
+**Armada en el tramo A en `relevamiento-etapa-3.md`**, junto con el relevamiento (HL-104): las columnas
+de esta tabla están ahí, módulo por módulo. Las filas de abajo quedan como el molde original.
 
 | Operación | Implementación anterior | Endpoint RESTful | Permiso requerido | Cambio en la interfaz | Estado |
 | --- | --- | --- | --- | --- | --- |

@@ -17,9 +17,9 @@ use Illuminate\Http\Request;
 | - withRouting()     archivos de rutas y punto de entrada; `api:` agrega /api con
 |                     el grupo de middlewares `api`
 | - withMiddleware()  web: VerificarUsuarioActivo en todo el grupo.
-|                     api: ForzarJson en todo el grupo; y dos grupos con nombre,
-|                     `tienda.sesion_opcional` y `tienda.protegida`, que usan
-|                     routes/api.php y los tests.
+|                     api: ForzarJson en todo el grupo; y tres grupos con nombre,
+|                     `api.protegida` (los dos clientes), `tienda.sesion_opcional`
+|                     y `tienda.protegida`, que usan routes/api.php y los tests.
 |                     Alias: 'gestion' (VerificarAmbitoGestion)
 | - withExceptions()  Dos traducciones, y el orden importa:
 |                     1. `api/*`: cualquier excepción vuelve con la forma de error
@@ -51,6 +51,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'gestion'               => \App\Http\Middleware\VerificarAmbitoGestion::class,
             'tienda.sesion.opcional' => \App\Http\Middleware\Api\SesionOpcional::class,
+            'api.cuenta_activa'      => \App\Http\Middleware\Api\VerificarCuentaActiva::class,
             'tienda.cuenta'          => \App\Http\Middleware\Api\VerificarCuentaTienda::class,
         ]);
 
@@ -61,15 +62,22 @@ return Application::configure(basePath: dirname(__DIR__))
             prepend: \App\Http\Middleware\VerificarAmbitoGestion::class,
         );
 
-        // Los dos tipos de ruta con credencial (docs/api.md, «Autenticación»). Se
-        // definen una vez: las rutas y los tests nombran el mismo grupo.
+        // Los tipos de ruta con credencial (docs/api.md, «Autenticación»). Se definen
+        // una vez: las rutas y los tests nombran el mismo grupo.
+        // Común a los dos clientes: entrar es de toda cuenta activa (HL-98).
+        $middleware->group('api.protegida', [
+            'auth:sanctum',             // sin credencial o inválida → 401
+            'api.cuenta_activa',        // cuenta desactivada → 401
+        ]);
         $middleware->group('tienda.sesion_opcional', [
             'tienda.sesion.opcional',   // credencial inválida → 401; sin credencial, visitante
+            'api.cuenta_activa',
             'tienda.cuenta',
         ]);
         $middleware->group('tienda.protegida', [
-            'auth:sanctum',             // sin credencial o inválida → 401
-            'tienda.cuenta',            // cuenta desactivada o de gestión → 401
+            'auth:sanctum',
+            'api.cuenta_activa',
+            'tienda.cuenta',            // cuenta de gestión → 401 (D-3)
         ]);
 
         $middleware->redirectUsersTo('/panel');
