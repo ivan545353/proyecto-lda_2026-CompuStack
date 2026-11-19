@@ -186,7 +186,9 @@ class IntentoPagoService
     {
         $motivo = match (true) {
             $v->canal !== 'online'          => 'no es un pedido de la tienda',
-            $v->medio_pago !== 'pasarela'   => 'se paga en el local, no por una pasarela',
+            $v->medio_pago !== 'pasarela'   => $v->medio_pago === 'transferencia'
+                ? 'se paga por transferencia, no por una pasarela'
+                : 'se paga en el local, no por una pasarela',
             $v->estado !== 'pendiente_pago' => "está «{$v->estadoTexto()}» y ya no espera un pago",
             $v->reserva_vence === null || ! $v->reserva_vence->isFuture() => 'ya no tiene la mercadería reservada',
             default => null,

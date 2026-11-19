@@ -1372,3 +1372,49 @@ Mejora declarada, no requisito: no cierra nada de la matriz.
 > stock, reseñas ni urgencia, y los precios siguen pasando sólo por `Precio` (sin sesión, «Iniciá sesión»).
 >
 > **`lottie` quedó recortado** (HL-82): no hay ningún recurso `.json`, y no se agrega uno sin preguntar.
+
+### Tramo L — Observaciones del revisor
+
+Corrige y amplía lo hecho a partir de la revisión: no cierra filas nuevas de la matriz.
+
+**Backend**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `config/app.php`, migración `corregir_zona_horaria_de_fechas` | La hora de la gestión es la de Argentina, también la ya guardada (HL-86, D-24) | Modificado y nuevo |
+| `x-gestor-imagenes` (`en-tienda`), `gestor-imagenes.js` | La ayuda dice que el orden es el de la tienda, de izquierda a derecha, y numera cada imagen (HL-87) | Modificado |
+| `MovimientoStock` (`deCanal`, `registradoPorTexto`, `ventaOnline`), `MovimientoFiltroRequest`, `StockController`, `ListadoMovimientos`, `stock/index` | La venta online en el kardex: su canal, quién la cobró, el filtro, y lo reservado explicado (HL-85, D-25) | Modificado |
+| `UsuarioService::darAccesoATienda()`, `AccesoTiendaRequest`, `ClienteController::darAccesoTienda`, `clientes/form` | La cuenta de la tienda para un cliente del mostrador, sobre su ficha, con el enlace para elegir la contraseña (HL-89, D-26) | Nuevo y modificado |
+| `RestablecerPasswordController`, `auth/cuenta-tienda-lista`, `Api/RegistroRequest` | Una cuenta de la tienda sabe que entra por la app; el registro rechaza el correo de una ficha del mostrador | Modificado y nuevo |
+| Migraciones `add_transferencia_to_ventas_medio_pago` y `create_comprobantes_transferencia_table`, `ComprobanteTransferencia` | El tercer medio y sus comprobantes, que sólo suman filas (HL-90, D-27) | Nuevo |
+| `TransferenciaService`, `Api\V1\ComprobanteTransferenciaController`, `Api/ComprobanteTransferenciaRequest` | `POST /pedidos/{id}/comprobante-transferencia`: el archivo al disco privado, la reserva a tres días hábiles | Nuevo |
+| `Venta` (`situacionDelPago`, `comprobantesTransferencia`, `dePago`), `VentaService`, `IntentoPagoService`, `TextosTienda` (`MEDIO`, `avisoTransferencia`), `ResumenCheckoutResource`, `PedidoResource`, `PedidoDetalleResource`, `ConfirmarPedidoRequest` | La transferencia a precio de contado, con su texto, su estado derivado y su bloque en el detalle | Modificado |
+| `ComprobanteTransferenciaController` (web), `ventas/show`, `ventas/cobro`, `PagoController`, `VentaFiltroRequest`, `ListadoVentas`, `ventas/index` | Ver el comprobante con su permiso, cobrar con el saldo en transferencia, encontrar lo que hay que revisar | Nuevo y modificado |
+| `RolPermisoSeeder` | `cliente.dar_acceso_tienda`, `tienda.cargar_comprobante`, `venta.ver_comprobante_transferencia` | Modificado |
+| `ZonaHorariaTest`, `GestorImagenesOrdenTest`, `KardexCanalTest`, `ClienteAccesoTiendaTest`, `Api/RegistroMostradorTest`, `Api/TransferenciaTest`, `VentaTransferenciaTest` | Cada observación con su test; cinco aserciones de la Etapa 2 actualizadas (HL-93) | Nuevo y modificado |
+| `docs/api.md` | Revisión 12 | Modificado |
+
+> **Ninguna observación se resolvió aflojando una regla.** El kardex sigue sin asiento para lo que no se
+> cobró (regla 5): lo que cambió es que lo explica. La transferencia no se confirma sola: con el
+> comprobante queda «en revisión» y la confirma el local con el cobro de siempre, que es lo que saca el
+> stock. La hora se corrigió en los datos, no sólo en la pantalla, para que los filtros por día digan lo
+> mismo que se ve.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `PagoVista`, `router.dart` (`_sinCerrarLaApp` con destino) | En «Pagar» el pedido ya existe: la flecha y el «atrás» del sistema llevan a su detalle, no al inicio (HL-88) | Modificado |
+| `CheckoutViewModel`, `BorradorCheckout`, `borradorCheckoutProvider` | Lo elegido (paso, entrega, dirección, medio) sobrevive a salir al carrito mientras dure la misma reserva (HL-88) | Modificado y nuevo |
+| `CheckoutVista` | Los tres medios con cómo se paga cada uno; «Al confirmar, el medio de pago queda elegido»; con envío, el efectivo atenuado y con su motivo (D-28) | Modificado |
+| `MedioDePago` (`modosEntrega`, `valeCon`), `OpcionElegible` (`atenuada`) | El medio sólo con las entregas que dice el servidor (r13); la opción no disponible se ve y dice por qué | Modificado |
+| `Pedido` (`Transferencia`, `porTransferencia`, `aceptaComprobante`), `ArchivoComprobante`, `ComprobanteCargado` | La clave `transferencia` del detalle (§7.7) y cuándo se ofrece cargar el comprobante | Modificado |
+| `SelectorArchivos` | La única clase que importa `file_picker` (D-27): un PDF o una foto, leído en bytes | Nuevo |
+| `PedidoService.cargarComprobante`, `PedidoRepository.cargarComprobante` | `POST /pedidos/{id}/comprobante-transferencia` en `multipart`; tipo y 5 MB revisados antes de subir; `_unaVez`, sin reintento | Modificado |
+| `PedidoViewModel` (`cargarComprobante`, `cargando`, `errorCarga`) | La carga: bien, cancelada, 409 (vuelve a pedir el detalle), 422, sin red, sesión vencida | Modificado |
+| `TarjetaTransferencia` | Alias con «Copiar alias», titular, «Cargar comprobante» u «otro», el aviso del servidor y el error | Nuevo |
+| `PedidoRegistradoVista`, `PedidoVista` | El cierre y el detalle por transferencia: qué hacer y antes de cuándo, la tarjeta y el estado «en revisión» | Modificado |
+| `file_picker` 13.3.3 (`pubspec.yaml`, `pubspec.lock`) | La librería aprobada en D-27 | Nuevo |
+| Tests: `checkout_vista_test`, `checkout_view_model_test`, `pago_vista_test`, `routing/atras_test`, `pedido_test`, `carrito_test`, `pedido_service_test`, `pedido_repository_test`, `pedido_view_model_test`, `pedido_vista_test` | «Atrás» por pasos con la flecha y el del sistema, el borrador, «Pagar» → detalle, el JSON de r12 y r13, la carga en sus estados, D-28 | Modificado (986 → 1032) |
+
+

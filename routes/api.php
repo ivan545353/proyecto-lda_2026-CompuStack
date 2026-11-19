@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\ComprobanteTransferenciaController;
 use App\Http\Controllers\Api\V1\CarritoController;
 use App\Http\Controllers\Api\V1\CarritoLineaController;
 use App\Http\Controllers\Api\V1\CategoriaController;
@@ -97,6 +98,12 @@ Route::prefix('v1')->group(function () {
                 Route::post('simulador/intentos/{intento}/aprobar', [SimuladorController::class, 'aprobar'])->whereNumber('intento');
                 Route::post('simulador/intentos/{intento}/rechazar', [SimuladorController::class, 'rechazar'])->whereNumber('intento');
             }
+        });
+
+        // El comprobante de una transferencia (tramo L, D-27). Ajeno, 404; si no lo espera, 409.
+        Route::middleware('can:tienda.cargar_comprobante')->group(function () {
+            Route::post('pedidos/{pedido}/comprobante-transferencia', [ComprobanteTransferenciaController::class, 'store'])
+                ->whereNumber('pedido');
         });
 
         // Leer los pagos (tramo G). Si el intento está pendiente, `show` consulta al proveedor antes.

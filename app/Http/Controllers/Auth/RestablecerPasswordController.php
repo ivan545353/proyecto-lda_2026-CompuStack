@@ -34,13 +34,17 @@ class RestablecerPasswordController extends Controller
         ]);
     }
 
-    public function restablecer(RestablecerPasswordRequest $request): RedirectResponse
+    public function restablecer(RestablecerPasswordRequest $request): RedirectResponse|View
     {
+        $cuenta = null;
+
         // El broker valida el token contra el hash y el vencimiento, llama al
         // callback y después borra el token: el enlace sirve una sola vez.
         $estado = BrokerDePassword::reset(
             $request->validated(),
-            fn (User $usuario, string $password) => $this->service->cambiarPassword($usuario, $password),
+            function (User $usuario, string $password) use (&$cuenta) {
+                $cuenta = $this->service->cambiarPassword($usuario, $password);
+            },
         );
 
         if ($estado !== BrokerDePassword::PASSWORD_RESET) {
@@ -53,6 +57,11 @@ class RestablecerPasswordController extends Controller
         // confirma que quedó bien, y evita abrirle sesión a una cuenta que el
         // login podría rechazar por otro motivo (desactivada, ámbito tienda):
         // esos casos tienen su propio mensaje y no es tarea de esta pantalla.
+        // Una cuenta de la tienda no entra a la gestión: se le dice dónde sí (D-26).
+        if ($cuenta !== null && ! $cuenta->esDeGestion()) {
+            return view('auth.cuenta-tienda-lista');
+        }
+
         return redirect()->route('login')->with(
             'exito',
             'Tu contraseña quedó configurada. Ya podés iniciar sesión.'

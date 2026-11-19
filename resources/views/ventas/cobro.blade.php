@@ -86,10 +86,11 @@
                 $propuesta = $saldo > 0 ? Importe::paraFormulario($saldo) : '';
                 $valorDe = fn(int $indice, string $clave) => $hayDevueltos
                     ? old("pagos.{$indice}.monto")
-                    : ($clave === 'efectivo'
+                    : ($clave === $principal
                         ? $propuesta
                         : '');
-                $principal = array_filter($medios, fn(string $clave) => $clave === 'efectivo');
+                $medioPrincipal = $principal;
+                $principal = array_filter($medios, fn(string $clave) => $clave === $medioPrincipal);
                 $adicionales = array_diff_key($medios, $principal);
                 $abrirAdicionales = collect($adicionales)
                     ->keys()
@@ -111,12 +112,15 @@
                             'valor' => $valorDe($indice, $clave),
                             'propuesto' => !$hayDevueltos && $propuesta !== '',
                             'autofocus' => $problemas === [] && !$errors->any(),
-                            'ayuda' => 'Ya trae el saldo entero. Borralo si no entró efectivo.',
+                            'ayuda' => $medioPrincipal === 'efectivo'
+                                ? 'Ya trae el saldo entero. Borralo si no entró efectivo.'
+                                : 'Ya trae el saldo entero: es lo que el pedido dijo que transfirió. Revisá el comprobante antes.',
                         ])
                     @endforeach
 
                     {{-- El vuelto se muestra y no se guarda: los botones no tienen name y
                          nada de este bloque viaja. Sólo funciona con JavaScript. --}}
+                    @if ($medioPrincipal === 'efectivo')
                     <div class="col-12 col-sm-6" data-cobro-billetes hidden>
                         <p class="form-label mb-2" id="billetesTitulo">Con qué billetes pagó</p>
 
@@ -137,6 +141,7 @@
 
                         <p class="small mb-0 mt-2" data-cobro-vuelto aria-live="polite"></p>
                     </div>
+                    @endif
                 </div>
 
                 {{-- `details` y no un collapse de Bootstrap: sin JavaScript, un collapse

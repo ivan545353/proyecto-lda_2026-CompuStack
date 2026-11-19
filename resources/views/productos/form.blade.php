@@ -310,7 +310,7 @@
         <fieldset class="card card-body border-0 shadow-sm mb-4">
             <legend class="h5 mb-3">Imágenes</legend>
 
-            <x-gestor-imagenes :actuales="$imagenes" :max="Producto::MAX_IMAGENES" :descripcion="$producto->nombre ?: 'el producto'" />
+            <x-gestor-imagenes :actuales="$imagenes" :max="Producto::MAX_IMAGENES" :descripcion="$producto->nombre ?: 'el producto'" en-tienda />
         </fieldset>
 
         {{-- Estado --}}

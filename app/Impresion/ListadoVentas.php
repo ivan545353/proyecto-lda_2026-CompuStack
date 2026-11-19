@@ -73,6 +73,7 @@ final class ListadoVentas extends Listado
             'Cliente'  => $cliente?->razon_social,
             'Vendedor' => $vendedor ? "{$vendedor->apellido}, {$vendedor->nombre}" : null,
             'Canal'    => Venta::CANALES[$filtros['canal'] ?? ''] ?? null,
+            'Pago'     => Venta::FILTROS_PAGO[$filtros['pago'] ?? ''] ?? null,
             'Desde'    => filled($filtros['desde'] ?? null) ? Carbon::parse($filtros['desde'])->format('d/m/Y') : null,
             'Hasta'    => filled($filtros['hasta'] ?? null) ? Carbon::parse($filtros['hasta'])->format('d/m/Y') : null,
         ]);

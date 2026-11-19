@@ -48,6 +48,9 @@ Convenciones: todo importe es `decimal(12,2)` (nunca `float`, ver A-17 de la aud
 **Los permisos de la tienda** *(Etapa 2, tramo D; D-6).* El módulo `tienda` suma tres claves, una por
 acción: `tienda.ver_precios` (los dos precios y el orden por precio), `tienda.comprar` (carrito,
 confirmación y pago; lo usan los tramos E a G) y `tienda.ver_pedidos` (la consulta de compras; tramo H).
+El tramo L suma `tienda.cargar_comprobante` (el comprobante de una transferencia) y, en la gestión,
+`cliente.dar_acceso_tienda` (la cuenta de la tienda de un cliente del mostrador, D-26) y
+`venta.ver_comprobante_transferencia` (abrir el comprobante; lo tienen el Administrador y el Cajero).
 El rol Cliente recibe `tienda.*`; sigue sin ningún permiso de gestión. El Administrador también las
 recibe por su `'*'`, sin efecto: la API rechaza las cuentas de gestión (D-3). Son filas de `permisos`
 como cualquier otra: no hay columna nueva ni migración, las crea `RolPermisoSeeder`.
@@ -803,7 +806,7 @@ la referencia es un dato de ayuda, no del documento.
 | total         | decimal      |                                 |
 | observaciones | varchar null |                                 |
 | carrito_id    | FK null UNIQUE | el carrito del que nació (tramo F); null en el mostrador |
-| medio_pago    | enum null    | `contado`, `pasarela`; null en el mostrador |
+| medio_pago    | enum null    | `contado`, `transferencia` (tramo L), `pasarela`; null en el mostrador |
 | reserva_vence | timestamp null | hasta cuándo el pedido retiene su stock |
 | entrega_calle … entrega_provincia | varchar null | la dirección del envío, copiada |
 
@@ -814,15 +817,34 @@ los pedidos vencidos que la tarea busca cada minuto, y `canal`, para el filtro d
 - **`carrito_id` UNIQUE es la idempotencia de la confirmación** (D-8). Un segundo `POST /pedidos` del
   mismo carrito no puede crear otra venta: la base lo impide, sin tabla ni cabecera aparte. Además
   deja escrito de qué carrito salió cada pedido.
-- **`medio_pago` decide la lista** con la que se cotizan los renglones (HL-14): `contado` →
-  `precio_contado` (efectivo o transferencia, en el local), `pasarela` → `precio_lista`. Es nulo en el
+- **`medio_pago` decide la lista** con la que se cotizan los renglones (HL-14): `contado` (efectivo, en
+  el local) y `transferencia` (tramo L, D-27) → `precio_contado`, `pasarela` → `precio_lista`. Es nulo en el
   mostrador porque allá el medio se elige al cobrar, en `pagos`, y puede ser más de uno.
 - **`reserva_vence` dice si el pedido todavía retiene stock**, no sólo hasta cuándo. No nulo: las
   unidades del pedido están en `stock_reservado`. Al cobrarse, `marcarPagada()` las consume
   (`descontar(..., $deReserva)`) y lo pone en nulo; al cancelarse o vencer, se liberan y también. Una
   reserva cuya hora pasó y que nadie liberó **sigue siendo del pedido** (HL-10): cobrarla es válido.
   Plazos: 48 horas de contado (`reservas.contado_horas`), 20 minutos por pasarela
-  (`reservas.pasarela_minutos`).
+  (`reservas.pasarela_minutos`); por transferencia, 48 horas para cargar el comprobante y, al cargarlo,
+  tres días hábiles (`tienda.transferencia.*`, D-27).
+
+### `comprobantes_transferencia` *(Etapa 2, tramo L)*
+
+| Columna         | Tipo         | Nota |
+| --------------- | ------------ | ---- |
+| id              | PK           | |
+| venta_id        | FK           | el pedido por transferencia |
+| ruta            | varchar      | en el disco privado (`local`); se sirve por una ruta con permiso |
+| nombre_original | varchar      | como lo subió el comprador |
+| tipo            | varchar      | JPG, PNG o PDF |
+| tamano          | int          | bytes; hasta 5 MB |
+| created_at      | timestamp    | con `DEFAULT` explícito (HL-73); sin `updated_at` |
+
+- **Sólo suma filas** (regla 1): un segundo comprobante no pisa el primero, y el modelo no deja
+  modificar ni borrar uno. Quien revisa ve todos.
+- **El estado del pago se deriva de esta tabla** (regla 9): un pedido por transferencia con
+  comprobante y sin cobrar está `en_revision`; sin comprobante, `falta_comprobante` (que la API dice
+  `pendiente`). Confirmarlo es el cobro de siempre (`PagoService::cobrar`, método `transferencia`).
 - **La dirección se copia, no se referencia**: editar después las direcciones del cliente no cambia
   adónde se mandó un pedido. Lleva los largos de `direcciones`. `costo_envio` sale de
   `tienda.envio.costo` (8.000, Q-1) con envío, y es cero con retiro.

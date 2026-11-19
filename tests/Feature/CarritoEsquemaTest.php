@@ -74,12 +74,12 @@ test('la venta apunta a un solo carrito, y el mostrador lo deja nulo', function 
         ->and($foranea['foreign_table'])->toBe('carritos');
 });
 
-test('el medio de pago es nulo o uno de los dos de la tienda', function () {
+test('el medio de pago es nulo o uno de los tres de la tienda', function () {
     $c = ($this->columna)('ventas', 'medio_pago');
     preg_match_all("/'([^']*)'/", $c['type'], $valores);
 
     expect($c['nullable'])->toBeTrue()
-        ->and($valores[1])->toEqualCanonicalizing(['contado', 'pasarela']);
+        ->and($valores[1])->toEqualCanonicalizing(['contado', 'transferencia', 'pasarela']);   // + tramo L (D-27)
 });
 
 test('la direccion se congela con los largos de direcciones', function () {

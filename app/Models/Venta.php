@@ -35,6 +35,7 @@ use LogicException;
  *   ?cliente_id=   → deCliente($id)
  *   ?vendedor_id=  → deVendedor($id)       quién vendió, no quién cobró
  *   ?canal=        → deCanal($canal)       mostrador u online
+ *   ?pago=         → dePago($filtro)       transferencias por revisar (tramo L)
  *   ?desde=        → desde($fecha)         por fecha de emisión, inclusive
  *   ?hasta=        → hasta($fecha)
  *
@@ -85,6 +86,11 @@ class Venta extends Model
     ];
 
     public const ESTADOS_SIN_COBRO = ['presupuesto', 'pendiente_pago', 'cancelada'];
+
+    /** Filtros del listado por la situación del pago, con su texto (tramo L, D-27). */
+    public const FILTROS_PAGO = [
+        'transferencia_en_revision' => 'Transferencias por revisar',
+    ];
 
     /** Los valores del ENUM `canal`, con su texto para la pantalla. */
     public const CANALES = [
@@ -175,6 +181,19 @@ class Venta extends Model
         return $this->hasMany(IntentoPago::class, 'venta_id');
     }
 
+    /** Los comprobantes de transferencia que cargó el comprador (tramo L, D-27). */
+    public function comprobantesTransferencia(): HasMany
+    {
+        return $this->hasMany(ComprobanteTransferencia::class, 'venta_id');
+    }
+
+    /** ¿Cargó el comprobante? Con `withExists` ya leído no consulta: el listado no crece por pedido. */
+    public function tieneComprobanteTransferencia(): bool
+    {
+        return (bool) ($this->comprobantes_transferencia_exists
+            ?? $this->comprobantesTransferencia()->exists());
+    }
+
     /** El último intento: decide el estado del pago. Relación, para leerlo una vez por pedido. */
     public function ultimoIntentoPago(): HasOne
     {
@@ -251,7 +270,7 @@ class Venta extends Model
      * En qué situación está el pago del pedido, derivada de los datos (regla 9, plan tramo G).
      * Es más fina que `estadoDelPago()`: las tres formas de «pendiente» se dicen distinto.
      *
-     * @return 'pagado'|'contado'|'esperando'|'en_revision'|'rechazado'|'falta_pagar'|'sin_cobrar'
+     * @return 'pagado'|'contado'|'falta_comprobante'|'esperando'|'en_revision'|'rechazado'|'falta_pagar'|'sin_cobrar'
      */
     public function situacionDelPago(): string
     {
@@ -265,6 +284,10 @@ class Venta extends Model
 
         if ($this->medio_pago === 'contado') {
             return 'contado';
+        }
+
+        if ($this->medio_pago === 'transferencia') {
+            return $this->tieneComprobanteTransferencia() ? 'en_revision' : 'falta_comprobante';
         }
 
         $ultimo = $this->ultimoIntentoPago;
@@ -283,7 +306,7 @@ class Venta extends Model
     {
         return match ($this->situacionDelPago()) {
             'pagado'                            => 'aprobado',
-            'contado', 'esperando', 'falta_pagar' => 'pendiente',
+            'contado', 'falta_comprobante', 'esperando', 'falta_pagar' => 'pendiente',
             'en_revision'                       => 'en_revision',
             'rechazado'                         => 'rechazado',
             'sin_cobrar'                        => 'sin_cobrar',
@@ -426,6 +449,7 @@ class Venta extends Model
     {
         return ($cliente === null ? self::query()->whereKey([]) : self::delCliente($cliente))
             ->with('ultimoIntentoPago')
+            ->withExists('comprobantesTransferencia')
             ->withSum('lineas as unidades', 'cantidad')
             ->orderByDesc('ventas.created_at')
             ->orderByDesc('ventas.id')
@@ -440,6 +464,17 @@ class Venta extends Model
         return $query->when(
             ctype_digit((string) $id),
             fn (Builder $query) => $query->where('ventas.usuario_id', (int) $id),
+        );
+    }
+
+    /** Pedidos por transferencia con comprobante y sin cobrar: lo que el local tiene que revisar. */
+    public function scopeDePago(Builder $query, ?string $filtro): Builder
+    {
+        return $query->when(
+            $filtro === 'transferencia_en_revision',
+            fn (Builder $query) => $query->where('ventas.medio_pago', 'transferencia')
+                ->where('ventas.estado', 'pendiente_pago')
+                ->whereHas('comprobantesTransferencia'),
         );
     }
 

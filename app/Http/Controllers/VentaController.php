@@ -90,6 +90,7 @@ class VentaController extends Controller
                 'pagos.usuario:id,nombre,apellido',
                 'entregas' => fn ($entregas) => $entregas->withSum('lineas as unidades', 'cantidad'),
                 'entregas.usuario:id,nombre,apellido',
+                'comprobantesTransferencia' => fn ($comprobantes) => $comprobantes->orderBy('id'),
             ]),
         ]);
     }
@@ -333,6 +334,7 @@ class VentaController extends Controller
             ->deCliente($request->query('cliente_id'))
             ->deVendedor($request->query('vendedor_id'))
             ->deCanal($request->query('canal'))
+            ->dePago($request->query('pago'))
             ->desde($request->query('desde'))
             ->hasta($request->query('hasta'))
             ->orderByDesc('id');

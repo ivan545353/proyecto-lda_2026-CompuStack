@@ -56,6 +56,23 @@ return [
     // Vencido, se pide otro desde el detalle del pedido.
     'comprobante_minutos' => 5,
 
+    // La transferencia bancaria (D-27). El alias y el titular no son secretos: los ve el comprador.
+    'transferencia' => [
+        'alias'                     => 'COMPUSTACK.TIENDA',   // a revisar: el del local
+        'titular'                   => 'CompuStack S.R.L.',   // a revisar: el del local
+        'horas_para_comprobante'    => 48,   // la reserva, hasta que llega el comprobante
+        'dias_habiles_confirmacion' => 3,    // la reserva, una vez cargado: «72 horas hábiles»
+    ],
+
+    // Con qué entregas vale cada medio de pago (D-28): el efectivo se paga en el mostrador, así que
+    // sólo con retiro. Lo leen el checkout (`modos_entrega` de cada medio) y la confirmación.
+    // Si el envío está apagado, sale de todas las listas (TextosTienda::modosEntregaDelMedio).
+    'entregas_por_medio' => [
+        'contado'       => ['retiro'],
+        'transferencia' => ['retiro', 'envio'],
+        'pasarela'      => ['retiro', 'envio'],
+    ],
+
     'envio' => [
         // Si la tienda ofrece envío además del retiro (requisito 5.3). Es el recorte 2 del plan:
         // en `false`, sólo retiro y costo cero. Lo lee el checkout (E) y la confirmación (F).

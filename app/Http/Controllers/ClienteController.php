@@ -5,10 +5,12 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Concerns\ImprimeListados;
 use Illuminate\Http\JsonResponse;
 use App\Http\Requests\ClienteFiltroRequest;
+use App\Http\Requests\AccesoTiendaRequest;
 use App\Http\Requests\ClienteRequest;
 use App\Impresion\ListadoClientes;
 use App\Models\Cliente;
 use App\Services\ClienteService;
+use App\Services\UsuarioService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Response;
@@ -24,6 +26,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *   create() / store()   alta de un cliente de mostrador; store() contesta JSON a la ventana de la venta
  *   edit()  / update()   edición de datos fiscales y de contacto
  *   destroy()            baja física; el servicio la niega si corresponde
+ *   darAccesoTienda()    cuenta de la tienda para un cliente del mostrador, con su enlace (D-26)
  */
 class ClienteController extends Controller
 {
@@ -83,6 +86,17 @@ class ClienteController extends Controller
 
         return redirect()->route('clientes.index')
             ->with('exito', "Se guardaron los datos de «{$cliente->razon_social}».");
+    }
+
+    public function darAccesoTienda(AccesoTiendaRequest $request, Cliente $cliente, UsuarioService $usuarios): RedirectResponse
+    {
+        $usuario = $usuarios->darAccesoATienda($cliente, $request->validated('nombre'), $request->validated('apellido'));
+        $token   = $usuarios->crearTokenDeRestablecimiento($usuario);
+
+        // El enlace se arma acá y no en el servicio: una URL es de la capa HTTP (como en Personal).
+        return redirect()->route('clientes.edit', $cliente)
+            ->with('enlace_restablecimiento', route('password.reset', ['token' => $token, 'email' => $usuario->email]))
+            ->with('nombre_restablecido', $usuario->nombre_completo);
     }
 
     public function destroy(Cliente $cliente): RedirectResponse

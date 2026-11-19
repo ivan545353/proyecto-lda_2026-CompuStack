@@ -176,7 +176,7 @@ class GestorDeImagenes {
         li.innerHTML = `
             <div class="gestor-imagenes__marco">
                 <img src="${escapar(item.url)}" alt="${escapar(alt)}" draggable="false">
-                ${!this.simple && i === 0 ? '<span class="badge text-bg-dark gestor-imagenes__principal">Principal</span>' : ''}
+                ${this.simple ? '' : `<span class="badge text-bg-dark gestor-imagenes__principal" data-posicion="${posicion}" aria-hidden="true">${i === 0 ? '1 · Principal' : posicion}</span>`}
                 ${item.tipo === 'nueva' ? '<span class="badge text-bg-light border gestor-imagenes__nueva">Nueva</span>' : ''}
             </div>
             <div class="gestor-imagenes__acciones" role="group" aria-label="${this.simple ? escapar(this.descripcion) : `Imagen ${posicion}`}">

@@ -2,12 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\Cliente;
 use App\Models\Rol;
 use App\Models\User;
 use Illuminate\Support\Facades\Password as BrokerDePassword;
 use Illuminate\Database\Eloquent\Collection;
 use App\Exceptions\ReglaDeNegocioException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Reglas de negocio de personal.
@@ -35,6 +37,7 @@ use Illuminate\Support\Facades\DB;
  *
  * Métodos:
  *   crear()       alta del usuario y de su satélite, en una transacción
+ *   darAccesoATienda()  la cuenta de la tienda sobre la ficha de un cliente del mostrador (D-26)
  *   actualizar()  edición de los datos personales y del satélite; si queda inactiva,
  *                 revoca sus credenciales de la API
  *   eliminar()    baja física o lógica según tenga historial; devuelve cuál fue.
@@ -76,6 +79,51 @@ class UsuarioService
             ]);
 
             $this->guardarSatelite($usuario, $rol, $datos);
+
+            return $usuario;
+        });
+    }
+
+    /**
+     * Le da cuenta de la tienda a un cliente del mostrador, sobre su misma ficha: sus compras siguen
+     * siendo suyas. La contraseña no la sabe nadie: la fija la persona con el enlace.
+     *
+     * @throws ReglaDeNegocioException
+     */
+    public function darAccesoATienda(Cliente $cliente, string $nombre, string $apellido): User
+    {
+        return DB::transaction(function () use ($cliente, $nombre, $apellido) {
+            $c = Cliente::lockForUpdate()->findOrFail($cliente->id);
+
+            if ($c->user_id !== null) {
+                throw new ReglaDeNegocioException("«{$c->razon_social}» ya tiene cuenta de la tienda.");
+            }
+
+            if (blank($c->email)) {
+                throw new ReglaDeNegocioException(
+                    'Cargale un correo a la ficha primero: es con lo que va a entrar a la app.'
+                );
+            }
+
+            if (User::where('email', $c->email)->exists()) {
+                throw new ReglaDeNegocioException(
+                    "El correo {$c->email} ya es de otra cuenta. Corregí el de la ficha si no es el de este cliente."
+                );
+            }
+
+            $usuario = User::create([
+                'nombre'   => $nombre,
+                'apellido' => $apellido,
+                'email'    => $c->email,
+                'password' => Str::random(64),   // inutilizable hasta que use el enlace
+                // El rol de sistema de la tienda, no por su nombre (igual que el registro de la app).
+                'rol_id'   => Rol::where('ambito', 'tienda')->where('es_sistema', true)->valueOrFail('id'),
+                'activo'   => true,
+            ]);
+
+            // Acá, y no en ClienteService: la invariante rol↔satélite es de este servicio.
+            $c->user_id = $usuario->id;
+            $c->save();
 
             return $usuario;
         });

@@ -62,8 +62,10 @@ test('el checkout reserva y devuelve el resumen por medio, la entrega y el venci
         ->and($datos['estado_texto'])->toBe('Reservado mientras confirmás')
         ->and($datos['reservado_hasta'])->toBe(now()->addMinutes(20)->utc()->format('Y-m-d\TH:i:s\Z'))
         ->and($datos['medios'])->toBe([
-            ['medio' => 'contado', 'texto' => 'Efectivo o transferencia', 'total' => '108900.00'],
-            ['medio' => 'pasarela', 'texto' => 'Mercado Pago', 'total' => '121000.00'],
+            // Tramo L (D-27): la transferencia es un medio aparte, con el precio de contado.
+            ['medio' => 'contado', 'texto' => 'Efectivo en el local', 'modos_entrega' => ['retiro'], 'total' => '108900.00'],
+            ['medio' => 'transferencia', 'texto' => 'Transferencia bancaria', 'modos_entrega' => ['retiro', 'envio'], 'total' => '108900.00'],
+            ['medio' => 'pasarela', 'texto' => 'Mercado Pago', 'modos_entrega' => ['retiro', 'envio'], 'total' => '121000.00'],
         ])
         ->and($datos['entrega'])->toBe([
             ['modo' => 'retiro', 'texto' => 'Retiro en el local', 'costo' => '0.00'],
@@ -79,7 +81,9 @@ test('sin envio habilitado, la entrega es solo retiro', function () {
 
     $this->postJson('/api/v1/carrito/checkout', [], $bearer)
         ->assertOk()
-        ->assertJsonPath('datos.entrega', [['modo' => 'retiro', 'texto' => 'Retiro en el local', 'costo' => '0.00']]);
+        ->assertJsonPath('datos.entrega', [['modo' => 'retiro', 'texto' => 'Retiro en el local', 'costo' => '0.00']])
+        // Sin envío, ningún medio lo ofrece (D-28).
+        ->assertJsonPath('datos.medios.*.modos_entrega', [['retiro'], ['retiro'], ['retiro']]);
 });
 
 test('el reintento devuelve el mismo resumen y no reserva dos veces', function () {
@@ -113,7 +117,7 @@ test('precio cambiado: 409 carrito_cambio con los cambios, y el segundo intento 
     $this->postJson('/api/v1/carrito/checkout', [], $bearer)
         ->assertOk()
         ->assertJsonPath('datos.estado', 'en_checkout')
-        ->assertJsonPath('datos.medios.1.total', '62000.00');
+        ->assertJsonPath('datos.medios.2.total', '62000.00');
 });
 
 test('un producto que salio de la tienda es 409 carrito_cambio de tipo inactivo', function () {
@@ -182,8 +186,9 @@ test('sin tienda.ver_precios, los medios no traen total', function () {
     $datos = $this->postJson('/api/v1/carrito/checkout', [], $bearer)->assertOk()->json('datos');
 
     expect($datos['medios'])->toBe([
-        ['medio' => 'contado', 'texto' => 'Efectivo o transferencia'],
-        ['medio' => 'pasarela', 'texto' => 'Mercado Pago'],
+        ['medio' => 'contado', 'texto' => 'Efectivo en el local', 'modos_entrega' => ['retiro']],
+        ['medio' => 'transferencia', 'texto' => 'Transferencia bancaria', 'modos_entrega' => ['retiro', 'envio']],
+        ['medio' => 'pasarela', 'texto' => 'Mercado Pago', 'modos_entrega' => ['retiro', 'envio']],
     ])->and($datos)->not->toHaveKey('totales');
 });
 

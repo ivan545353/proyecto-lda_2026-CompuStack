@@ -83,7 +83,7 @@ test('el rol Cliente es de tienda y no tiene permisos de gestion', function () {
     // exactamente los de la tienda (HL-52).
     expect($cliente->permisos()->where('modulo', '!=', 'tienda')->count())->toBe(0);
     expect($cliente->permisos()->pluck('clave')->sort()->values()->all())
-        ->toBe(['tienda.comprar', 'tienda.ver_pedidos', 'tienda.ver_precios']);
+        ->toBe(['tienda.cargar_comprobante', 'tienda.comprar', 'tienda.ver_pedidos', 'tienda.ver_precios']);   // + tramo L (D-27)
 });
 
 test('el vendedor solo ve su propio panel', function () {

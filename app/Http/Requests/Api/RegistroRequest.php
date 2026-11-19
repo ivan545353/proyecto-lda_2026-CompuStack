@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api;
 
+use App\Models\Cliente;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
@@ -45,10 +46,22 @@ class RegistroRequest extends FormRequest
         ];
     }
 
-    /** Juntos tienen que entrar en la razón social: se rechaza, no se recorta (M-31, HL-53). */
+    /**
+     * Juntos tienen que entrar en la razón social: se rechaza, no se recorta (M-31, HL-53).
+     * El correo de un cliente del mostrador tampoco: la cuenta se la da el local, sobre su ficha (D-26).
+     */
     public function after(): array
     {
         return [
+            function (Validator $validator) {
+                // Rechaza, no une: si el registro reclamara la ficha por el correo, cualquiera que sepa
+                // el correo de otro se quedaría con sus datos fiscales.
+                if (! $validator->errors()->has('email')
+                    && Cliente::query()->whereNull('user_id')->where('email', $this->input('email'))->exists()) {
+                    $validator->errors()->add('email',
+                        'Ese correo ya es de un cliente del local: pedí en el mostrador que te den acceso.');
+                }
+            },
             function (Validator $validator) {
                 if ($validator->errors()->hasAny(['nombre', 'apellido'])) {
                     return;

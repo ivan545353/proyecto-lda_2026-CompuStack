@@ -23,6 +23,7 @@ namespace App\Support\Api;
  *   carrito()         texto del estado del carrito
  *   entrega()         texto de un modo de entrega
  *   modosEntrega()    los modos que la tienda ofrece hoy (checkout, confirmación y /tienda)
+ *   modosEntregaDelMedio() los modos con que vale un medio de pago (D-28)
  */
 final class TextosTienda
 {
@@ -61,6 +62,7 @@ final class TextosTienda
     public const SITUACION_PAGO = [
         'pagado'      => self::PAGO['aprobado'],
         'contado'     => self::PAGO_PENDIENTE_CONTADO,
+        'falta_comprobante' => 'Falta cargar el comprobante de la transferencia',
         'esperando'   => self::PAGO_PENDIENTE_INTENTO,
         'en_revision' => self::PAGO['en_revision'],
         'rechazado'   => self::PAGO['rechazado'],
@@ -100,6 +102,21 @@ final class TextosTienda
     public const PRECIO = [
         'contado' => 'Efectivo o transferencia',
         'lista'   => 'Mercado Pago',
+    ];
+
+    /**
+     * Las claves son `ventas.medio_pago`: cómo paga el pedido. No es el texto del precio: efectivo y
+     * transferencia pagan los dos el de contado, pero son dos maneras distintas de pagar (D-27).
+     */
+    public const MEDIO = [
+        'contado'       => 'Efectivo en el local',
+        'transferencia' => 'Transferencia bancaria',
+        'pasarela'      => 'Mercado Pago',
+    ];
+
+    /** Por qué un medio no vale con la entrega elegida (D-28). Las claves son `ventas.medio_pago`. */
+    public const MEDIO_SIN_ESA_ENTREGA = [
+        'contado' => 'El pago en efectivo es sólo para retirar en el local.',
     ];
 
     /** Las claves son `carritos.estado`; `convertido` y `abandonado` no llegan a la app. */
@@ -149,6 +166,19 @@ final class TextosTienda
         return self::PRECIO[$tipo] ?? $tipo;
     }
 
+    /** Lo que se le dice al comprador al cargar el comprobante: el plazo sale de config (D-27). */
+    public static function avisoTransferencia(): string
+    {
+        $horas = 24 * (int) config('tienda.transferencia.dias_habiles_confirmacion');
+
+        return "Recibimos tu comprobante. Dentro de las {$horas} horas hábiles confirmamos el pago y seguimos con tu pedido.";
+    }
+
+    public static function medio(string $medio): string
+    {
+        return self::MEDIO[$medio] ?? $medio;
+    }
+
     public static function carrito(string $estado): string
     {
         return self::CARRITO[$estado] ?? $estado;
@@ -163,5 +193,11 @@ final class TextosTienda
     public static function modosEntrega(): array
     {
         return config('tienda.envio.habilitado') ? ['retiro', 'envio'] : ['retiro'];
+    }
+
+    /** Las entregas con que vale un medio de pago (D-28): las de config que la tienda ofrece hoy. */
+    public static function modosEntregaDelMedio(string $medio): array
+    {
+        return array_values(array_intersect(self::modosEntrega(), config("tienda.entregas_por_medio.{$medio}", [])));
     }
 }

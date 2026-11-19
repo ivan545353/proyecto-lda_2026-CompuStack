@@ -153,7 +153,7 @@ test('restablecer la contraseña con el enlace revoca todas sus credenciales', f
         'email'                 => $cuenta->email,
         'password'              => 'NuevaClave456',
         'password_confirmation' => 'NuevaClave456',
-    ])->assertRedirect(route('login'));
+    ])->assertOk();   // una cuenta de la tienda no vuelve al login de la gestión (D-26, tramo L)
 
     expect($cuenta->tokens()->count())->toBe(0);
 });

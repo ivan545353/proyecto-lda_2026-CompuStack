@@ -38,7 +38,7 @@ class ConfirmarPedidoRequest extends FormRequest
 
         return [
             'carrito_id'   => ['required', 'integer'],
-            'medio_pago'   => ['required', 'string', Rule::in(['contado', 'pasarela'])],
+            'medio_pago'   => ['bail', 'required', 'string', Rule::in(array_keys(TextosTienda::MEDIO)), $this->medioConEsaEntrega(...)],
             'modo_entrega' => ['required', 'string', Rule::in($modos)],
             // Con retiro, una dirección no tiene adónde ir: se rechaza en vez de ignorarla.
             'direccion'    => ['required_if:modo_entrega,envio', 'prohibited_unless:modo_entrega,envio', 'array'],
@@ -53,11 +53,22 @@ class ConfirmarPedidoRequest extends FormRequest
             '*.prohibited'                => 'El precio lo calcula la tienda: no se envía.',
             'direccion.prohibited_unless' => 'Con retiro en el local no hace falta una dirección.',
             'modo_entrega.in'             => 'Elegí retiro en el local'.(config('tienda.envio.habilitado') ? ' o envío.' : ': la tienda no hace envíos.'),
-            'medio_pago.in'               => 'Elegí pagar de contado o por Mercado Pago.',
+            'medio_pago.in'               => 'Elegí pagar en efectivo en el local, por transferencia o por Mercado Pago.',
             'direccion.*.required_if'     => 'Completá este dato de la dirección del envío.',
             'direccion.required_if'       => 'Para el envío necesitamos la dirección.',
             'direccion.provincia.in'      => 'Elegí una provincia de la lista.',
         ];
+    }
+
+    /** El medio tiene que valer con la entrega elegida (D-28); una entrega que no se ofrece la rechaza su campo. */
+    private function medioConEsaEntrega(string $atributo, mixed $medio, \Closure $falla): void
+    {
+        $modo = $this->input('modo_entrega');
+
+        if (in_array($modo, TextosTienda::modosEntrega(), true)
+            && ! in_array($modo, TextosTienda::modosEntregaDelMedio($medio), true)) {
+            $falla(TextosTienda::MEDIO_SIN_ESA_ENTREGA[$medio] ?? 'Este medio de pago no se puede usar con esa entrega.');
+        }
     }
 
     /** Los datos que confirma el servicio, uno por uno. */

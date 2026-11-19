@@ -28,6 +28,19 @@
                         <span class="text-body-secondary">mínimo {{ $producto->stock_minimo }}</span>
                     </div>
 
+                    {{-- Lo reservado no es un movimiento: sale del depósito recién al cobrar (regla 5, D-25). --}}
+                    @if ($producto->stock_reservado > 0)
+                        <p class="small text-body-secondary mb-0 mt-2" data-reservas>
+                            De las reservadas, {{ $reservas['pedidos'] }} están en pedidos de la tienda sin cobrar
+                            y {{ $reservas['carritos'] }} en compras que se están confirmando. Salen del depósito,
+                            y aparecen acá, cuando se cobran.
+                            @can('venta.ver')
+                                <a href="{{ route('ventas.index', ['canal' => 'online', 'estado' => 'pendiente_pago']) }}">Ver
+                                    los pedidos sin cobrar</a>
+                            @endcan
+                        </p>
+                    @endif
+
                     @if (!$producto->activo)
                         <div class="mt-2">
                             <span class="badge text-bg-secondary">Producto inactivo</span>
@@ -48,7 +61,7 @@
     @endif
 
     @php
-        $hayFiltros = request()->hasAny(['producto_id', 'tipo', 'usuario_id', 'desde', 'hasta']);
+        $hayFiltros = request()->hasAny(['producto_id', 'tipo', 'usuario_id', 'canal', 'desde', 'hasta']);
         $usuarioFiltrado = $usuarios->firstWhere('id', request()->integer('usuario_id'));
 
         $chips = collect([
@@ -58,6 +71,9 @@
                 : null,
             'usuario_id' => $usuarioFiltrado
                 ? "Registró: {$usuarioFiltrado->nombre} {$usuarioFiltrado->apellido}"
+                : null,
+            'canal' => isset(App\Models\Venta::CANALES[request('canal')])
+                ? 'Canal: ' . App\Models\Venta::CANALES[request('canal')]
                 : null,
             'desde' => request('desde') ? 'Desde: ' . request('desde') : null,
             'hasta' => request('hasta') ? 'Hasta: ' . request('hasta') : null,
@@ -109,7 +125,17 @@
                 </select>
             </div>
 
-            <div class="col-12 col-sm-6 col-lg-5">
+            <div class="col-12 col-sm-6 col-lg-2">
+                <label for="canal" class="form-label">Canal de la venta</label>
+                <select class="form-select" id="canal" name="canal">
+                    <option value="">Todos</option>
+                    @foreach (App\Models\Venta::CANALES as $valor => $texto)
+                        <option value="{{ $valor }}" @selected(request('canal') === $valor)>{{ $texto }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div class="col-12 col-sm-6 col-lg-3">
                 <label for="usuario_id" class="form-label">Lo registró</label>
                 <select class="form-select" id="usuario_id" name="usuario_id" data-buscable>
                     <option value="">Cualquiera</option>
@@ -241,9 +267,9 @@
 
                             <td class="d-none d-md-table-cell small">
                                 @if ($movimiento->usuario)
-                                    {{ $movimiento->usuario->nombre }} {{ $movimiento->usuario->apellido }}
+                                    {{ $movimiento->registradoPorTexto() }}
                                 @else
-                                    <span class="text-body-secondary">Generado por el sistema</span>
+                                    <span class="text-body-secondary">{{ $movimiento->registradoPorTexto() }}</span>
                                 @endif
                             </td>
                         </tr>

@@ -171,6 +171,11 @@ equivocada al implementarla, se plantea y se decide de nuevo antes de escribir c
 | D-21 | **El catálogo se pagina con números, no con scroll infinito** (decidida en el tramo D) | Elegir la página da control y deja saber dónde se está («Página 5 de 981»); con 20.000 productos el scroll infinito no tiene final a la vista | El pie lleva «anterior», números y «siguiente» en Catálogo y Búsqueda; otra página reemplaza a la que se ve. Reemplaza lo que el tramo C pedía («la página siguiente al acercarse al final») |
 | D-22 | **La cuenta se edita desde la app; lo fiscal que decide el comprobante, no** (decidida al cerrar el tramo F, resuelve Q-2) | Comprar pide los datos de quien compra: cargarlos una vez y que se autocompleten ahorra pasos (regla 30). La condición frente al IVA decide Factura A o B, y declararla mal es un problema fiscal del local; el domicilio de facturación sólo lo pide la facturación con ARCA, que está fuera de alcance (§5) | Tramo K: `PATCH /perfil` con nombre, apellido, teléfono, documento (`tipo_doc` + `nro_doc`, opcional) y la dirección predeterminada. La condición frente al IVA se ve y no se edita. No hay domicilio de facturación. El PDF que baja la app se llama **comprobante**, nunca factura: no es fiscal |
 | D-23 | **El simulador de pagos sale de la app; las pruebas son las cuentas de prueba de Mercado Pago** (decidida al cerrar la app del tramo G; revisa D-20) | Con «simulador» se quería decir la simulación que ya da Mercado Pago con sus cuentas de prueba (vendedor y comprador de prueba, tarjetas que aprueban o rechazan según el titular), no una segunda pasarela propia. Una opción que el servidor puede tener apagada dejaba en la pantalla de pago una salida sin destino (regla 34) | La app ofrece una sola pasarela: «Pagar con Mercado Pago», sin elección. El rechazo a voluntad se muestra con el titular `OTHE` y la aprobación con `APRO`. El backend todavía tiene `PasarelaSimulador`, `/simulador/…`, `TIENDA_SIMULADOR` y el valor `simulador` de `pagos.metodo`: se quitan en un tramo del backend, y hasta entonces `TIENDA_SIMULADOR=false`. `api.md`, `modelo-datos` y `trazabilidad` describen el backend y se corrigen con él |
+| D-24 | **La hora del backend es la de Argentina, y lo guardado se corrige** (tramo L; confirmada por el autor) | `config/app.php` fijaba `'UTC'` a mano (HL-16, HL-86) y la base, con la sesión en `SYSTEM`, guardaba esa hora UTC como si fuera local. Mostrar en hora local sin corregir los datos dejaba mal los filtros por día (kardex, caja, informes) | `APP_TIMEZONE` se lee, con Buenos Aires por omisión; una migración corre tres horas para atrás 64 columnas de 29 tablas, con `down()` (sin horario de verano, el corrimiento es exacto). Queda afuera `failed_jobs.failed_at`, que llena la base (HL-91). La API no cambia: siempre mandó UTC |
+| D-25 | **El kardex no cambia la regla 5: dice el canal y explica lo reservado** (tramo L) | La venta online sí dejaba su asiento; lo que no se veía era de qué canal era, quién la cobró y por qué un pedido sin cobrar no aparecía (HL-85) | El origen dice «· tienda online»; «Lo registró», «Tienda online (cobro automático)» si no hubo cajero; filtro «Canal de la venta» (pantalla, PDF y CSV); en el kardex de un producto, cuántas reservadas están en pedidos sin cobrar y cuántas en compras que se confirman |
+| D-26 | **La cuenta de la tienda de un cliente del mostrador la da el operador, sobre la misma ficha** (tramo L) | El operador tiene a la persona enfrente. Si el registro de la app reclamara la ficha por el correo, cualquiera que sepa el correo de otro se quedaría con sus datos fiscales | `UsuarioService::darAccesoATienda()` y el permiso `cliente.dar_acceso_tienda`; la persona elige la contraseña con el enlace de un solo uso de Personal, y la pantalla le dice que entra por la app. El registro rechaza (422) el correo de una ficha del mostrador |
+| D-27 | **La transferencia es un tercer medio, con comprobante; confirmarla es el cobro de siempre** (tramo L; `file_picker` aprobada por el autor) | El revisor pidió separar efectivo y transferencia, con alias, titular y comprobante. El estado no lo elige nadie: con comprobante y sin cobro, es `en_revision` (regla 9); el stock sale al cobrar (regla 5) | `medio_pago` = `transferencia` (precio de contado); `comprobantes_transferencia`, que sólo suma filas; `POST /pedidos/{id}/comprobante-transferencia` con `tienda.cargar_comprobante`; reserva de 48 h para cargar el comprobante y de tres días hábiles después; en la web, el comprobante con `venta.ver_comprobante_transferencia`, el cobro con el saldo en transferencia y el filtro «Transferencias por revisar». `api.md` r12 |
+| D-28 | **El efectivo es sólo con retiro en el local; con envío se paga por transferencia o por Mercado Pago** (tramo L; regla del negocio que trae el autor) | El efectivo se paga en el mostrador: con envío no hay dónde cobrarlo, y el pedido quedaría reservando stock hasta vencer. El contrato no lo decía y `POST /pedidos` aceptaba contado con envío (HL-94) | `tienda.entregas_por_medio` en `config/tienda.php`, un solo lugar: `contado` → retiro; `transferencia` y `pasarela` → retiro y envío. Lo leen la confirmación (`ConfirmarPedidoRequest`: 422 en `medio_pago`, «El pago en efectivo es sólo para retirar en el local.») y el checkout (`modos_entrega` de cada medio, sin el envío si está apagado). Es validación y no un 409: dos campos de la misma solicitud se contradicen, sin leer estado. `api.md` r13 |
 
 **Decididas por omisión, con la recomendación.** No bloqueaban y se pueden revisar antes del
 tramo que las usa:
@@ -487,6 +492,16 @@ la §1.3 se nombran por su letra.
 | HL-82 | El J propone carruseles con «Ver todo», el botón fijo en la ficha e íconos en las categorías, y `lottie` para los vacíos | Los carruseles de Destacados y Novedades con «Ver todo» (C), la `BarraFija` de la ficha (E) y `Iconos.deCategoria` por nombre ya estaban. No hay ninguna animación `.json` en `assets/` | El J los reusa y no los rehace. El ícono lo sigue eligiendo la app por el nombre (ponerlo en el contrato pediría una columna). `lottie` se recorta mientras no haya un recurso | J |
 | HL-83 | «Atajos a las categorías raíz, con su ícono» | En el ancho del atajo, un nombre como «Almacenamiento» no entra en un renglón, y Flutter no separa en sílabas: lo partía en cualquier letra | `cortesDeSilaba` (reglas simples del español, sin dejar una letra sola) y `TextoSilabeado`, que corta con guion sólo la palabra que no entra al ancho y la escala de letra reales; el lector de pantalla lee el nombre entero | J |
 | HL-84 | «Productos de la misma categoría […] sin el producto actual», con la fila «Más productos de X» que ya tenía la ficha (C) | Con la sección y su «Ver todo», la fila repetía el destino; y si la categoría no tiene otros productos, llevaba a un catálogo con sólo el actual | La fila se va: «Más de X» con «Ver todo» aparece sólo si hay otros productos (Nielsen: nada que no lleve a algo) | J |
+| HL-85 | Revisor: «la venta online no se ve en el kardex»; guion paso 10 | El asiento existía (`marcarPagada` → `descontar`, sin usuario). Se leía igual que uno del mostrador, «Lo registró» quedaba vacío, la hora salía corrida (HL-86) y un pedido de contado sin cobrar no tiene asiento por la regla 5 | D-25. `KardexCanalTest` | L |
+| HL-86 | Revisor: «la hora del backend está mal» | Es HL-16, que el tramo A dejó como pendiente #82 sin tocar la web: `'timezone' => 'UTC'` escrito a mano. Las 65 columnas de fecha son `TIMESTAMP` y lo guardado es hora UTC escrita como local | D-24. `ZonaHorariaTest`; #82 resuelto | L |
+| HL-87 | Revisor: «indicar que el orden de las imágenes es de izquierda a derecha» | El gestor decía «la primera es la principal», sin decir que es el orden de la galería de la tienda ni en qué sentido se lee | `x-gestor-imagenes` con `en-tienda`: la ayuda lo dice y cada imagen lleva su número (sin JavaScript también). `GestorImagenesOrdenTest` | L |
+| HL-88 | Revisor: «"atrás" en la compra me saca y pierdo lo cargado» | **Confirmado en L-6, con otra causa.** En el teléfono, el «atrás» del sistema y la flecha retroceden de a un paso en la confirmación (ahora también con un test de widgets que llega con `push` desde el carrito). Lo que sacaba era la flecha de «Pagar»: tras «Confirmar», el pedido por Mercado Pago ya existe y la flecha iba al inicio, sin aviso de que el medio queda elegido. Además, al salir al carrito el modelo de vista se descartaba y lo elegido se perdía | «Pagar»: la flecha y el «atrás» del sistema llevan al detalle del pedido; el paso Pago dice «Al confirmar, el medio de pago queda elegido»; `borradorCheckoutProvider` guarda paso, entrega, dirección y medio mientras dure la reserva. Cambiar el medio de un pedido hecho no se hizo (sería un endpoint nuevo) | L |
+| HL-89 | Revisor: «las cuentas del mostrador tienen que servir en la app» | Un cliente del mostrador es una ficha sin `user_id`; `ClienteService` no escribe `user_id` a propósito, y el registro creaba otra ficha con el mismo correo | D-26. `ClienteAccesoTiendaTest`, `Api/RegistroMostradorTest` | L |
+| HL-90 | Revisor: «separar efectivo y transferencia, con alias, titular y comprobante» | `medio_pago` era `contado` («Efectivo o transferencia», en el local) o `pasarela`; no había dónde decir el alias ni guardar un comprobante. `situacionDelPago()` ya tenía `en_revision` | D-27. `Api/TransferenciaTest`, `VentaTransferenciaTest` | L |
+| HL-91 | D-24: «las columnas que llenó la base no se corren» | `pagos.fecha` e `intentos_pago.vence_at` tienen `DEFAULT CURRENT_TIMESTAMP`, pero todas sus filas las escribió Laravel: los 10.150 pagos tenían `fecha` igual a `created_at` | Se corren con las demás; sólo `failed_jobs.failed_at` queda afuera | L |
+| HL-92 | L-4: «el botón en `clientes/show.blade.php`» | No hay vista de detalle del cliente: la ficha es su formulario de edición. Además las cuentas piden nombre y apellido, y la ficha sólo tiene razón social | El acceso va en `clientes/form.blade.php`, con un formulario propio (`AccesoTiendaRequest`) afuera del de la ficha | L |
+| HL-93 | «Un test de la Etapa 1 no se toca para que pase» | Cinco aserciones **de la Etapa 2** fijaban lo que el L cambia a propósito: la redirección al login tras restablecer (`Api/CredencialTest`, tramo A), los valores del `ENUM` `medio_pago` (`CarritoEsquemaTest`, tramo E), los dos medios del checkout y el texto «Efectivo o transferencia» del medio (`Api/CheckoutTest`, `Api/PedidoConfirmacionTest`) y los tres permisos del rol Cliente (`RolPermisoSeederTest`, tramo D) | Se actualizaron con un comentario que nombra el tramo. Lo que fijaba la Etapa 1 (el Cliente sin permisos de gestión) no cambió | L |
+| HL-94 | D-28: «el efectivo vale sólo con retiro» | `ConfirmarPedidoRequest` validaba el medio y la entrega por separado: contado con envío nacía como pedido con 48 h de reserva y sin dónde cobrarse. El ejemplo de `POST /pedidos` en `api.md` era justo ése, y seis tests del tramo F confirmaban envíos de contado | 422 en `medio_pago` y `modos_entrega` en los `medios` del checkout, de `tienda.entregas_por_medio`. Los seis tests pasan a transferencia (mismo precio de contado, mismos importes), con un comentario; el ejemplo de `api.md` pasa a retiro. `Api/PedidoConfirmacionTest`, `Api/CheckoutTest` | L |
 
 ---
 
@@ -1666,10 +1681,179 @@ advertencias y `flutter test` en verde.
 
 ---
 
+### Tramo L — Observaciones del revisor
+
+**Objetivo.** Atender las seis observaciones de la revisión de la Etapa 2, con el mismo criterio
+de los tramos anteriores: primero el backend con sus tests, después la app; nada de las reglas se
+afloja para que una observación quede «resuelta» a la vista.
+
+**Lo que se encontró al relevar** (2026-11-14, antes de escribir el tramo). Cada observación
+tiene una causa verificada en el código o en la base, y no siempre es la que sugiere su texto:
+
+| # | Observación | Causa verificada | Hallazgo |
+| --- | --- | --- | --- |
+| 1 | «La venta online no se ve en el kardex» | El asiento **sí existe**: las ventas online pagadas tienen su movimiento (`VentaService::marcarPagada` → `StockService::descontar`, con `usuario_id` nulo). Tres cosas lo esconden: (a) en el kardex una venta online se lee igual que una de mostrador («Venta V-…»), con «Lo registró» vacío y sin forma de filtrarla; (b) la hora sale corrida tres horas (observación 2), así que no aparece donde se la busca; (c) un pedido de contado sin cobrar no tiene asiento, **por la regla 5**: sólo reservó, y la reserva no se ve en el kardex | HL-85 |
+| 2 | «La hora del backend está mal» | `config/app.php` fija `'timezone' => 'UTC'` escrito a mano: el `APP_TIMEZONE=America/Argentina/Buenos_Aires` de `.env.example` no se lee nunca. La API no se ve afectada porque los Resources pasan todo a UTC con `->utc()` y la app lo muestra en la hora del teléfono. Las 65 columnas de fecha y hora son `TIMESTAMP` y la sesión de MariaDB está en `SYSTEM` (Buenos Aires): **lo guardado hasta hoy es la hora UTC escrita como si fuera local** | HL-86 |
+| 2b | «Indicar que el orden de las imágenes es de izquierda a derecha» | `x-gestor-imagenes` dice «la primera es la principal», pero no dice que ese orden es el de la galería de la tienda ni en qué sentido se lee | HL-87 |
+| 3 | «"Atrás" en la compra me saca y pierdo lo cargado» | La confirmación ya retrocede de a un paso con la flecha y con `PopScope` (`checkout_vista.dart`), y el test del modelo de vista lo cubre. Falta reproducirlo en el teléfono: el candidato es el «atrás» del sistema (Android con gesto predictivo), que el test de widgets no simula; y aunque vuelva bien al carrito, el modelo de vista se descarta y al entrar de nuevo se empieza del primer paso | HL-88 (se confirma en L-6) |
+| 4 | «Las cuentas creadas en el mostrador tienen que servir en la app» | Un cliente de mostrador es una ficha **sin** `user_id` (`Cliente::esDeMostrador()`): no tiene con qué iniciar sesión. `ClienteService` no escribe `user_id` a propósito (la invariante rol↔satélite es de `UsuarioService`), y el registro de la app crea una ficha nueva aunque el correo ya esté en una de mostrador | HL-89 |
+| 5 | «Separar efectivo y transferencia; la transferencia con alias, titular y comprobante» | `medio_pago` es `ENUM('contado','pasarela')`, y `contado` se lee «Efectivo o transferencia»: se paga en el mostrador. No hay dónde decir el alias ni dónde guardar un comprobante. `Venta::situacionDelPago()` ya tiene `en_revision`, que es justo lo que queda un pedido con el comprobante cargado | HL-90 |
+
+**Decisiones** (D-24 a D-28; D-24 y la librería de D-27, confirmadas por el autor el 2026-11-14; D-28, regla del negocio
+que trajo el autor antes del cierre):
+
+- **D-24 — La hora (confirmada).** La hora correcta es la de la base: la sesión de MariaDB está
+  en `SYSTEM` (Buenos Aires) y su `NOW()` coincide con el reloj; la corrida es la de PHP, en UTC
+  (al relevar: base 17:43, PHP 20:43). La zona pasa a leerse de `.env`
+  (`env('APP_TIMEZONE', 'America/Argentina/Buenos_Aires')`) y una **migración de datos** corre
+  tres horas para atrás las columnas `TIMESTAMP` que escribió Laravel (Argentina no tiene horario
+  de verano desde 2009: el corrimiento es exacto). El `down()` las corre para adelante. Por qué
+  así y no «mostrar en hora local y guardar en UTC»: los filtros por día (`whereDate` del kardex,
+  la caja del día, los reportes) se calculan en la zona de la aplicación; convertir sólo al
+  mostrar deja las ventas de después de las 21 en el día siguiente. La regla 1 no se rompe: no
+  cambia ningún hecho, cambia cómo está escrita la hora del mismo hecho, y el `down()` lo deshace.
+  Lo que se verifica primero: qué columnas llenó la base con `DEFAULT CURRENT_TIMESTAMP` (ésas ya
+  están en hora local y **no** se corren, HL-73).
+- **D-25 — El kardex no cambia la regla 5.** Un pedido sin cobrar sigue sin asiento: el stock no
+  salió. Lo que cambia es que el kardex dice de qué canal es cada venta y deja filtrarlo, y la
+  ficha del kardex de un producto muestra lo reservado con los pedidos que lo reservan. Así el
+  revisor encuentra la venta online y, si no está, ve por qué.
+- **D-26 — Acceso a la tienda para un cliente de mostrador.** Lo da el operador desde la ficha
+  del cliente («Darle acceso a la tienda»), con el permiso nuevo `cliente.dar_acceso_tienda`:
+  `UsuarioService` crea el usuario con rol Cliente sobre **la ficha existente** (no una nueva) y
+  devuelve el enlace de un solo uso para fijar la contraseña, el mismo mecanismo de
+  `personal.restablecer`. Por qué el operador y no el registro de la app: el operador tiene a la
+  persona enfrente; si el registro reclamara una ficha por el correo, cualquiera que sepa el
+  correo de otro se quedaría con sus datos fiscales. El registro, ante un correo que ya está en
+  una ficha de mostrador, rechaza con «Ese correo ya es de un cliente del local: pedí en el
+  mostrador que te den acceso» (regla 20: rechaza, no une).
+- **D-27 — Transferencia como tercer medio (confirmada, con `file_picker`).** `medio_pago` suma
+  `transferencia` (se agrega un valor al `ENUM`; no toca filas). Paga el precio de contado, como
+  en el mostrador. El alias y el titular son parámetros del negocio en `config/tienda.php`
+  (`transferencia.alias`, `transferencia.titular`), no de `.env`: no son secretos. El comprobante
+  se guarda en el disco privado (`local`), en una tabla propia que sólo suma filas (cargar otro no
+  pisa el anterior, regla 1). El estado no lo elige nadie: con un comprobante y sin cobro, la
+  situación es `en_revision` (regla 9). Confirmar el pago es **el cobro de siempre** en la web,
+  por `PagoService::cobrar` con método `transferencia`: el stock sale ahí (regla 5) y el kardex
+  lo registra igual que cualquier otra venta. La app necesita elegir un archivo o una foto, y
+  hoy no tiene con qué: se agrega **`file_picker`**, aprobada por el autor, porque sirve para PDF
+  e imágenes (`image_picker` sólo da fotos, y un comprobante de home banking suele ser un PDF).
+- **D-28 — El efectivo, sólo con retiro.** El pago en efectivo se hace en el mostrador: con envío
+  a domicilio se paga por transferencia o por Mercado Pago. La regla vive en un solo lugar,
+  `tienda.entregas_por_medio`, y la leen los dos lados del contrato: la confirmación la hace
+  cumplir (422 en `medio_pago`, regla 20: rechaza, no cambia el medio) y el checkout la publica en
+  `modos_entrega` de cada medio, para que la app no la escriba (HL-94).
+
+**Pasos.** Cada uno con su test recortado; los que tocan algo transversal lo dicen.
+
+**L-1 — La hora (backend).**
+- `config/app.php` lee `APP_TIMEZONE`; la migración de datos con la lista de tablas y columnas
+  escrita (no descubierta en tiempo de ejecución), con `DB::table()->update()` por columna.
+- Tests: una venta creada hoy a las 22 (con `travelTo`) sale en el día de hoy en el kardex y en
+  la caja; la API sigue devolviendo la misma hora en UTC (`PedidoConsultaTest`); la migración,
+  ida y vuelta, deja el mismo instante.
+- Toca `config/app.php`: **corre la suite completa** (se avisa antes).
+
+**L-2 — El orden de las imágenes (backend, una vista).**
+- `components/gestor-imagenes.blade.php`: la ayuda dice «En la tienda se muestran en este orden,
+  de izquierda a derecha: la primera es la principal», y cada tarjeta lleva su número (1, 2, 3)
+  para que el orden se vea sin leer la ayuda.
+- Test en `ProductoModuloTest`: la ayuda y los números están en el formulario.
+
+**L-3 — La venta online en el kardex (backend).**
+- `MovimientoStock::origenTexto()` dice «Venta V-… · tienda online» cuando la venta es online;
+  «Lo registró» muestra «Tienda online (cobro automático)» si no hay usuario y el origen es una
+  venta online. Filtro nuevo «Canal» (mostrador / tienda online) en `MovimientoFiltroRequest`,
+  con su `scope`, que vale también para el PDF y el CSV.
+- En el kardex de un producto: stock, reservado y disponible (`Producto::stock_disponible`,
+  regla 6), y la lista paginada de los pedidos que lo tienen reservado.
+- Tests: la venta online pagada aparece con su canal y se filtra; un pedido sin cobrar no tiene
+  asiento pero se ve en «reservado»; el filtro de canal sale igual en el PDF.
+- `demostracion-etapa-2.md` paso 10: se busca con el filtro «Canal: tienda online».
+
+**L-4 — Cuentas del mostrador en la app (backend).**
+- `UsuarioService::darAccesoATienda(Cliente)`: en una transacción, con bloqueo de la ficha
+  (regla 7), crea el usuario con rol Cliente, contraseña inutilizable y el correo de la ficha, y
+  le escribe `user_id`. Rechaza si la ficha ya tiene cuenta, si no tiene correo o si el correo ya
+  es de otro usuario.
+- Ruta y botón en la ficha del cliente (`@can('cliente.dar_acceso_tienda')`); muestra el enlace
+  para fijar la contraseña como lo hace personal. Verificar que la pantalla de restablecer acepta
+  una cuenta de tienda y, al terminar, dice «Ya podés entrar desde la app» en lugar de mandarla
+  al inicio de la gestión.
+- `RegistroRequest`: el correo de una ficha de mostrador se rechaza con el texto de D-26.
+- Permiso nuevo en `RolPermisoSeeder`.
+- Tests: la ficha queda con la misma `id` y sus ventas de mostrador; el cliente fija la
+  contraseña e inicia sesión por `POST /sesion`; `GET /pedidos` sigue trayendo sólo los online;
+  sin permiso, 403; el registro con ese correo, 422.
+
+**L-5 — Transferencia (backend).**
+- Migración: `transferencia` en el `ENUM` de `ventas.medio_pago`; tabla
+  `comprobantes_transferencia` (`venta_id`, `ruta`, `nombre_original`, `tipo`, `tamano`,
+  `created_at`, sin `updated_at`). `config/tienda.php`: `transferencia.alias`,
+  `transferencia.titular`, `transferencia.horas_para_comprobante` (48) y
+  `transferencia.dias_habiles_confirmacion` (3).
+- `ConfirmarPedidoRequest` acepta `transferencia`; `Venta::situacionDelPago()` la deriva:
+  sin comprobante, `falta_comprobante`; con comprobante, `en_revision`.
+- `POST /pedidos/{id}/comprobante-transferencia` (multipart; JPG, PNG o PDF hasta 5 MB), con el
+  permiso nuevo `tienda.cargar_comprobante` y la consulta por dueño (ajeno: 404). Un pedido que no
+  es por transferencia, cancelado o ya cobrado: 409 `regla_de_negocio`. Al cargarlo, la reserva
+  pasa a vencer a los tres días hábiles (lunes a viernes; los feriados no se conocen y se declara).
+- El detalle del pedido suma `transferencia`: `alias`, `titular`, `comprobante_cargado` y el
+  texto del aviso desde `TextosTienda` («Recibimos tu comprobante. Dentro de las 72 horas hábiles
+  confirmamos el pago y seguimos con tu pedido»).
+- Web: en el detalle de la venta, el comprobante (permiso `venta.ver_comprobante_transferencia`,
+  servido por una ruta que no expone el disco) y el cobro con «Transferencia» elegido; en el
+  listado de ventas, el filtro «Transferencias por revisar».
+- Tests (`Api/TransferenciaTest`): carga, ajeno 404, tipo o tamaño inválidos 422, segundo
+  comprobante suma fila, el cobro descuenta stock y deja el asiento, el vencimiento en días
+  hábiles con `travelTo` un viernes. `docs/api.md` r12.
+
+**L-5b — El efectivo, sólo con retiro (backend, D-28).**
+- `config/tienda.php`: `entregas_por_medio`. `TextosTienda::modosEntregaDelMedio()` la cruza con
+  `modosEntrega()` (sin envío habilitado, ningún medio lo ofrece).
+- `ConfirmarPedidoRequest`: `contado` con `envio` es 422 en `medio_pago`, «El pago en efectivo es
+  sólo para retirar en el local.». Una entrega que la tienda no ofrece sigue fallando sólo en
+  `modo_entrega`.
+- `ResumenCheckoutResource`: cada elemento de `medios` suma `modos_entrega`.
+- Tests: contado con envío, 422 y ningún pedido; contado con retiro, transferencia y pasarela con
+  envío, 201; `modos_entrega` en el checkout con el envío encendido y apagado. `docs/api.md` r13.
+
+**L-6 — «Atrás» en la compra (app).**
+- Primero, reproducirlo en el teléfono y anotar qué pasa (HL-88). Test de widgets con
+  `tester.binding.handlePopRoute()` (el «atrás» del sistema) en cada paso.
+- El arreglo según lo que se encuentre; y, en cualquier caso, lo escrito no se pierde: el estado
+  de la confirmación vive mientras dure la reserva del checkout, y al volver desde el carrito se
+  retoma en el paso donde se dejó.
+
+**L-7 — Efectivo y transferencia en la app (app; agrega `file_picker`, D-27).**
+- El paso de pago ofrece tres opciones: «Efectivo, al retirar», «Transferencia bancaria» y
+  «Mercado Pago», **cada una con las entregas de su `modos_entrega`** (D-28, r13): con envío elegido,
+  el efectivo no se ofrece (o se ofrece deshabilitado, diciendo por qué), y la regla no se escribe
+  en la app. Si igual llega el 422 en `medio_pago`, se muestra junto al medio. Con transferencia, el cierre del pedido muestra alias (con «Copiar») y titular,
+  y «Cargar comprobante»; el detalle del pedido también, mientras falte.
+- Cargado, el aviso de las 72 horas hábiles (el texto del servidor, no escrito en la vista) y la
+  insignia «En revisión». `_unaVez` en la carga.
+- Tests: modelos contra el JSON de r12, el modelo de vista de la carga (bien, 409, 422, sin red) y
+  los widgets en los seis estados; `modos_entrega` filtra los medios según la entrega.
+
+**L-8 — Cierre.** `docs/api.md` r13, `trazabilidad.md` §15 (tabla del L, los dos lados),
+`modelo-datos.md` (`medio_pago`, `comprobantes_transferencia`, permisos), HL-85 a HL-94 en §3.3,
+D-24 a D-28 en §1.5, el guion de la defensa con la transferencia y el kardex filtrado, y las dos
+suites completas en verde.
+
+**Criterio de terminado.** Las seis observaciones se pueden mostrar en el guion: la venta online
+filtrada en el kardex con la hora correcta, las imágenes numeradas, «atrás» paso por paso con lo
+cargado intacto, un cliente de mostrador que entra a la app, y una compra por transferencia con
+comprobante que se confirma en la web y deja su asiento.
+
+**Cierra.** Las observaciones de la revisión. No cambia la matriz: corrige y amplía lo hecho.
+
+---
+
 ## 8. Orden y dependencias
 
 ```
-A ──► C ──► D ──► E ──► F ──► K ──► G ──► H ──► I ──► J (opcional)
+A ──► C ──► D ──► E ──► F ──► K ──► G ──► H ──► I ──► J (opcional) ──► L (revisión)
 B ──┘                     └────────────────► H
 ```
 
@@ -1890,6 +2074,7 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 | H — Consulta de compras | [x] | [x] | [x] `api.md` r9, `trazabilidad` §15 (los dos lados), HL-75 a HL-77, `README` y `ARQUITECTURA` de la app | Cerrado (el test del pedido ajeno, nombrado en `pruebas-etapa-2.md`; el comprobante desde el teléfono se prueba en el ensayo) |
 | I — Pruebas, documentación y demostración | [x] `config/tienda.php` y `phpunit.xml` (HL-80) | — | [x] `api.md` r10, `pruebas-etapa-2`, `seguridad-etapa-2`, `demostracion-etapa-2`, `README`, `trazabilidad` §15 (cierre), §13, HL-78 a HL-80, `pendientes` #85, §15 de este plan | Cerrado (los dos ensayos del guion quedan a cargo del autor, fuera de la sesión: §14.5 y §14.6) |
 | J — Contenido que invita a comprar (opcional) | [x] `GET /tienda` (HL-81) | [x] | [x] `api.md` r11, `trazabilidad` §15 (los dos lados), HL-81 a HL-84, `README` y `ARQUITECTURA` de la app | Cerrado (el guion se vuelve a ensayar con las pantallas nuevas: §14.5 y §14.6) |
+| L — Observaciones del revisor | [x] L-1 a L-5b | [x] L-6, L-7 y D-28 | [x] `api.md` r13, `modelo-datos` §1 y §5, `trazabilidad` §15 (los dos lados), HL-85 a HL-94 (HL-88 confirmado), D-24 a D-28, `pendientes` #82 resuelto y #86, guion, `README` y `ARQUITECTURA` de la app | Cerrado |
 
 ### 14.5 Al cerrar la etapa
 
@@ -1904,9 +2089,9 @@ Cosas que este plan no pudo verificar desde el código, y que se confirman antes
 
 ### 14.6 Próximo paso
 
-Los **dos ensayos del guion** (`demostracion-etapa-2.md`) en el equipo de la defensa, sin tocar
-código, a cargo del autor, **con las pantallas del J** (Inicio y la ficha cambiaron); lo que encuentren, como HL
-desde el HL-85. El J está cerrado.
+**El lado de app del tramo L**, con `/tramo L` en `compustack-app`: L-6 («atrás» en la compra, HL-88) y L-7
+(efectivo y transferencia, con `file_picker`, contra `api.md` r12). Lo cierra el `/cerrar-tramo` de la app.
+Después, los ensayos del guion con las pantallas nuevas.
 
 ---
 

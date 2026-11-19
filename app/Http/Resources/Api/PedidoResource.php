@@ -29,8 +29,7 @@ class PedidoResource extends JsonResource
             'estado'             => $venta->estado,
             'estado_texto'       => TextosTienda::pedido($venta->estado),
             'medio_pago'         => $venta->medio_pago,
-            // El medio se dice como se dicen los precios: contado o lista.
-            'medio_pago_texto'   => TextosTienda::precio($venta->medio_pago === 'pasarela' ? 'lista' : 'contado'),
+            'medio_pago_texto'   => TextosTienda::medio($venta->medio_pago),
             'modo_entrega'       => $venta->modo_entrega,
             'modo_entrega_texto' => TextosTienda::entrega($venta->modo_entrega),
             'direccion'          => $venta->modo_entrega === 'envio' ? [

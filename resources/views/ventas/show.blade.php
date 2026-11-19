@@ -273,6 +273,41 @@
         cambia de precio, la venta no cambia.
     </p>
 
+    {{-- La transferencia de la tienda (D-27): lo que cargó el comprador, para revisarlo antes de cobrar. --}}
+    @if ($venta->medio_pago === 'transferencia')
+        <div class="card card-body border-0 shadow-sm mb-4" data-transferencia>
+            <h2 class="h5 mb-1">Pago por transferencia</h2>
+
+            @if ($venta->comprobantesTransferencia->isEmpty())
+                <p class="text-body-secondary small mb-0">
+                    El comprador todavía no cargó el comprobante. Hasta que llegue, el pedido no se cobra.
+                </p>
+            @else
+                <p class="text-body-secondary small mb-2">
+                    Revisá que la plata haya entrado a la cuenta antes de cobrar: el comprobante lo cargó el
+                    comprador, no lo confirma el banco.
+                </p>
+                <ul class="list-unstyled mb-0">
+                    @foreach ($venta->comprobantesTransferencia as $comprobante)
+                        <li class="py-1">
+                            @can('venta.ver_comprobante_transferencia')
+                                <a href="{{ route('ventas.comprobante_transferencia', [$venta, $comprobante]) }}"
+                                    target="_blank" rel="noopener">
+                                    <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                                    {{ $comprobante->nombre_original }}</a>
+                            @else
+                                {{ $comprobante->nombre_original }}
+                            @endcan
+                            <span class="small text-body-secondary">
+                                · cargado el {{ $comprobante->created_at->format('d/m/Y H:i') }}
+                            </span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </div>
+    @endif
+
     @if ($venta->observaciones)
         <div class="card card-body border-0 shadow-sm mb-4">
             <h2 class="h6 text-body-secondary">Observaciones</h2>

@@ -23,7 +23,7 @@
     </div>
 
     @php
-        $hayFiltros = request()->hasAny(['q', 'estado', 'cliente_id', 'vendedor_id', 'canal', 'desde', 'hasta']);
+        $hayFiltros = request()->hasAny(['q', 'estado', 'cliente_id', 'vendedor_id', 'canal', 'pago', 'desde', 'hasta']);
 
         $chips = collect([
             'q' => request('q') ? 'Texto: "' . Str::limit(request('q'), 18) . '"' : null,
@@ -34,6 +34,9 @@
             'vendedor_id' => $vendedorFiltrado ? 'Vendedor: ' . $vendedorFiltrado->nombre_completo : null,
             'canal' => request('canal')
                 ? 'Canal: ' . (App\Models\Venta::CANALES[request('canal')] ?? request('canal'))
+                : null,
+            'pago' => isset(App\Models\Venta::FILTROS_PAGO[request('pago')])
+                ? 'Pago: ' . App\Models\Venta::FILTROS_PAGO[request('pago')]
                 : null,
             'desde' => request('desde') ? 'Desde: ' . request('desde') : null,
             'hasta' => request('hasta') ? 'Hasta: ' . request('hasta') : null,
@@ -83,6 +86,16 @@
                     <option value="">Todos</option>
                     @foreach (App\Models\Venta::CANALES as $valor => $texto)
                         <option value="{{ $valor }}" @selected(request('canal') === $valor)>{{ $texto }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div class="col-12 col-sm-4">
+                <label for="pago" class="form-label">Pago</label>
+                <select class="form-select" id="pago" name="pago">
+                    <option value="">Cualquiera</option>
+                    @foreach (App\Models\Venta::FILTROS_PAGO as $valor => $texto)
+                        <option value="{{ $valor }}" @selected(request('pago') === $valor)>{{ $texto }}</option>
                     @endforeach
                 </select>
             </div>

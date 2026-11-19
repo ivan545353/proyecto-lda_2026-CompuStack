@@ -47,6 +47,8 @@ class PagoController extends Controller
             'venta'     => $venta,
             'saldo'     => $venta->saldo(),
             'medios'    => Pago::METODOS_EN_USO,
+            // Por transferencia, el saldo se propone en transferencia: es lo que el pedido dijo (D-27).
+            'principal' => $venta->medio_pago === 'transferencia' ? 'transferencia' : 'efectivo',
             'problemas' => $this->problemasQueVanAFallar($venta),
         ]);
     }

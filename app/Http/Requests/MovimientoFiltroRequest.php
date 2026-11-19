@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\MovimientoStock;
+use App\Models\Venta;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -32,6 +33,7 @@ class MovimientoFiltroRequest extends FormRequest
             'producto_id' => ['nullable', 'integer', 'exists:productos,id'],
             'tipo'        => ['nullable', Rule::in(array_keys(MovimientoStock::TIPOS))],
             'usuario_id'  => ['nullable', 'integer', 'exists:users,id'],
+            'canal'       => ['nullable', Rule::in(array_keys(Venta::CANALES))],
             'desde'       => ['nullable', 'date'],
             'hasta'       => ['nullable', 'date', 'after_or_equal:desde'],
             'page'        => ['nullable', 'integer', 'min:1'],

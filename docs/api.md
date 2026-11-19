@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 11** · tramo J (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
+**Revisión 13** · tramo L (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -14,7 +14,8 @@ la cuenta editable (`PATCH /perfil`) y los datos fiscales en el perfil. La 7, la
 La 8, los pagos (§7.5): intentos por Mercado Pago y por el simulador. La 9, la consulta de compras (§7.6):
 mis pedidos, el detalle y el comprobante por enlace firmado. La 10 no cambia ninguna forma: es la revisión
 final, con cada endpoint pedido al servidor y sus ejemplos comparados con las respuestas reales (§7, al
-principio). La 11 suma `GET /tienda` (§7.1), lo que la tienda ofrece, para el Inicio del tramo J.
+principio). La 11 suma `GET /tienda` (§7.1), lo que la tienda ofrece, para el Inicio del tramo J. La 12, la
+transferencia como tercer medio (§7.7). La 13, con qué entregas vale cada medio (D-28): el efectivo, sólo con retiro.
 
 ## 1. Reglas generales
 
@@ -767,8 +768,9 @@ veces. Si la reserva venció y la tarea todavía no la soltó, se suelta y se re
     },
     "avisos": [],
     "medios": [
-      { "medio": "contado", "texto": "Efectivo o transferencia", "total": "84000.00" },
-      { "medio": "pasarela", "texto": "Mercado Pago", "total": "92400.00" }
+      { "medio": "contado", "texto": "Efectivo en el local", "modos_entrega": ["retiro"], "total": "84000.00" },
+      { "medio": "transferencia", "texto": "Transferencia bancaria", "modos_entrega": ["retiro", "envio"], "total": "84000.00" },
+      { "medio": "pasarela", "texto": "Mercado Pago", "modos_entrega": ["retiro", "envio"], "total": "92400.00" }
     ],
     "entrega": [
       { "modo": "retiro", "texto": "Retiro en el local", "costo": "0.00" },
@@ -778,8 +780,13 @@ veces. Si la reserva venció y la tarea todavía no la soltó, se suelta y se re
 }
 ```
 
-- `medios`: cuánto sale por cada medio. El contado cobra el precio de contado; la pasarela, el de
-  lista. Sin `tienda.ver_precios`, sin `total`. Cuál se elige lo manda la confirmación (§7.4).
+- `medios`: cuánto sale por cada medio. El efectivo y la transferencia cobran el precio de contado; la
+  pasarela, el de lista. El `texto` dice **cómo se paga**, no qué precio es (revisión 12, D-27): el del
+  precio de contado sigue siendo «Efectivo o transferencia» en `precios` y `totales`. Sin `tienda.ver_precios`, sin `total`. Cuál se elige lo manda la confirmación (§7.4).
+- `modos_entrega` (revisión 13, D-28): los `modo` de `entrega` con que vale ese medio. El efectivo se paga en
+  el mostrador: `["retiro"]`. La transferencia y la pasarela, `["retiro", "envio"]`; con el envío apagado,
+  `["retiro"]` también. Sale de `tienda.entregas_por_medio`, el mismo lugar que lee la confirmación: la app
+  ofrece cada medio con las entregas de su lista y no escribe la regla. Viaja con y sin `tienda.ver_precios`.
 - `entrega`: retiro siempre; envío sólo con `tienda.envio.habilitado`, con su costo fijo
   (`tienda.envio.costo`).
 - Ejemplo de 409:
@@ -812,7 +819,7 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
 | Parámetro | Dónde | Tipo | Obligatorio | Regla |
 | --- | --- | --- | --- | --- |
 | `carrito_id` | cuerpo | entero | sí | El `id` que trae el resumen del checkout (y `GET /carrito`). Ajeno o inexistente: 404 |
-| `medio_pago` | cuerpo | texto | sí | `contado` (efectivo o transferencia, en el local) o `pasarela` |
+| `medio_pago` | cuerpo | texto | sí | `contado` (efectivo, en el local), `transferencia` (al alias de la tienda, con comprobante, §7.7) o `pasarela`. Tiene que valer con `modo_entrega` (los `modos_entrega` del medio en el checkout, D-28): **`contado` con `envio` es 422** en `medio_pago` |
 | `modo_entrega` | cuerpo | texto | sí | `retiro`; `envio` sólo con `tienda.envio.habilitado` |
 | `direccion` | cuerpo | objeto | con `envio` | `calle` (150), `numero` (10), `piso_depto` (20, opcional), `codigo_postal` (10), `localidad` (100), `provincia` (**una de la lista cerrada**, §5). Con `retiro`, mandarla es 422 |
 | importes | cuerpo | — | — | `precio`, `total`, `subtotal`, `costo_envio`, etc.: **prohibidos** (422). Los calcula el servidor |
@@ -822,8 +829,8 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
 2. Si no está en checkout o la reserva venció: la suelta y **409 `checkout_vencido`**.
 3. Revalida como el checkout. Si algo cambió: suelta la reserva, deja las referencias nuevas y **409
    `carrito_cambio`** con `cambios`. Hay que volver a iniciar el checkout.
-4. Crea el pedido con los renglones congelados **con la lista del medio** (contado → precio de contado,
-   pasarela → precio de lista), suma el costo del envío (`tienda.envio.costo`, hoy `8000.00`) y pasa el
+4. Crea el pedido con los renglones congelados **con la lista del medio** (contado y transferencia →
+   precio de contado, pasarela → precio de lista), suma el costo del envío (`tienda.envio.costo`, hoy `8000.00`) y pasa el
    carrito a `convertido`. Todo en una transacción: o queda el pedido entero, o nada.
 
 **201** si nace el pedido; **200** si ya existía.
@@ -836,17 +843,10 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
     "estado": "pendiente_pago",
     "estado_texto": "Esperando el pago",
     "medio_pago": "contado",
-    "medio_pago_texto": "Efectivo o transferencia",
-    "modo_entrega": "envio",
-    "modo_entrega_texto": "Envío a domicilio",
-    "direccion": {
-      "calle": "San Martín",
-      "numero": "1234",
-      "piso_depto": null,
-      "codigo_postal": "9000",
-      "localidad": "Comodoro Rivadavia",
-      "provincia": "Chubut"
-    },
+    "medio_pago_texto": "Efectivo en el local",
+    "modo_entrega": "retiro",
+    "modo_entrega_texto": "Retiro en el local",
+    "direccion": null,
     "reserva_vence": "2026-11-13T15:00:00Z",
     "creado": "2026-11-11T15:00:00Z",
     "lineas": [
@@ -860,8 +860,8 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
     ],
     "importes": {
       "subtotal": "108900.00",
-      "costo_envio": "8000.00",
-      "total": "116900.00"
+      "costo_envio": "0.00",
+      "total": "108900.00"
     }
   }
 }
@@ -872,7 +872,9 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
   20 minutos (`tienda.reservas.pasarela_minutos`), para el pago del tramo G. Pasada la hora, la tarea
   de cada minuto cancela el pedido y libera el stock. `null` cuando ya se cobró o se canceló.
 - `direccion`: la del pedido, **copiada**: editar después las direcciones del cliente no la cambia.
-  `null` con retiro.
+  `null` con retiro, como en el ejemplo. Con envío, las seis claves de la tabla (`calle`, `numero`,
+  `piso_depto`, `codigo_postal`, `localidad`, `provincia`), y `costo_envio` es el de `tienda.envio.costo`.
+  Desde la revisión 13 el ejemplo es de retiro: de contado, el envío ya no vale (D-28).
 - Sin `tienda.ver_precios` no viajan `importes` ni `precio_unitario` y `total` de cada renglón.
 - Nunca viajan el costo, el vendedor ni el stock.
 - Que el pedido esté registrado **no dice que se pagó** (P-4): `estado` es `pendiente_pago` hasta que
@@ -882,7 +884,18 @@ Protegida, `tienda.comprar`. **Confirma** el checkout: convierte el carrito rese
 - Errores: 401 `sin_sesion` / `sesion_invalida`, 403 `sin_permiso`, 404 `no_encontrado` (carrito
   ajeno o inexistente), 409 `checkout_vencido`, 409 `carrito_cambio`, 409 `regla_de_negocio` (cuenta
   sin ficha de cliente), 422 `validacion` (con envío, una provincia fuera de la lista de §5 va en
-  `direccion.provincia`).
+  `direccion.provincia`; de contado con envío, en `medio_pago`, revisión 13).
+- Ejemplo del 422 por el medio (D-28):
+
+```json
+{
+  "mensaje": "El pago en efectivo es sólo para retirar en el local.",
+  "codigo": "validacion",
+  "errores": {
+    "medio_pago": ["El pago en efectivo es sólo para retirar en el local."]
+  }
+}
+```
 
 ### 7.5 Pagos (tramo G)
 
@@ -1085,7 +1098,8 @@ dirección congelados, `reserva_vence`, `importes`), más cuatro claves.
       "estado_texto": "Rechazado",
       "creado": "2026-11-11T15:03:00Z"
     },
-    "comprobante_disponible": false
+    "comprobante_disponible": false,
+    "transferencia": null
   }
 }
 ```
@@ -1096,6 +1110,8 @@ dirección congelados, `reserva_vence`, `importes`), más cuatro claves.
   salen de `GET /pedidos/{id}/pagos`, que pagina (HL-75). «Pagar» o «Reintentar» llevan a
   `POST /pedidos/{id}/pagos`.
 - `comprobante_disponible`: `true` sólo si el pedido está cobrado (`estado_pago` = `aprobado`).
+- `transferencia` (revisión 12): `null` salvo con `medio_pago` = `transferencia`; ahí trae a quién
+  transferir y si llegó el comprobante (forma en §7.7).
 
 Errores: 401, 403, 404 (ajeno o inexistente).
 
@@ -1120,6 +1136,80 @@ la app abre en el navegador. **La credencial no viaja en la URL**: la firma es l
 Errores: 401, 403, 404 (ajeno o inexistente), 409 `regla_de_negocio` (todavía sin pagar, o cancelado:
 «El pedido V-00042 todavía no está pagado, así que no tiene comprobante.»).
 
+### 7.7 Transferencia bancaria (tramo L)
+
+Un pedido con `medio_pago` = `transferencia` (D-27) paga el precio de contado. El comprador transfiere el
+total al alias de la tienda y carga el comprobante; **la tienda confirma el pago en la web**, con el cobro de
+siempre (método `transferencia`), y recién ahí sale el stock (regla 5).
+
+| Situación | `estado_pago` | `estado_pago_texto` |
+| --- | --- | --- |
+| Sin comprobante | `pendiente` | Falta cargar el comprobante de la transferencia |
+| Con comprobante, sin cobrar | `en_revision` | Pago recibido, en revisión |
+| Cobrado en la web | `aprobado` | Pagado |
+
+La reserva: **48 horas** para cargar el comprobante (`tienda.transferencia.horas_para_comprobante`); al
+cargarlo, se estira a **tres días hábiles** (`tienda.transferencia.dias_habiles_confirmacion`, de lunes a
+viernes: los feriados no se conocen). Nunca se acorta.
+
+En `GET /pedidos/{id}` (y en la respuesta de abajo), la clave `transferencia`:
+
+```json
+"transferencia": {
+  "alias": "COMPUSTACK.TIENDA",
+  "titular": "CompuStack S.R.L.",
+  "comprobante_cargado": true,
+  "aviso": "Recibimos tu comprobante. Dentro de las 72 horas hábiles confirmamos el pago y seguimos con tu pedido."
+}
+```
+
+- `alias` y `titular` salen de `config/tienda.php`: no se escriben en la app.
+- `aviso`: el texto para mostrar una vez cargado el comprobante; `null` si todavía falta o si ya se cobró.
+
+#### `POST /api/v1/pedidos/{id}/comprobante-transferencia`
+
+Protegida, `tienda.cargar_comprobante`. **`multipart/form-data`** (no JSON).
+
+| Parámetro | Dónde | Tipo | Obligatorio | Regla |
+| --- | --- | --- | --- | --- |
+| `archivo` | cuerpo | archivo | sí | JPG, PNG o PDF, hasta 5 MB |
+
+**201** con el detalle del pedido (la forma de `GET /pedidos/{id}`) y el aviso como `mensaje`:
+
+```json
+{
+  "mensaje": "Recibimos tu comprobante. Dentro de las 72 horas hábiles confirmamos el pago y seguimos con tu pedido.",
+  "datos": {
+    "id": 42,
+    "numero": "V-00042",
+    "estado": "pendiente_pago",
+    "estado_texto": "Esperando el pago",
+    "medio_pago": "transferencia",
+    "medio_pago_texto": "Transferencia bancaria",
+    "...": "el resto, como en GET /pedidos/{id}",
+    "reserva_vence": "2026-11-18T13:00:00Z",
+    "estado_pago": "en_revision",
+    "estado_pago_texto": "Pago recibido, en revisión",
+    "ultimo_pago": null,
+    "comprobante_disponible": false,
+    "transferencia": {
+      "alias": "COMPUSTACK.TIENDA",
+      "titular": "CompuStack S.R.L.",
+      "comprobante_cargado": true,
+      "aviso": "Recibimos tu comprobante. Dentro de las 72 horas hábiles confirmamos el pago y seguimos con tu pedido."
+    }
+  }
+}
+```
+
+- Un segundo comprobante **se suma** al primero, no lo reemplaza: los dos quedan para quien revisa.
+- No es idempotente: la app no lo reintenta sola (`_unaVez`).
+
+Errores: 401, 403, 404 (ajeno o inexistente), 422 `validacion` («El comprobante tiene que ser una foto (JPG o
+PNG) o un PDF.», «El comprobante puede pesar hasta 5 MB.»), 409 `regla_de_negocio` (no es por
+transferencia, ya se cobró o se canceló: «El pedido V-00042 no se paga por transferencia, así que no hace
+falta un comprobante.»).
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -1135,3 +1225,5 @@ Errores: 401, 403, 404 (ajeno o inexistente), 409 `regla_de_negocio` (todavía s
 | 9 | H | §7.6: `GET /pedidos` (sólo online, del más nuevo al más viejo, con los dos estados y `unidades`), `GET /pedidos/{id}` (la forma de `POST /pedidos` más `estado_pago`, `ultimo_pago` y `comprobante_disponible`), `GET /pedidos/{id}/comprobante` (URL firmada de cinco minutos; sin pagar, 409; firma vencida o tocada, 403). `POST /pedidos` no cambia |
 | 10 | I | Sin cambio de forma. Revisión final: cada endpoint pedido al servidor y comparado con su ejemplo (§7, «Verificación de la revisión 10»); los ejemplos, con los ids y las imágenes (`.webp`) del catálogo de demostración; este registro, en orden |
 | 11 | J | `GET /tienda` (pública): los modos de entrega vigentes con su texto, sin costo (HL-81). Ninguna forma anterior cambia; las rutas pasan a 25 (23 con el simulador apagado) |
+| 12 | L | `medio_pago` = `transferencia` en `POST /pedidos` (precio de contado); los `medios` del checkout pasan a tres y su `texto` dice cómo se paga («Efectivo en el local», «Transferencia bancaria», «Mercado Pago»), igual que `medio_pago_texto`; `GET /pedidos/{id}` suma `transferencia`; §7.7: `POST /pedidos/{id}/comprobante-transferencia` (multipart; 201 con el aviso), la situación `falta_comprobante` → `pendiente` y `en_revision`; permiso `tienda.cargar_comprobante`. Las rutas pasan a 26 (24 con el simulador apagado) |
+| 13 | L | D-28: cada elemento de `medios` del checkout suma `modos_entrega`, las entregas con que vale (`contado` → `["retiro"]`; `transferencia` y `pasarela` → `["retiro", "envio"]`, o sólo `retiro` con el envío apagado). `POST /pedidos` con `contado` y `envio`: 422 en `medio_pago` («El pago en efectivo es sólo para retirar en el local.»). El ejemplo de `POST /pedidos` pasa a retiro, con `medio_pago_texto` «Efectivo en el local» (lo es desde la r12). Las rutas no cambian |

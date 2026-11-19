@@ -27,15 +27,11 @@
 
         @include('clientes._campos', ['cliente' => $cliente])
 
-        {{-- La cuenta de acceso no se administra desde acá ni desde Personal: la
-             pantalla de personal lista sólo ámbito gestión. Administrar cuentas de
-             la tienda llega con la tienda, en la Etapa 2. --}}
         @if ($esEdicion && !$cliente->esDeMostrador())
-            <div class="alert alert-secondary mt-4 mb-0" role="alert">
+            <div class="alert alert-secondary mt-4 mb-0" role="alert" data-cuenta-tienda>
                 <i class="bi bi-person-check" aria-hidden="true"></i>
-                Este cliente tiene cuenta de la tienda ({{ $cliente->usuario->email }}).
-                En esta etapa la tienda todavía no está publicada, así que esa cuenta no se
-                usa para entrar al sistema de gestión.
+                Este cliente entra a la tienda online con {{ $cliente->usuario->email }}. Esa cuenta no
+                sirve para el sistema de gestión.
             </div>
         @endif
 
@@ -47,6 +43,64 @@
             </button>
         </div>
     </form>
+
+    {{-- La cuenta de la tienda para un cliente del mostrador (D-26). Afuera del formulario de arriba:
+         un formulario no puede ir dentro de otro. --}}
+    @if (session('enlace_restablecimiento'))
+        <div class="alert alert-warning mt-4" role="alert" data-enlace-tienda>
+            <p class="fw-semibold mb-1">
+                <i class="bi bi-link-45deg" aria-hidden="true"></i>
+                Enlace para {{ session('nombre_restablecido') }}
+            </p>
+            <p class="small mb-2">
+                Con este enlace elige su contraseña, y después entra a la app con su correo. Pasáselo ahora:
+                vence en una hora, sirve una sola vez y no se vuelve a mostrar.
+            </p>
+            <input type="text" class="form-control font-monospace" value="{{ session('enlace_restablecimiento') }}"
+                readonly aria-label="Enlace para elegir la contraseña" onfocus="this.select()">
+        </div>
+    @endif
+
+    @if ($esEdicion && $cliente->esDeMostrador())
+        @can('cliente.dar_acceso_tienda')
+            <div class="card card-body border-0 shadow-sm mt-4" data-acceso-tienda>
+                <h2 class="h5 mb-1">Acceso a la tienda online</h2>
+
+                @if (blank($cliente->email))
+                    <p class="text-body-secondary small mb-0">
+                        Para que pueda comprar desde la app, cargale un correo en los datos de arriba y guardá:
+                        es con lo que va a entrar.
+                    </p>
+                @else
+                    <p class="text-body-secondary small mb-3">
+                        Va a entrar con <strong>{{ $cliente->email }}</strong> y la contraseña que elija con el
+                        enlace. Sus compras del mostrador siguen en su ficha.
+                    </p>
+
+                    <form method="POST" action="{{ route('clientes.acceso_tienda', $cliente) }}" novalidate>
+                        @csrf
+                        <div class="row g-3 align-items-end">
+                            <div class="col-12 col-sm-5">
+                                <label for="acceso_nombre" class="form-label">Nombre <span class="text-danger" aria-hidden="true">*</span></label>
+                                <input type="text" id="acceso_nombre" name="nombre" value="{{ old('nombre') }}" maxlength="100"
+                                    class="form-control @error('nombre') is-invalid @enderror" required>
+                                @error('nombre')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                            </div>
+                            <div class="col-12 col-sm-5">
+                                <label for="acceso_apellido" class="form-label">Apellido <span class="text-danger" aria-hidden="true">*</span></label>
+                                <input type="text" id="acceso_apellido" name="apellido" value="{{ old('apellido') }}" maxlength="100"
+                                    class="form-control @error('apellido') is-invalid @enderror" required>
+                                @error('apellido')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                            </div>
+                            <div class="col-12 col-sm-2 d-grid">
+                                <button type="submit" class="btn btn-outline-dark">Darle acceso</button>
+                            </div>
+                        </div>
+                    </form>
+                @endif
+            </div>
+        @endcan
+    @endif
 
     {{-- Direcciones. Sólo en la edición: no se le puede colgar una dirección a un
          cliente que todavía no existe. --}}

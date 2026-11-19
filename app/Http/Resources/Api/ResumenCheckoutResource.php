@@ -19,12 +19,15 @@ class ResumenCheckoutResource extends CarritoResource
         $conPrecios = $request->user()?->can('tienda.ver_precios') === true;
         $totales    = $this->resource['totales'];
 
-        // Cada medio cobra con uno de los dos precios: contado con el de contado, la pasarela con el de lista.
+        // Cada medio cobra con uno de los dos precios: efectivo y transferencia con el de contado, la
+        // pasarela con el de lista. El texto dice cómo se paga, no qué precio es (D-27).
         $medios = array_map(fn (string $medio, string $lista) => [
             'medio' => $medio,
-            'texto' => TextosTienda::precio($lista),
+            'texto' => TextosTienda::medio($medio),
+            // Con qué entregas vale (D-28): la app no escribe la regla, la lee de acá.
+            'modos_entrega' => TextosTienda::modosEntregaDelMedio($medio),
             ...($conPrecios ? ['total' => Importe::json($totales[$lista])] : []),
-        ], ['contado', 'pasarela'], ['contado', 'lista']);
+        ], ['contado', 'transferencia', 'pasarela'], ['contado', 'contado', 'lista']);
 
         $modos = TextosTienda::modosEntrega();
 

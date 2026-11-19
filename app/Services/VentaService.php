@@ -37,7 +37,8 @@ class VentaService
      * `StockService` por el constructor, resuelto por el contenedor.
      */
     /** Con qué lista se cotiza cada medio de la tienda. */
-    private const LISTA_DEL_MEDIO = ['contado' => 'contado', 'pasarela' => 'lista'];
+    // La transferencia paga el precio de contado, como en el mostrador (D-27).
+    private const LISTA_DEL_MEDIO = ['contado' => 'contado', 'transferencia' => 'contado', 'pasarela' => 'lista'];
 
     public function __construct(private StockService $stock, private PrecioService $precios)
     {
@@ -96,7 +97,7 @@ class VentaService
         ?array $direccion,
     ): Venta {
         if (! array_key_exists($medio, self::LISTA_DEL_MEDIO)) {
-            throw new ReglaDeNegocioException('El medio de pago tiene que ser contado o pasarela.');
+            throw new ReglaDeNegocioException('El medio de pago tiene que ser contado, transferencia o pasarela.');
         }
 
         if (! in_array($modoEntrega, ['retiro', 'envio'], true)) {
@@ -125,9 +126,12 @@ class VentaService
             $venta->medio_pago    = $medio;
             $venta->modo_entrega  = $modoEntrega;
             $venta->costo_envio   = $modoEntrega === 'envio' ? (string) config('tienda.envio.costo') : '0.00';
-            $venta->reserva_vence = $medio === 'contado'
-                ? now()->addHours((int) config('tienda.reservas.contado_horas'))
-                : now()->addMinutes((int) config('tienda.reservas.pasarela_minutos'));
+            $venta->reserva_vence = match ($medio) {
+                'contado'       => now()->addHours((int) config('tienda.reservas.contado_horas')),
+                // Hasta que llega el comprobante; al cargarlo, se estira a los días hábiles (D-27).
+                'transferencia' => now()->addHours((int) config('tienda.transferencia.horas_para_comprobante')),
+                default         => now()->addMinutes((int) config('tienda.reservas.pasarela_minutos')),
+            };
 
             if ($modoEntrega === 'envio') {
                 $venta->entrega_calle         = $direccion['calle'];

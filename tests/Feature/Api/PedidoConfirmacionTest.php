@@ -101,7 +101,7 @@ test('confirmar de contado crea el pedido y responde 201 con el contrato', funct
         'estado'             => 'pendiente_pago',
         'estado_texto'       => 'Esperando el pago',
         'medio_pago'         => 'contado',
-        'medio_pago_texto'   => 'Efectivo o transferencia',
+        'medio_pago_texto'   => 'Efectivo en el local',   // tramo L (D-27): el medio, no el precio
         'modo_entrega'       => 'retiro',
         'modo_entrega_texto' => 'Retiro en el local',
         'direccion'          => null,
@@ -137,12 +137,13 @@ test('por pasarela, los renglones se congelan a precio de lista', function () {
         ->assertJsonPath('datos.importes.total', '60500.00');
 });
 
+// Desde D-28 el efectivo es sólo con retiro: los envíos de estos tests van por transferencia (mismo precio).
 test('con envio, suma el costo de config y congela la direccion', function () {
     [$cuenta, $bearer] = ($this->tiendaCuentaCon)();
     $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)(), 1);
 
     $this->postJson('/api/v1/pedidos', [
-        'carrito_id' => $carritoId, 'medio_pago' => 'contado', 'modo_entrega' => 'envio',
+        'carrito_id' => $carritoId, 'medio_pago' => 'transferencia', 'modo_entrega' => 'envio',
         'direccion'  => $this->tiendaDireccion,
     ], $bearer)
         ->assertCreated()
@@ -261,11 +262,11 @@ test('un envio sin direccion completa es 422', function () {
     $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)());
 
     $this->postJson('/api/v1/pedidos', [
-        'carrito_id' => $carritoId, 'medio_pago' => 'contado', 'modo_entrega' => 'envio',
+        'carrito_id' => $carritoId, 'medio_pago' => 'transferencia', 'modo_entrega' => 'envio',
     ], $bearer)->assertStatus(422)->assertJsonValidationErrors('direccion', 'errores');
 
     $this->postJson('/api/v1/pedidos', [
-        'carrito_id' => $carritoId, 'medio_pago' => 'contado', 'modo_entrega' => 'envio',
+        'carrito_id' => $carritoId, 'medio_pago' => 'transferencia', 'modo_entrega' => 'envio',
         'direccion'  => [...$this->tiendaDireccion, 'calle' => '', 'codigo_postal' => str_repeat('9', 11)],
     ], $bearer)->assertStatus(422)->assertJsonValidationErrors(['direccion.calle', 'direccion.codigo_postal'], 'errores');
 });
@@ -275,7 +276,7 @@ test('con envio, una provincia fuera de la lista es 422 en su campo y no crea el
     $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)());
 
     $this->postJson('/api/v1/pedidos', [
-        'carrito_id' => $carritoId, 'medio_pago' => 'contado', 'modo_entrega' => 'envio',
+        'carrito_id' => $carritoId, 'medio_pago' => 'transferencia', 'modo_entrega' => 'envio',
         'direccion'  => [...$this->tiendaDireccion, 'provincia' => 'Chubutt'],
     ], $bearer)
         ->assertStatus(422)
@@ -289,7 +290,7 @@ test('con envio, una provincia de la lista queda en el pedido', function () {
     $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)());
 
     $this->postJson('/api/v1/pedidos', [
-        'carrito_id' => $carritoId, 'medio_pago' => 'contado', 'modo_entrega' => 'envio',
+        'carrito_id' => $carritoId, 'medio_pago' => 'transferencia', 'modo_entrega' => 'envio',
         'direccion'  => [...$this->tiendaDireccion, 'provincia' => 'Tierra del Fuego'],
     ], $bearer)
         ->assertCreated()
@@ -323,10 +324,44 @@ test('sin envio habilitado, pedir envio es 422', function () {
     $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)());
 
     $this->postJson('/api/v1/pedidos', [
-        'carrito_id' => $carritoId, 'medio_pago' => 'contado', 'modo_entrega' => 'envio',
+        'carrito_id' => $carritoId, 'medio_pago' => 'transferencia', 'modo_entrega' => 'envio',
         'direccion'  => $this->tiendaDireccion,
     ], $bearer)->assertStatus(422)->assertJsonValidationErrors('modo_entrega', 'errores');
 });
+
+// ---------- el medio y la entrega (D-28) ----------
+
+test('de contado con envio es 422 en medio_pago y no crea el pedido', function () {
+    [$cuenta, $bearer] = ($this->tiendaCuentaCon)();
+    $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)());
+
+    $this->postJson('/api/v1/pedidos', [
+        'carrito_id' => $carritoId, 'medio_pago' => 'contado', 'modo_entrega' => 'envio',
+        'direccion'  => $this->tiendaDireccion,
+    ], $bearer)
+        ->assertStatus(422)
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonPath('errores', ['medio_pago' => ['El pago en efectivo es sólo para retirar en el local.']]);
+
+    expect(Venta::count())->toBe(0);
+});
+
+test('cada medio con una entrega en la que vale confirma el pedido', function (string $medio, string $modo) {
+    [$cuenta, $bearer] = ($this->tiendaCuentaCon)();
+    $carritoId = ($this->tiendaEnCheckout)($cuenta, ($this->tiendaProducto)());
+
+    $this->postJson('/api/v1/pedidos', [
+        'carrito_id' => $carritoId, 'medio_pago' => $medio, 'modo_entrega' => $modo,
+        ...($modo === 'envio' ? ['direccion' => $this->tiendaDireccion] : []),
+    ], $bearer)
+        ->assertCreated()
+        ->assertJsonPath('datos.medio_pago', $medio)
+        ->assertJsonPath('datos.modo_entrega', $modo);
+})->with([
+    'contado con retiro'       => ['contado', 'retiro'],
+    'transferencia con envio'  => ['transferencia', 'envio'],
+    'pasarela con envio'       => ['pasarela', 'envio'],
+]);
 
 // ---------- la frase de la etapa ----------
 

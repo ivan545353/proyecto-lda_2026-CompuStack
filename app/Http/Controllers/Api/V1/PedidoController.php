@@ -34,7 +34,8 @@ class PedidoController extends Controller
     /** El detalle. La consulta por dueño es la misma de los pagos: ajeno o inexistente, 404. */
     public function show(Request $request, int $pedido, IntentoPagoService $intentos): JsonResponse
     {
-        $venta = $intentos->pedidoDe($request->user(), $pedido)->load(['lineas', 'ultimoIntentoPago']);
+        $venta = $intentos->pedidoDe($request->user(), $pedido)
+            ->load(['lineas', 'ultimoIntentoPago'])->loadExists('comprobantesTransferencia');
 
         return Recurso::respuesta(new PedidoDetalleResource($venta));
     }

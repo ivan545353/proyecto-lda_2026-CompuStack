@@ -151,13 +151,37 @@ ajeno») y P-6: la restricción está en Laravel, no en la app. El test que lo f
 
 ## 10. El kardex: la venta online deja el mismo asiento que una de mostrador
 
-- En la web, con `administrativo@sistema.local`: *Stock* (el kardex), filtrado por el SSD.
+- En la web, con `administrativo@sistema.local`: *Stock* (el kardex), con **Canal de la venta: Tienda online**
+  (o filtrado por el SSD).
 - El movimiento de la venta online del paso 3 es una **salida por venta**, con su número, igual que el de
-  una venta de mostrador. No hay un camino aparte para la tienda.
+  una venta de mostrador, y dice «· tienda online»; «Lo registró» dice «Tienda online (cobro automático)»
+  porque lo cobró Mercado Pago, sin cajero. No hay un camino aparte para la tienda.
+- La hora es la de la compra (HL-86).
+- Un pedido de contado todavía sin cobrar **no** tiene asiento (regla 5): en el kardex del producto,
+  «De las reservadas, N están en pedidos de la tienda sin cobrar». Sale cuando se cobra (paso 6).
 
 **Demuestra**: la tienda reutiliza los servicios de la Etapa 1 (`StockService` es la única puerta al stock,
 regla 4). El test: `Api/PedidoConfirmacionTest`, «el pedido confirmado se cobra en el mostrador y deja el
-mismo asiento que una venta».
+mismo asiento que una venta», y `KardexCanalTest` (HL-85).
+
+## 11. Las observaciones de la revisión (tramo L)
+
+- **La hora**: cualquier venta del día figura a su hora real en la web (antes, tres horas después).
+- **Las imágenes del producto**: en el formulario, la ayuda dice que el orden es el de la tienda, de
+  izquierda a derecha, y cada imagen lleva su número.
+- **Una cuenta del mostrador en la app**: en la web, la ficha de un cliente del mostrador con correo →
+  «Darle acceso» (nombre y apellido) → el enlace. Se abre en el teléfono, se elige la contraseña («Ya podés
+  entrar desde la app») y se inicia sesión en la app con ese correo.
+- **Transferencia**: en la app, un pedido con «Transferencia bancaria»; el cierre muestra alias y titular;
+  se carga el comprobante (una foto o un PDF) y aparece el aviso de las 72 horas hábiles, con «En revisión».
+  En la web, *Ventas* con **Pago: Transferencias por revisar** → el pedido → el comprobante → *Cobrar*, que ya
+  propone el saldo en transferencia. El pedido pasa a pagado y el kardex muestra su salida (paso 10).
+- **«Atrás» en la compra**: en la confirmación, el «atrás» del sistema vuelve un paso y no se pierde lo
+  cargado (lo cierra la app, L-6).
+
+**Demuestra**: cada observación se atendió sin aflojar una regla: la transferencia no se confirma sola
+(regla 9) y el stock sale recién al cobrar (regla 5). Los tests: `ZonaHorariaTest`, `GestorImagenesOrdenTest`,
+`KardexCanalTest`, `ClienteAccesoTiendaTest`, `Api/TransferenciaTest`, `VentaTransferenciaTest`.
 
 ## Para las preguntas
 

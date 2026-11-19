@@ -34,6 +34,15 @@ class PedidoDetalleResource extends PedidoResource
             ],
             // Sólo lo cobrado tiene comprobante: lo demás no se vendió todavía (D-22).
             'comprobante_disponible' => $situacion === 'pagado',
+            // A quién transferir, y si ya llegó el comprobante (D-27). Null en los otros medios.
+            'transferencia'          => $venta->medio_pago !== 'transferencia' ? null : [
+                'alias'               => (string) config('tienda.transferencia.alias'),
+                'titular'             => (string) config('tienda.transferencia.titular'),
+                'comprobante_cargado' => $venta->tieneComprobanteTransferencia(),
+                'aviso'               => $venta->tieneComprobanteTransferencia() && $situacion !== 'pagado'
+                    ? TextosTienda::avisoTransferencia()
+                    : null,
+            ],
         ];
     }
 }

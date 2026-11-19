@@ -30,15 +30,15 @@ class RolPermisoSeeder extends Seeder
         'marca'     => ['ver', 'crear', 'editar', 'eliminar'],
         'producto'  => ['ver', 'crear', 'editar', 'eliminar'],
         'usuario'   => ['ver', 'crear', 'editar', 'eliminar', 'cambiar_rol','resetear_password'],
-        'cliente'   => ['ver', 'crear', 'editar', 'eliminar'],
+        'cliente'   => ['ver', 'crear', 'editar', 'eliminar', 'dar_acceso_tienda'],
         'proveedor' => ['ver', 'crear', 'editar', 'eliminar'],
         'compra'    => ['ver', 'crear', 'editar', 'aprobar', 'recibir'],
-        'venta'     => ['ver', 'crear', 'editar', 'cobrar', 'entregar', 'anular', 'autorizar_descuento'],
+        'venta'     => ['ver', 'crear', 'editar', 'cobrar', 'entregar', 'anular', 'autorizar_descuento', 'ver_comprobante_transferencia'],
         'stock'     => ['ver', 'ajustar'],
         'precio'    => ['ver', 'editar', 'recalcular', 'ver_costo', 'ajustar_masivo', 'deshacer_ajuste'],
         'rol'       => ['ver', 'editar'],
         'panel'     => ['ver_propio', 'ver_global'],
-        'tienda'    => ['ver_precios', 'comprar', 'ver_pedidos'],
+        'tienda'    => ['ver_precios', 'comprar', 'ver_pedidos', 'cargar_comprobante'],
     ];
 
     private const ROLES = [
@@ -70,6 +70,7 @@ class RolPermisoSeeder extends Seeder
             'ambito'      => 'gestion',
             'permisos'    => [
                 'producto.ver', 'venta.ver', 'venta.cobrar', 'venta.entregar',
+                'venta.ver_comprobante_transferencia',   // revisa lo que cobra (tramo L)
                 'panel.ver_propio',
             ],
         ],
