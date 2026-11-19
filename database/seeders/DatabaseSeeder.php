@@ -20,6 +20,8 @@ class DatabaseSeeder extends Seeder
         if (! app()->environment('production')) {
                 $this->call([
                 CatalogoDemoSeeder::class,
+                // Descripciones, fotos, destacados y fechas de alta: necesita el catálogo.
+                TiendaDemoSeeder::class,
                 PersonasDemoSeeder::class,
                 // Va último: necesita el catálogo, los proveedores y las personas.
                 OperacionesDemoSeeder::class,

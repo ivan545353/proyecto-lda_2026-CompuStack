@@ -16,8 +16,8 @@ use RuntimeException;
  * El resolver aborta con excepción si una clave no existe, en vez de ignorarla.
  * Un permiso mal escrito no se concede ni pasa desapercibido: rompe el seeder.
  *
- * El rol Cliente se crea sin permisos de gestión a propósito: su ámbito es
- * tienda y en la Etapa 1 no hay tienda. Está para que el modelo esté completo.
+ * El rol Cliente no tiene permisos de gestión: su ámbito es la tienda, y desde
+ * el tramo D de la Etapa 2 tiene los del módulo `tienda`.
  *
  * Métodos:
  *   run()  crea permisos, roles y la asignación entre ambos
@@ -30,14 +30,15 @@ class RolPermisoSeeder extends Seeder
         'marca'     => ['ver', 'crear', 'editar', 'eliminar'],
         'producto'  => ['ver', 'crear', 'editar', 'eliminar'],
         'usuario'   => ['ver', 'crear', 'editar', 'eliminar', 'cambiar_rol','resetear_password'],
-        'cliente'   => ['ver', 'crear', 'editar', 'eliminar'],
+        'cliente'   => ['ver', 'crear', 'editar', 'eliminar', 'dar_acceso_tienda'],
         'proveedor' => ['ver', 'crear', 'editar', 'eliminar'],
         'compra'    => ['ver', 'crear', 'editar', 'aprobar', 'recibir'],
-        'venta'     => ['ver', 'crear', 'editar', 'cobrar', 'entregar', 'anular', 'autorizar_descuento'],
+        'venta'     => ['ver', 'crear', 'editar', 'cobrar', 'entregar', 'anular', 'autorizar_descuento', 'ver_comprobante_transferencia'],
         'stock'     => ['ver', 'ajustar'],
         'precio'    => ['ver', 'editar', 'recalcular', 'ver_costo', 'ajustar_masivo', 'deshacer_ajuste'],
         'rol'       => ['ver', 'editar'],
         'panel'     => ['ver_propio', 'ver_global'],
+        'tienda'    => ['ver_precios', 'comprar', 'ver_pedidos', 'cargar_comprobante'],
     ];
 
     private const ROLES = [
@@ -69,13 +70,14 @@ class RolPermisoSeeder extends Seeder
             'ambito'      => 'gestion',
             'permisos'    => [
                 'producto.ver', 'venta.ver', 'venta.cobrar', 'venta.entregar',
+                'venta.ver_comprobante_transferencia',   // revisa lo que cobra (tramo L)
                 'panel.ver_propio',
             ],
         ],
         'Cliente' => [
             'descripcion' => 'Cuenta de la tienda online. Sin acceso a la gestión.',
             'ambito'      => 'tienda',
-            'permisos'    => [],
+            'permisos'    => ['tienda.*'],
         ],
     ];
 

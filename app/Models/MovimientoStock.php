@@ -16,6 +16,7 @@ use LogicException;
  *   ?producto_id=  → deProducto($id)    el kardex de un producto
  *   ?tipo=         → deTipo($tipo)      lista cerrada de TIPOS
  *   ?usuario_id=   → deUsuario($id)     quién lo registró
+ *   ?canal=        → deCanal($canal)    el canal de la venta: mostrador o tienda online (HL-85)
  *   ?desde=        → desde($fecha)      desde esa fecha, inclusive
  *   ?hasta=        → hasta($fecha)      hasta esa fecha, inclusive
  *
@@ -96,10 +97,28 @@ class MovimientoStock extends Model
 
         return match (class_basename($this->origen_type)) {
             'OrdenCompra' => 'Orden de compra OC-'.str_pad((string) $this->origen_id, 5, '0', STR_PAD_LEFT),
-            'Venta'       => 'Venta '.Venta::numeroDe($this->origen_id),
+            // El canal sale de la venta cargada: quien lista lo trae con `origen` (si no, se omite).
+            'Venta'       => 'Venta '.Venta::numeroDe($this->origen_id)
+                .($this->ventaOnline() ? ' · tienda online' : ''),
             // Cualquier otro documento: se nombra sin filtrar la clase.
             default       => 'Documento interno',
         };
+    }
+
+    /** Quién lo registró, en palabras; un cobro de la tienda sin cajero lo hizo la pasarela (HL-85). */
+    public function registradoPorTexto(): string
+    {
+        if ($this->usuario) {
+            return "{$this->usuario->nombre} {$this->usuario->apellido}";
+        }
+
+        return $this->ventaOnline() ? 'Tienda online (cobro automático)' : 'Generado por el sistema';
+    }
+
+    /** ¿Lo originó una venta de la tienda? Sólo con `origen` ya cargado: no dispara una consulta por fila. */
+    public function ventaOnline(): bool
+    {
+        return $this->relationLoaded('origen') && $this->origen instanceof Venta && $this->origen->esOnline();
     }
 
     /** El remito del proveedor con el que entró la mercadería; null si no consta. */
@@ -146,6 +165,17 @@ class MovimientoStock extends Model
         return $query->when(
             array_key_exists((string) $tipo, self::TIPOS),
             fn (Builder $query) => $query->where('tipo', $tipo),
+        );
+    }
+
+    /** Sólo los movimientos de las ventas de ese canal; un valor fuera de la lista no filtra. */
+    public function scopeDeCanal(Builder $query, ?string $canal): Builder
+    {
+        return $query->when(
+            array_key_exists((string) $canal, Venta::CANALES),
+            fn (Builder $query) => $query->whereHasMorph(
+                'origen', [Venta::class], fn (Builder $venta) => $venta->where('canal', $canal),
+            ),
         );
     }
 

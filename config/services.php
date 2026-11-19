@@ -28,6 +28,13 @@ return [
         'key' => env('RESEND_KEY'),
     ],
 
+    // Checkout Pro de la tienda (tramo G). El token, sólo desde `.env`: ningún valor en el repositorio.
+    'mercadopago' => [
+        'access_token' => env('MERCADOPAGO_ACCESS_TOKEN'),
+        'url'          => 'https://api.mercadopago.com',
+        'timeout'      => 10,   // segundos: la consulta corre mientras la app espera
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

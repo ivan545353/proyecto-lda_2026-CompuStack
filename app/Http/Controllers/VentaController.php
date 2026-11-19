@@ -7,6 +7,7 @@ use App\Http\Requests\DevolucionRequest;
 use App\Http\Requests\EntregaRequest;
 use App\Http\Requests\VentaFiltroRequest;
 use App\Http\Requests\VentaRequest;
+use App\Impresion\ComprobanteVenta;
 use App\Impresion\ListadoVentas;
 use App\Models\Cliente;
 use App\Models\Entrega;
@@ -89,6 +90,7 @@ class VentaController extends Controller
                 'pagos.usuario:id,nombre,apellido',
                 'entregas' => fn ($entregas) => $entregas->withSum('lineas as unidades', 'cantidad'),
                 'entregas.usuario:id,nombre,apellido',
+                'comprobantesTransferencia' => fn ($comprobantes) => $comprobantes->orderBy('id'),
             ]),
         ]);
     }
@@ -290,17 +292,20 @@ class VentaController extends Controller
     {
         $venta = $this->service->cancelar($venta);
 
-        return redirect()->route('ventas.show', $venta)->with(
-            'exito',
-            "Presupuesto {$venta->numeroFormateado()} cancelado. No descontó stock ni generó "
-            .'comprobante, así que no quedó nada que revertir. La venta no se borra: queda registrada.',
-        );
+        // El pedido de la tienda sí tenía un efecto: retenía stock, y cancelarlo lo devuelve al disponible.
+        $texto = $venta->esOnline()
+            ? "Pedido {$venta->numeroFormateado()} cancelado. Las unidades que tenía reservadas volvieron "
+                .'al disponible. No se había cobrado, así que no hay plata que devolver. El pedido no se borra: queda registrado.'
+            : "Presupuesto {$venta->numeroFormateado()} cancelado. No descontó stock ni generó "
+                .'comprobante, así que no quedó nada que revertir. La venta no se borra: queda registrada.';
+
+        return redirect()->route('ventas.show', $venta)->with('exito', $texto);
         }
 
     /**
      * El documento de la venta: presupuesto si no se cobró, comprobante si sí.
      */
-    public function pdf(Venta $venta): Response|RedirectResponse
+    public function pdf(Venta $venta, ComprobanteVenta $comprobante): Response|RedirectResponse
     {
         if (! $venta->sePuedeImprimir()) {
             return redirect()->route('ventas.show', $venta)->with(
@@ -309,14 +314,7 @@ class VentaController extends Controller
             );
         }
 
-        $venta->load(['cliente', 'usuario:id,nombre,apellido', 'lineas.producto:id,codigo']);
-
-        $nombre = $venta->esPresupuesto() ? 'presupuesto' : 'comprobante';
-
-        return Pdf::loadView('ventas.pdf', [
-            'venta'       => $venta,
-            'validoHasta' => $venta->created_at->copy()->addDays((int) config('venta.presupuesto.validez_dias')),
-        ])->download("{$nombre}-{$venta->numeroFormateado()}.pdf");
+        return $comprobante->descarga($venta);
     }
 
     /** El listado filtrado, en PDF con el tope declarado o en planilla completa. */
@@ -335,6 +333,8 @@ class VentaController extends Controller
             ->conEstado($request->query('estado'))
             ->deCliente($request->query('cliente_id'))
             ->deVendedor($request->query('vendedor_id'))
+            ->deCanal($request->query('canal'))
+            ->dePago($request->query('pago'))
             ->desde($request->query('desde'))
             ->hasta($request->query('hasta'))
             ->orderByDesc('id');

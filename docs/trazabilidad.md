@@ -872,3 +872,549 @@ corto con la decisión que lo condicionó. La consigna de la Etapa 2 recomienda 
 relacione los componentes originales con los nuevos componentes»: es ésta. La matriz de
 seguimiento —funcionalidad × pantalla de la app × endpoint × acceso × estado— es una
 herramienta propia y vive en el plan de la Etapa 2.
+
+
+### Tramo A — Contrato y capa de API
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `laravel/sanctum` 4.3 y `personal_access_tokens` | Una fila por credencial: es lo que permite revocar (A-5) | Nuevo |
+| `config/sanctum.php` | Vence a los 7 días; `guard` vacío, para que la sesión del panel no autentique contra `api/*` | Nuevo |
+| `config/tienda.php` | Todas las claves de la Etapa 2 desde el principio: paginado, reservas, pagos, carrito, novedades | Nuevo |
+| `CredencialService` | Emite y revoca; es la única clase que sabe que es Sanctum | Nuevo |
+| `ForzarJson` | Ninguna respuesta de `api/*` es HTML ni redirección | Nuevo |
+| `SesionOpcional` | Sin credencial, visitante; con una inválida, 401 y no un visitante silencioso | Nuevo |
+| `VerificarCuentaTienda` | La mitad API de `VerificarUsuarioActivo`: cuenta activa y de tienda, en cada pedido | Nuevo |
+| grupos `tienda.sesion_opcional` y `tienda.protegida` | La lista de middlewares de cada tipo de ruta vive en un lugar; rutas y tests nombran el grupo | Nuevo |
+| `RespuestaDeError` y su renderer en `bootstrap/app.php` | Toda excepción de `api/*` sale con `{ mensaje, codigo, errores }`; el 500 sin traza | Nuevo |
+| `RateLimiter::for('tienda-acceso')` | 5 por minuto por correo e IP, y 30 por IP sola | Nuevo |
+| `Paginado::respuesta()` | La envoltura única de los listados | Nuevo |
+| `Importe::json()` | El dinero viaja como cadena con dos decimales | Nuevo |
+| `Imagenes::url()` y `producto-sin-imagen.svg` | URL con el host del pedido; nunca `null` (HL-13) | Nuevo |
+| `TextosTienda` | Un solo diccionario con lo que se le dice al cliente | Nuevo |
+| `UsuarioService::actualizar()` y `eliminar()` | Desactivar o dar de baja una cuenta revoca sus credenciales | Modificado |
+| `User` | `HasApiTokens` | Modificado |
+| `routes/api.php` | `v1` con sus tres grupos, vacíos | Nuevo |
+| `docs/api.md` | Revisión 1: convenciones y registro de cambios | Nuevo |
+| `tests/Feature/Api/` y `ImporteJsonTest` | El contrato, la credencial y las piezas puras | Nuevo |
+
+> **El renderer decide por la URL y no por lo que el cliente pide.** Una ruta inexistente de
+> `api/*` no corre ningún middleware de grupo, así que `ForzarJson` no la alcanza y
+> `expectsJson()` daría falso: devolvería la página HTML de 404 a una app que no la puede leer.
+> Por eso el renderer mira `$request->is('api/*')`. Va registrado antes que el de la web, porque
+> `StockInsuficienteException` y `TransicionInvalidaException` extienden `ReglaDeNegocioException`
+> y, sin esto, una regla de negocio de la API volvería como una redirección.
+>
+> **Revocar una credencial borra su fila.** No choca con la regla de no borrar hechos del
+> negocio: una credencial es un permiso de acceso, no un hecho. La historia que importa (quién
+> vendió, quién cobró) está en `ventas` y `pagos`.
+
+
+### Tramo B — Cimientos de la app
+
+La app es un componente nuevo con **repositorio propio** (`compustack-app`, Flutter, Android). Esta
+tabla relaciona sus piezas con la capa del sistema original a la que sirven. El detalle de la
+arquitectura está en su `ARQUITECTURA.md`.
+
+| Componente (en `compustack-app`) | Qué resuelve | Estado |
+| --- | --- | --- |
+| Proyecto `ar.compustack.tienda` | La tienda como app móvil: otro cliente del mismo sistema | Nuevo |
+| MVVM con repositorios (`ui/`, `data/`, `core/`) | Vista sin lógica, modelo de vista sin HTTP, repositorios que no se conocen | Nuevo |
+| `crearClienteHttp` y sus tres interceptores | Un solo `Dio`: credencial pegada, registro enmascarado (NF-14), errores traducidos | Nuevo |
+| `Falla` y `ErrorInterceptor` | El formato de error de `docs/api.md` §3 llega a la app como una clase sellada; manda el `codigo`, no el estado HTTP | Nuevo |
+| `TokenStorage` y `SessionRepository` | La credencial en el almacén seguro; la app sólo pregunta si hay sesión | Nuevo |
+| `pesos()` | El dinero llega como cadena (`"60500.00"`) y se muestra `$ 60.500,00` sin pasar por `double` | Nuevo |
+| `AjustesRepository`, `ConexionRepository`, `ConexionService` y pantalla de ajustes | La dirección del servidor nunca está en el código; se guarda, se prueba y se cambia | Nuevo |
+| `go_router` con guarda y `StatefulShellRoute` | Cuatro destinos; una ruta con sesión requerida manda a `/login?desde=` | Nuevo |
+| `ui/comun/` (seis estados, `VistaAsincronica`, `BotonAccion`, `Precio`, `InsigniaDisponibilidad`, `TarjetaProducto`) | Los seis estados de pantalla y el botón que se bloquea, antes de la primera pantalla | Nuevo |
+| Tema Zinc de `forui` | Claro y oscuro según el sistema | Nuevo |
+| `android/app/src/debug/` y `generarRedDebug` | Tráfico en claro sólo en depuración; el release no lo admite por construcción (HL-11) | Nuevo |
+| `test/arquitectura_test.dart` | Las reglas 22, 24 y 25 comprobadas leyendo los `import` | Nuevo |
+
+> **Manda el `codigo` del error, no el estado HTTP.** El 409 lo comparten `stock_insuficiente`,
+> `carrito_cambio`, `checkout_vencido`, `transicion_invalida` y `regla_de_negocio`, y cada uno pide
+> otra reacción. El estado HTTP sólo desempata cuando el código no se conoce.
+>
+> **La prueba de conexión no depende de `GET /api/v1/categorias`.** Ese endpoint es del tramo C y hoy
+> responde 404 `no_encontrado`; cualquier respuesta con la forma del contrato prueba que el servidor
+> está. La prueba va sin credencial: la dirección que se prueba todavía no es de confianza.
+>
+> **Un 401 sólo borra la credencial que viajó en ese pedido.** Si no, un 401 tardío de un pedido
+> viejo cerraría una sesión recién abierta.
+>
+> **`forui` 0.27 no trae el tema Zinc**: sólo Neutral. Zinc se generó con el CLI de `forui`
+> (`-p cabbbc`) y vive en `lib/config/tema/`.
+
+
+### Tramo C — Catálogo y detalle
+
+Servidor (`compustack`) y app (`compustack-app`). La app pasó de 145 a **442 tests** (297 nuevos).
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Categoria::idsVisiblesEnTienda()` | Las categorías activas **con todos sus ancestros activos**: una hija activa bajo un padre inactivo no se muestra. Una consulta por pedido | Nuevo |
+| `Categoria::arbolEnTienda()` | El árbol visible, paginado por raíz, con las mismas consultas aunque crezca | Nuevo |
+| `Producto`: `scopeEnTienda`, `scopeNovedades`, `scopeDestacados`, `scopeOrdenTienda`, `ORDENES_TIENDA` | Qué se ve y en qué orden (siempre desempata por `id`); una sola lista de órdenes para validar y ordenar | Modificado |
+| `Producto::idsNovedades()` y `esNovedad()` | La única definición de novedad: ventana y tope. La sección y la marca de cada fila no se pueden contradecir | Nuevo |
+| `Producto::descripcionBreve()` y `disponibilidad()` | Derivadas, sin columna (D-12): las primeras palabras del texto (y nunca más de 250 caracteres) y tres niveles sin el número | Nuevo |
+| `Producto::paginaEnTienda()` y `fichaEnTienda()` | Arman la consulta con los datos leídos una sola vez; el controlador no sabe de scopes | Nuevo |
+| `PaginadoRequest` y `CatalogoRequest` | `pagina`, `por_pagina`, `q`, `categoria_id`, `orden`, `seccion`; rechazan, no corrigen; los mensajes no dependen de `APP_LOCALE`; `criterios()` normaliza lo que vuelve en la respuesta | Nuevo |
+| `CategoriaResource`, `ProductoListadoResource`, `ProductoFichaResource` | Cada clave enumerada: lo que no está escrito no viaja | Nuevo |
+| `Api\V1\CategoriaController` y `ProductoController` | Sólo traducen: validan, llaman al modelo, devuelven | Nuevo |
+| `Recurso::respuesta()` | La envoltura `{ "datos": … }` de un recurso, gemela de `Paginado`: la de Laravel usa `data` | Nuevo |
+| `routes/api.php` | `categorias` en el grupo público; `productos` y `productos/{id}` (`whereNumber`) en sesión opcional | Modificado |
+| Casilla «destacado» (`productos/form.blade.php`, `ProductoRequest`, `ProductoService`) | La web puede por fin escribir `destacado`; sólo con `producto.editar`, en la vista y en el servidor | Modificado |
+| `TiendaDemoSeeder`, `DatabaseSeeder` y `database/seeders/imagenes/` | Descripciones reales, altas repartidas, destacados y fotos de los 11 productos de la demo; idempotente, no pisa lo editado | Nuevo |
+| `docs/api.md` | Revisión 2: los tres endpoints, el criterio de novedad y su porqué | Modificado |
+| `tests/Feature/Api/Catalogo{Modulo,Filtros,Escala}Test`, `TiendaDemoSeederTest` y `ProductoModuloTest` | 217 tests nuevos: modelo (45), endpoints (116), escala y peso (16), seeder (29) y casilla (11, dentro de `ProductoModuloTest`) | Nuevo |
+
+> **Novedad = ventana + tope, y por qué los dos.** Con el catálogo de volumen (20.012 productos creados
+> en dos días) la ventana sola da «todos»; el tope solo, en un negocio quieto, daría «novedad» a lo de
+> hace un año. Combinar la sección con una categoría filtra *dentro* del tope.
+>
+> **Destacar es una acción de edición y el servidor la hace cumplir.** El formulario es uno solo para
+> el alta (`producto.crear`) y la edición (`producto.editar`). Esconder la casilla no alcanza: quien sólo
+> crea podría mandar `destacado=1` a mano, así que `ProductoRequest` descarta el campo si el usuario no
+> tiene `producto.editar`.
+>
+> **El árbol de categorías se pagina por raíz** porque «un listado pagina siempre» no admite
+> excepciones (regla 15); cada raíz trae su rama entera, así que el árbol no se corta a la mitad.
+>
+> **La galería nunca viene vacía**: sin fotos trae la imagen por omisión. La app no tiene un caso
+> especial de «no hay imágenes».
+>
+> **Medido con los 20.012 productos reales:** 5 consultas por página sea cual sea su tamaño, de 7 a
+> 40 ms con la base caliente (unos 70 en una página muy profunda); 19 KB una página de 50. El test de escala quita el `with('categoria')` y
+> falla (54 consultas contra 9): detecta el N+1 que dice vigilar.
+>
+> **`GET /categorias` existe desde este tramo**: la prueba de conexión de Ajustes (tramo B) ya recibe 200
+> en lugar del 404 que aceptaba.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Criterios`, `Pagina<T>`, `Categoria` y `CategoriaResumen`, `Marca`, `Producto`, `ProductoFicha`, `DisponibilidadConverter` y `build.yaml` | Los modelos `freezed` del contrato (`snake_case`), probados contra el JSON de `api.md` §7.1. `Criterios.resueltos` copia lo que el servidor aplica por omisión | Nuevo |
+| `ApiService` y `CatalogoRepository` | Atrapan `DioException` y lanzan `e.falla`; el repositorio descarta la respuesta cuyos `criterios` no coinciden con los pedidos (1.12) | Nuevo |
+| `Cancelacion` y `Cancelado` | Un pedido viejo se cancela y su resultado no pisa al nuevo | Nuevo |
+| `CatalogoViewModel`, `InicioViewModel`, `BusquedaViewModel`, `FichaViewModel` y `sinReintento` | Criterios inmutables; al cambiar uno se descarta lo cargado y se cancela el pedido anterior; la página siguiente se pide una sola vez; 300 ms de espera en la búsqueda; reintento automático de Riverpod apagado | Nuevo |
+| `CascaraDestinos`, `MenuCategorias`, `PanelLateral`, `HojaInferior` y `FondoHoja` | Barra Inicio · Menú · Carrito · Perfil sobre los botones del sistema; menú de categorías por niveles en un panel con fondo; filtros en una hoja con fondo | Modificado y nuevo |
+| `EncabezadoBusqueda` y `PantallaConBusqueda` | El encabezado es sólo la barra de búsqueda (regla 31), como botón en Inicio y Catálogo y como campo en Búsqueda | Nuevo |
+| `TarjetaProducto`, `ImagenProducto`, `EtiquetasProducto`, `InsigniaDisponibilidad` y `ListadoProductos` | Tarjeta de altura pareja con foto (`cached_network_image`, `memCacheWidth`), marcas con color y texto, y la grilla con sus seis estados que comparten Catálogo y Búsqueda | Nuevo y modificado |
+| `InicioVista`, `CatalogoVista`, `BusquedaVista`, `FichaVista`, `GaleriaProducto`, `AvisoPrecio` y `NoEncontradoVista` | Las pantallas del tramo: dos carruseles, catálogo con filtros, búsqueda en vivo, ficha con galería y `Hero`, y una sola pantalla de «No encontrado» | Nuevo |
+| Router: `/catalogo`, `/buscar`, `/producto/:id`, `errorBuilder` y los `PopScope` | Rutas hijas de Inicio; un id inválido ni se pide; «atrás» vuelve a Inicio desde Carrito y Perfil y desde el login de la guarda | Modificado |
+| Splash nativo y `SplashMarca` | El único logo de la app, con fondo crema claro y oscuro | Nuevo |
+| Reglas 29 a 34 de `CLAUDE.md` y `ARQUITECTURA.md` | Las pautas de interfaz (Nielsen, KISS, pocos pasos, encabezado y barra) que rigen desde este tramo | Nuevo |
+
+> **La ficha no muestra precio todavía.** El contrato no manda `precios` hasta el tramo D: la ficha y
+> las tarjetas dicen «Iniciá sesión» (regla 21), incluso con sesión. El tramo D cambia `AvisoPrecio` por `Precio`.
+>
+> **El encabezado es sólo la barra de búsqueda y el único logo es el del splash** (reglas 31 y 32).
+> Notificaciones no está en la barra: las push son de la Etapa 4.
+>
+> **Se probó en un teléfono real** (Android 17, edge-to-edge): de ahí salieron seis correcciones de
+> interfaz (HL-47 a HL-51 y la dirección del servidor, HL-46) que los tests con falsos no podían ver.
+
+### Tramo D — Cuenta y precios
+
+Servidor (`compustack`) y app (`compustack-app`). La app pasó de 442 a **546 tests** (104 nuevos).
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `RolPermisoSeeder` | Módulo `tienda` (`ver_precios`, `comprar`, `ver_pedidos`); el Cliente recibe `tienda.*` (D-6) | Modificado |
+| `RegistroRequest` y `Api\V1\RegistroController` | Alta de la cuenta de tienda con su cliente (DNI sin número, consumidor final) y la credencial, 201. El rol se busca por ámbito y `es_sistema`, no por nombre | Nuevo |
+| `SesionRequest`, `Api\V1\SesionController` y `CredencialService::iniciar()` | Inicio de sesión sin sesión web; incorrecta, inexistente, inactiva y de gestión dan el mismo 422. Cierre: revoca la credencial de este dispositivo, 204 | Nuevo |
+| `Api\V1\PerfilController` y `PerfilResource` | La cuenta de quien tiene la sesión, sin datos fiscales | Nuevo |
+| `App\Support\Api\Precios` y `TextosTienda::PRECIO` | La forma de `precios` (§5), un solo lugar para listado y ficha | Nuevo |
+| `ProductoListadoResource` | `precios` con `$this->when(...)`: sin el permiso la clave no está (regla 21); la ficha lo hereda | Modificado |
+| `Producto::ORDENES_TIENDA`, `ORDENES_CON_PRECIO` y `scopeOrdenTienda` | `precio_asc` y `precio_desc` por `precio_contado`, desempate por `id` (D-14) | Modificado |
+| `Api\V1\ProductoController@index` | El orden por precio da 401 sin sesión y 403 sin permiso **antes de consultar** | Modificado |
+| `UsuarioService::cambiarPassword()` | Cambiar o restablecer la contraseña revoca todas las credenciales de la API | Modificado |
+| `bootstrap/app.php` | `VerificarAmbitoGestion` corre antes de `SubstituteBindings` (HL-54) | Modificado |
+| `routes/api.php` | `registro` y `sesion` públicos con `throttle:tienda-acceso`; `DELETE sesion` y `perfil` protegidos | Modificado |
+| `docs/api.md` | Revisión 3: §7.2 cuenta, precios y orden por precio | Modificado |
+| `tests/Feature/Api/{Cuenta,Precios,FronteraGestion}Test` y `CredencialTest` | 58 tests nuevos: cuenta (34), precios y orden (15), frontera y permisos (9); y 3 de revocación por contraseña | Nuevo |
+
+> **El orden por precio exige el permiso aunque no muestre precios**: ordenar deja deducirlos. Por eso
+> responde antes de consultar, y con 401 o 403, no con 422: el orden existe, lo que falta es poder usarlo.
+>
+> **El mismo 422 para cuatro casos** (contraseña, correo, inactiva, gestión) y un hash calculado aunque
+> el correo no exista: ni el mensaje ni el tiempo dicen qué correos tienen cuenta.
+>
+> **La frontera se lee del router.** `FronteraGestionTest` recorre cada ruta con el middleware `gestion`,
+> con sesión web y con credencial de un cliente: una ruta nueva queda cubierta sin tocar el test. Así
+> apareció HL-54.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Precios`, `Credencial`, `Usuario` y `Perfil`; `precios` en `Producto` y `ProductoFicha` | Los modelos del contrato rev. 3, probados contra su JSON; `precios` ausente es `null` y no se escribe (regla 21) | Nuevo y modificado |
+| `AuthService` | Registro, inicio y cierre de sesión y perfil; guarda la credencial y devuelve sólo el `Usuario` (regla 22). Un 401 al cerrar cuenta como cerrada | Nuevo |
+| `SessionRepository` y `traducirFallas` | Abre, cierra y consulta sin ver la credencial (ya no conoce `TokenStorage`); los repositorios comparten la traducción a `Falla` | Modificado y nuevo |
+| `cambiosDeSesionProvider` | Los listados y la ficha se vuelven a pedir al abrir o cerrar la sesión (con o sin precios), **no al vencer** | Nuevo |
+| `FormularioCuentaViewModel`, `Validar`, `LoginVista` y `RegistroVista` | Validan antes de enviar (regla 26), un solo envío, cada error del 422 junto a su campo, cuenta regresiva del 429; al entrar vuelven a `desde` aunque el login esté apilado (HL-56) | Nuevo |
+| `CuentaVista` (Perfil), `CuentaViewModel`, `MiCuentaVista`, `Iniciales` y `FilaDato` | Perfil según la regla 34 con cerrar sesión (sin red falla y lo dice, regla 27); Mi cuenta de sólo lectura en bloques | Nuevo y modificado |
+| `PreciosFicha`, `ahorro()` y la tarjeta con el de contado | La ficha muestra los dos precios con el de contado destacado y cuánto se ahorra; la tarjeta, el de contado | Nuevo y modificado |
+| `Paginador` y `CatalogoViewModel.irA` | El catálogo y la búsqueda se paginan con números en lugar del scroll infinito del tramo C (D-21) | Nuevo y modificado |
+| `HojaFiltros` y `TextosCatalogo.ordenesPara` | «Menor precio» y «Mayor precio» sólo con sesión; sin ella el orden se descarta antes de pedir | Modificado |
+| `idiomaApp` y `flutter_localizations` | La app fijada en español; los textos de Material del SDK además de los de forui (HL-55) | Nuevo |
+| Router: `/registro` y `/cuenta/datos` | La misma guarda que `/login`; Mi cuenta pide sesión | Modificado |
+
+> **La sesión vencida se prueba de punta a punta** (`sesion_vencida_test.dart`) con el `Dio` real sobre un
+> servidor de mentira: el 401 del catálogo borra la credencial y lo dice, el login vuelve al catálogo y
+> el catálogo ya trae los precios.
+>
+> **Al vencer no se recarga**: la pantalla muestra la falla que lo explica, y una recarga sin credencial
+> la taparía con una lista sin precios, justo lo que el 401 de las rutas de sesión opcional evita (`api.md` §4).
+>
+> **Se probó en un teléfono real**: de ahí salieron la jerarquía de la ficha (los precios antes que los
+> datos de referencia), «Disponible» en gris visible y Mi cuenta en bloques.
+
+### Tramo E — Carrito y reserva
+
+Servidor (`compustack`) y app (`compustack-app`). La app pasó de 546 a **673 tests** (127 nuevos).
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| Migraciones `carritos` y `carrito_lineas` | El carrito en el servidor, de la cuenta; `abandonado` declarado sin uso; dos referencias de precio por renglón (D-11); UNIQUE(`carrito_id`, `producto_id`) | Nuevo |
+| `Carrito` y `CarritoLinea` | `ESTADOS`, `vigente()`, `enCheckoutVigente()`. Sin `venta()` hasta el F, que trae `ventas.carrito_id` (HL-57) | Nuevo |
+| `StockService::reservar()` y `liberar()` | La reserva por la única puerta, con la fila bloqueada y sin asiento (D-5); `liberar()` nunca baja de cero ni falla (HL-4) | Nuevo |
+| `StockService::descontar(..., $deReserva)` | Usa `stock_disponible` en lugar de la resta escrita; con `$deReserva`, consume la reserva propia. Sin él, el mostrador no cambia | Modificado |
+| `CarritoService` | Un carrito vigente por cuenta (fila del usuario bloqueada); agregar, cambiar, quitar, vaciar sobre lo propio; resumen sin escribir; checkout que guarda las referencias, confirma y recién lanza; vencimiento | Nuevo |
+| `CarritoCambioException` y `CheckoutVencidoException` | 409 `carrito_cambio` (con `cambios`) y `checkout_vencido` en `RespuestaDeError`, antes de la madre (HL-17) | Nuevo |
+| `CarritoController`, `CarritoLineaController`, `CheckoutController` | Las seis rutas, con `can:tienda.comprar`. Cada escritura devuelve el carrito entero | Nuevo |
+| `CarritoCantidadRequest`, `CarritoLineaRequest`, `CheckoutRequest` | Enteros; `cantidad` hasta `carrito.cantidad_maxima`; todo importe `prohibited` (M-31) | Nuevo |
+| `CarritoResource` y `ResumenCheckoutResource` | Renglones con disponibilidad por nivel, dos importes, totales y avisos; el checkout suma total por medio y modos de entrega. Sin `tienda.ver_precios`, ningún importe (regla 21) | Nuevo |
+| `TextosTienda::CARRITO` y `ENTREGA` | Estado del carrito y modos de entrega con su texto | Modificado |
+| `tienda:vencer-reservas` (`VencerReservasTienda`) | Suelta los checkouts vencidos, cada minuto y sin encimarse; el F y el G le suman pasos | Nuevo |
+| `config/tienda.php` | `carrito.cantidad_maxima` 10 confirmado (Q-1); `envio.habilitado` (HL-58) | Modificado |
+| `docs/api.md` | Revisión 4: §7.3 carrito y checkout, dónde se guarda el carrito | Modificado |
+| `tests/Feature/{CarritoEsquema,StockReserva,CarritoService}Test`, `Api/{Carrito,Checkout}Test` | 97 tests nuevos: esquema (5), reserva (15), servicio (34), carrito (31) y checkout (12) | Nuevo |
+
+> **La concurrencia se prueba antes del bloqueo.** En `reservar()` el bloqueo y la lectura son la misma
+> consulta, así que la reserva competidora se inyecta con `DB::beforeExecuting`, justo antes del
+> `FOR UPDATE`: `DB::listen` corre después y lo inyectado no entraría en la cuenta de ninguna implementación.
+>
+> **La invariante de HL-4 se verifica en seis puntos** de una secuencia con cuatro cuentas: agregar,
+> iniciar, escribir (suelta), volver a iniciar, vencer y vaciar. Con el F, la suma agrega los pedidos.
+>
+> **Los mensajes que llegan a la tienda no dicen cuántas unidades hay**: el de `reservar()` lo omite; el
+> de `descontar()`, que lee el mostrador, lo sigue diciendo.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Carrito`, `Renglon`, `AvisoCarrito` y `ResumenCheckout` | Los modelos de §7.3 contra su JSON; sin permiso, sin precios ni totales (regla 21); un tipo de aviso desconocido es servidor caído | Nuevo |
+| `CarritoService` y `CarritoRepository` | Las seis rutas; el carrito como flujo que publica cada escritura; un mismo pedido no sale dos veces; se descarta con cualquier cambio de sesión; el 409 trae `cambios` leídos | Nuevo |
+| `CarritoViewModel` y `CarritoVista` | Paso 1 de 5; renglones con imagen, nombre, dos precios con ícono, «− cantidad +» y quitar (botón o deslizar) con deshacer; vaciar con confirmación; relacionados; barra fija con el total y «Realizar pedido» | Nuevo |
+| `TarjetaReserva` y `CuentaRegresiva` | Al reservar: la cuenta regresiva y mosaicos de igual alto con medios y entrega | Nuevo |
+| `AgregarViewModel`, barra de compra de `FichaVista` y `conCargandoMarca` | Cantidad y «Agregar» fijos en la ficha; sin sesión, al login apilado; sin stock, no se ofrece; el cargador con el logo mientras se agrega | Nuevo y modificado |
+| `AgregadoVista` y `relacionadosProvider` | Lo agregado, más de su categoría con «Agregar», «Ver artículos en el carrito» y «Seguir comprando» | Nuevo |
+| Tope de stock aprendido del 409 | En el carrito «+» se frena en el stock exacto; en la ficha, una unidad menos que la rechazada (HL-59) | Nuevo |
+| `CascaraDestinos` y router | Carrito deja de ser rama: abre `/carrito` y `/agregado/:id` sin barra inferior, con la insignia de unidades (HL-60) | Modificado |
+| `PreciosCompactos`, `LeyendaPrecios`, `InsigniaAhorro`, `IndicadorPasos`, `RenglonCarrito`, `SelectorCantidad`, `BarraPedido`, `AvisosCarrito` | Las piezas de la compra; el rótulo de cada precio una sola vez | Nuevo |
+
+> **El tope de stock no se conoce antes de pedir**: el número no viaja (requisito 2.3), así que la app lo aprende
+> del 409 `stock_insuficiente`, que no se muestra como error sino como un aviso chico junto a la cantidad.
+>
+> **Del carrito al pago no hay barra inferior** (regla 32) y **el logo aparece en el cargador al agregar** (regla
+> 31): son decisiones de interfaz del tramo, pedidas al revisar las pantallas.
+>
+> **Los relacionados son de la misma categoría** porque es lo único que el contrato tiene; los títulos no dicen
+> «otros compraron» (regla del tramo J).
+
+### Tramo F — Confirmación del pedido
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| Migración `add_tienda_to_ventas_table` | `carrito_id` FK UNIQUE (D-8), `medio_pago`, `reserva_vence` y la dirección congelada, todo nullable; índices (`estado`, `reserva_vence`) y `canal` | Nuevo |
+| `Venta` | `carrito()`, `CANALES` con su texto, `deCanal()`, `esOnline()`, `canalTexto()`; `ESTADOS_EN_USO` suma `pendiente_pago` (D-2); `faltantesDeStock()` cuenta la reserva propia (§1.3 C) | Modificado |
+| `Carrito::venta()` | El pedido en que se convirtió (HL-57) | Nuevo |
+| `VentaService::crearOnline()` | El pedido nace en `pendiente_pago`, sin vendedor, con la lista del medio, el envío y la reserva del carrito, sin moverla (HL-4) | Nuevo |
+| `VentaService::marcarPagada(?User)`, `cancelar()`, `cancelarVencidos()` | Cobrar consume la reserva (HL-10); cancelar y vencer la liberan, un pedido por transacción. Sin usuario para la pasarela del G | Modificado y nuevo |
+| `VentaService::escribirLineas(..., $lista)` | Cotiza a contado o a lista (HL-14); el mostrador no cambia | Modificado |
+| `CarritoService::confirmar()` y `revalidar()` | Bloquea por id y dueño (ajeno: 404); convertido devuelve su pedido; vencido o con cambios, suelta y lanza después de confirmar la liberación | Nuevo |
+| `tienda:vencer-reservas` | Suma la cancelación de los pedidos vencidos (D-1) | Modificado |
+| `PedidoController`, `ConfirmarPedidoRequest`, `PedidoResource` | `POST /pedidos`: 201 al crear, 200 en el reintento; importes `prohibited`; envío con dirección, retiro sin ella; sin `tienda.ver_precios`, sin importes | Nuevo |
+| `CarritoResource` (`id`) y `PerfilResource` (`direccion`) | El `id` que nombra la confirmación (HL-64); la dirección predeterminada, de sólo lectura | Modificado |
+| `VentaFiltroRequest`, `VentaController`, `ventas/index` y `show`, `ListadoVentas` | Ampliación 2: columna y filtro «Canal»; «Cancelar el pedido» avisa que libera la reserva | Modificado |
+| `config/tienda.php` | `envio.costo` 8.000 (Q-1) | Modificado |
+| `docs/api.md` | Revisión 5: §7.4 pedidos, `id` del carrito, `direccion` del perfil | Modificado |
+| `tests/Feature/{VentaOnlineService,CarritoService,CarritoEsquema,VentaFiltros,VentaModulo}Test`, `Api/{PedidoConfirmacion,Cuenta,Carrito,Checkout}Test` | El pedido, la idempotencia, sin parciales, el cobro con el stock justo, el vencimiento, la invariante con dos dueños, el canal en los dos niveles | Nuevo y modificado |
+
+> **La confirmación suelta antes de lanzar.** Vencido o con cambios, el carrito vuelve a `activo` y
+> recién después sale el 409: adentro de la transacción, el rollback desharía la liberación. Con cambios
+> se suelta además porque, si no, el próximo checkout vería la reserva vigente y no revalidaría.
+>
+> **Sin registros parciales se prueba con una falla inyectada** en el segundo `INSERT` de renglones
+> (`DB::beforeExecuting`): no queda venta, ni renglones, ni carrito convertido, y las dos reservas siguen.
+>
+> **El ranking de vendedores no cuenta la venta online, y el panel general sí**: el ranking se arma con
+> un `join` a `users` sobre `ventas.usuario_id`, que en el pedido es nulo. Se fija con un test.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Direccion`, `Pedido`, `LineaPedido`, `ImportesPedido`; `Carrito.id` y `Perfil.direccion` | Los modelos de §7.4 y lo nuevo de §7.2 y §7.3 contra su JSON; sin `tienda.ver_precios`, sin importes | Nuevo y modificado |
+| `PedidoService` y `PedidoRepository` | `POST /pedidos` sin importes, la dirección sólo con envío; 201 o 200; la misma confirmación no sale dos veces mientras corre | Nuevo |
+| `traducirConCambios` | La lectura de los `cambios` del 409, compartida por los dos repositorios sin que se conozcan (regla 25) | Nuevo (salió de `CarritoRepository`) |
+| `CarritoRepository.resumen` | El resumen del checkout mientras el carrito siga reservado: la confirmación no reserva otra vez | Modificado |
+| `CheckoutViewModel` y `CheckoutVista` | Pasos 2 a 5: revisión con la reserva, tus datos, entrega (dirección propuesta, editable sólo para el pedido) y pago con el total de cada medio; «Confirmar» una vez, el reintento con el mismo `carrito_id`; cada 409 vuelve al carrito | Nuevo |
+| `PedidoRegistradoVista` y `PagoProvisorioVista` | Contado: «Pedido V-… registrado. Lo pagás en el local antes del…», sin decir que se pagó (P-4). Pasarela: el lugar del pago hasta el G | Nuevo |
+| `CarritoViewModel` y `CarritoVista` | «Realizar pedido» reserva y pasa a la confirmación; el motivo de un 409 se muestra al volver | Modificado |
+| Router y `Rutas` | `/checkout` y sus hermanas `/checkout/pedido/:id` y `/checkout/pago/:id`, con sesión y sin barra inferior | Modificado |
+| `OpcionElegible`, `sumar`, `fechaHoraLocal` | La opción de un grupo excluyente (no sólo color); la suma en centavos; la fecha y la hora locales | Nuevo |
+
+> **El motivo del 409 viaja como `extra` de la ruta del carrito**, no como estado compartido: el carrito lo
+> muestra una vez y se recarga, porque el servidor ya soltó la reserva.
+>
+> **El cierre y el pago son hermanas de `/checkout`, no hijas**: se llega con `go` y «atrás» va al inicio, así no
+> se vuelve a una confirmación ya hecha.
+
+### Tramo K — Cuenta editable
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `PerfilResource` | Suma `tipo_doc` + `_texto`, `nro_doc` (los tres en `null` sin número, HL-65) y `condicion_iva` + `_texto`, de sólo lectura (D-22) | Modificado |
+| `ActualizarPerfilRequest` | `PATCH /perfil` parcial: nombre y apellido (juntos 150, contra lo guardado si viene uno), teléfono, documento juntos o ninguno, dirección anidada; lo fiscal, el correo y los importes, `prohibited`; quitar el documento con RI o Monotributo, 422 (HL-67) | Nuevo |
+| `App\Rules\DocumentoTienda` | DNI de 7 u 8; CUIT y CUIL de 11 con dígito verificador. Sólo en la API: la ficha del cajero no cambia (HL-66) | Nuevo |
+| `PerfilService::actualizar()` | Una transacción con la ficha bloqueada: `users`, `clientes` (la razón social sigue al nombre sólo si cambió) y la predeterminada por `DireccionService` (HL-68); el choque del documento al guardar, 422 | Nuevo |
+| `PerfilController::update` y la ruta | `PATCH /perfil`, protegida como el `GET`, sin permiso aparte; devuelve el perfil con `mensaje` | Nuevo |
+| `ReglasFiscales::EXIGEN_DOCUMENTO`, `ConfirmarPedidoRequest::CAMPOS_DIRECCION` | Pasan a públicas para reusarlas, sin cambiar lo que hacen | Modificado |
+| `docs/api.md` | Revisión 6: `PATCH /perfil` y los datos fiscales del `GET` | Modificado |
+| `ActualizarPerfilRequest` y `ConfirmarPedidoRequest` (`direccion.provincia`) | `Rule::in(Direccion::PROVINCIAS)`, como la web: una de las 24, 422 «Elegí una provincia de la lista.» (HL-69). Filas sumadas en el tramo G | Modificado |
+| `docs/api.md` (revisión 7) | La provincia de lista cerrada en §5 y en los dos endpoints que mandan dirección | Modificado |
+| `tests/Feature/Api/PerfilEdicionTest`, `Api/CuentaTest` | Lectura, validación en cada campo, guardado, la razón social, lo que no vino no se toca, el pedido ya hecho no cambia, el cajero ve lo mismo, 401 y la cuenta de gestión | Nuevo y modificado |
+
+> **El `PATCH` es parcial a propósito**: el paso 4 de la compra guarda sólo la dirección, y un CUIT que el
+> cajero cargó sin verificador no le impide al cliente cambiar su teléfono.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Perfil` (documento y condición frente al IVA) y `CambiosPerfil` | Lo nuevo de §7.2 contra su JSON (sin número, los tres del documento en `null`); el cuerpo del `PATCH` sólo con lo que cambió, `Nuevo(null)` para quitar | Nuevo y modificado |
+| `AuthService.actualizarPerfil` y `SessionRepository.actualizarPerfil` | `PATCH /perfil` con el perfil guardado y el `mensaje`; sin red falla (regla 27) | Modificado |
+| `Validar` (`documento`, `datosPersonales`, `direccion`) y `Cambios` | Valida como el servidor: DNI 7 u 8, CUIT y CUIL con dígito verificador, juntos 150, largos de `direcciones` y la provincia de la lista (HL-69); qué cambió respecto de lo guardado | Nuevo y modificado |
+| `FormularioDatos` y `FormularioDireccion` | El mismo formulario en Mi cuenta y en la compra; el correo, la razón social y la condición se ven y no se editan (D-22) | Nuevo |
+| `SelectorOpciones`, `SelectorLista` y `Casilla` | DNI, CUIT o CUIL sin depender del color; la provincia de las 24 de `api.md` §5, sin texto libre; «Guardarla en mi cuenta» | Nuevo |
+| `MiCuentaViewModel` y `MiCuentaVista` | Mi cuenta editable: datos y dirección predeterminada (cargarla, cambiarla o quitarla); «Guardar» una vez, cada 422 junto a su campo | Modificado |
+| `CheckoutViewModel` y `CheckoutVista` | Paso 3 editable que guarda si cambió y no toca el carrito; en el paso 4, «Guardarla en mi cuenta» manda sólo la dirección | Modificado |
+
+> **Mi cuenta también edita y quita la dirección predeterminada**: se sumó al hacer el lado de app (el contrato
+> ya lo admitía, `direccion` objeto o `null`). Sin ella, la dirección sólo se podía cargar desde una compra y nunca
+> quitar.
+>
+> **Una provincia guardada antes de la revisión 7 que no está en la lista llega sin elegir** (HL-69): la app no la
+> da por buena ni la manda tal cual.
+
+### Tramo G — Pagos
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| Migraciones `create_intentos_pago_table`, `add_intento_pago_id_to_pagos_table`, `add_simulador_to_pagos_metodo` | Los intentos aparte de `pagos`; `pagos.intento_pago_id` FK UNIQUE (HL-2); `simulador` al final del ENUM (D-13) | Nuevo |
+| Migración `fix_timestamps_sin_on_update` | `intentos_pago.vence_at` y `pagos.fecha` sin el `ON UPDATE CURRENT_TIMESTAMP` implícito de MariaDB (HL-73); los valores guardados no cambian | Nuevo |
+| `IntentoPago` | Estados y pasarelas; no se borra; `aprobadoSinAcreditar()`, `acreditable()` e `IMPORTE_DISTINTO` (HL-72) | Nuevo |
+| `Pago` | `simulador` en `METODOS`; `METODOS_EN_USO` sin cambios (§1.3 G); `intentoPago()`; el motivo de por qué el mostrador no ofrece `mercadopago` | Modificado |
+| `App\Pagos\{Pasarela, Inicio, Consulta, PasarelaNoDisponible, Pasarelas}` | El contrato; `Consulta` distingue «contestó pendiente» de «no contestó» (`respondida`); `Pasarelas` resuelve por el contenedor y dice cuáles están habilitadas (Mercado Pago, sólo con credencial) | Nuevo |
+| `PasarelaSimulador` | Sin URL; la consulta devuelve lo guardado | Nuevo |
+| `PasarelaMercadoPago` | Checkout Pro con `Http`, sin SDK: preferencia con `expires` y vencimiento (HL-71), `X-Idempotency-Key`; búsqueda por `external_reference` con la regla de varios pagos y el importe (HL-72); sin red, pendiente | Nuevo |
+| `PagoService::acreditarIntento()` | El pago de la pasarela sin cajero, idempotente por `intento_pago_id`; comparte con `cobrar()` `exigirQueSePuedaCobrar()` y `escribirPago()`; `cobrar()` no cambia (HL-3) | Nuevo y modificado |
+| `IntentoPagoService` | `iniciar` (uno pendiente por pedido, estira la reserva), `verificar` (HTTP afuera, aplicar adentro, aprobado en su transacción), `resolverSimulado`, `verificarVencidos`, `reintentarAcreditaciones`, `pedidoDe` e `intentoDe` (ajeno: 404) | Nuevo |
+| `Venta` | `intentosPago()`, `ultimoIntentoPago()`, `delCliente()` (HL-70), `situacionDelPago()` y `estadoDelPago()` (regla 9) | Modificado |
+| `VentaService::cancelarVencidos()` y `tienda:vencer-reservas` | No cancela con un intento pendiente ni con un aprobado sin acreditar (HL-63, §1.3 E); el comando resuelve lo que está en el aire antes de cancelar | Modificado |
+| `PagoPedidoController`, `SimuladorController`, `IniciarPagoRequest`, `IntentoPagoResource` y las rutas | Los cinco endpoints de §7.5; el simulador, sólo con su llave; el intento lleva el estado del pago del pedido; sin `tienda.ver_precios`, sin `importe` | Nuevo |
+| `TextosTienda` | `SITUACION_PAGO` e `INTENTO`, con sus textos | Modificado |
+| `config/tienda.php`, `config/services.php`, `.env.example`, `phpunit.xml` | `intento_minutos` 20 (Q-1); el token de Mercado Pago sólo desde `.env`; los tests no leen el token real | Modificado |
+| `docs/api.md` | Revisión 8: §7.5 pagos, la tabla del estado del pago y la política ante pago fallido (D-9) | Modificado |
+| `tests/Feature/{IntentoPagoEsquema,Pasarelas,PasarelaMercadoPago,AcreditarIntento,IntentoPagoService}Test`, `Api/PagoTest`, `VentaOnlineServiceTest` | El esquema, la traducción de cada estado del proveedor, la acreditación una sola vez, el rechazo sin pago y con la reserva, el reintento, lo que queda en el aire, el vencimiento, lo ajeno 404 | Nuevo y modificado |
+
+> **Ninguna llamada HTTP con la venta bloqueada.** Se consulta afuera; adentro se bloquea la venta, se relee el
+> intento y se aplica sólo si sigue pendiente. El aprobado se guarda en su transacción y se acredita en otra: si
+> la acreditación falla, la aprobación queda y el comando la reintenta.
+>
+> **Un intento sólo vence si el proveedor contestó.** Sin respuesta, la plata pudo haber entrado: el intento
+> sigue pendiente y el pedido no se cancela (regla 16).
+>
+> **La prueba contra el sandbox real** (antes del paso 4): una preferencia creada con la credencial de prueba
+> volvió con la misma `external_reference`, `expires: true` y el vencimiento exacto del intento.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `IntentoPago` y `PedidoDelIntento` | La forma del intento de §7.5 contra su JSON, con el estado del pago del pedido; sin `tienda.ver_precios`, sin `importe` | Nuevo |
+| `PagoService` | `POST /pedidos/{id}/pagos` (siempre `mercadopago`, D-23; 201 nuevo, 200 el pendiente que ya había), `GET …/pagos` y `GET …/pagos/{intento}`. No usa `/simulador/…` | Nuevo |
+| `PagoRepository` | `traducirFallas`; la misma operación no sale dos veces mientras corre; `ultimo()` para retomar; `abrirPago()` abre `url_pago` con `NavegadorExterno` (D-19, regla 24) | Nuevo |
+| `PagoViewModel` (`EtapaPago`, `PedidoAPagar`) | Pagar, esperar, aprobado, en revisión, rechazado («Reintentar», otro intento sobre el mismo pedido) y sin cobrar, derivados del intento y de `estado_pago`; `vencido` y `error` no son un rechazo (regla 16); al volver al frente consulta (6.9) | Nuevo |
+| `PagoVista` | El total y una sola acción, «Pagar con Mercado Pago»; la espera con «Volver a consultar» y «Abrir Mercado Pago»; escucha `AppLifecycleListener.onResume`; los seis estados | Nuevo |
+| `ImporteDestacado`, `Aviso` (tipo `info`), `Iconos` | El total grande con su etiqueta; un aviso que no es error ni éxito; los íconos de abrir afuera y de consultar | Nuevo y modificado |
+| `router.dart`, `PedidoRegistradoVista` | `/checkout/pago/:id` abre `PagoVista` (sin la confirmación, retoma el último intento); se quitan `PagoProvisorioVista` y `PantallaProvisoria` | Modificado |
+| `test/data/{models/intento_pago,services/pago_service,repositories/pago_repository}_test`, `test/ui/pago/*`, `PagoServiceFalso`, `NavegadorExternoFalso` | Serialización contra `api.md`; doble envío; volver de Mercado Pago consulta; el reintento crea otro intento; los seis estados; la ruta reabierta | Nuevo |
+
+> **La app no ofrece el simulador** (D-23): con «simulador» se quería decir las cuentas de prueba de Mercado Pago.
+> El backend lo sigue teniendo hasta que se quite; la app manda siempre `"pasarela": "mercadopago"`.
+
+### Tramo H — Consulta de compras
+
+**Servidor**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Venta::paginaDelCliente()` | Mis pedidos sobre `delCliente()` (sólo online, HL-70), del más nuevo al más viejo con desempate por `id`; trae el último intento y suma las unidades en la base (A-26), sin una consulta por pedido | Modificado |
+| `PedidoController@index`, `@show`, `@comprobante`, `@descargarComprobante` y las rutas | Los cuatro endpoints de §7.6; el detalle busca por dueño con `IntentoPagoService::pedidoDe()` (ajeno: 404); la descarga es pública con `signed` | Modificado |
+| `PedidoListadoResource` | El renglón: los dos estados por separado, `unidades`; sin `tienda.ver_precios`, sin `importes` | Nuevo |
+| `PedidoDetalleResource` | Extiende `PedidoResource` (renglones congelados, dirección, `reserva_vence`) y suma `estado_pago`, `ultimo_pago` y `comprobante_disponible`; `POST /pedidos` no cambia | Nuevo |
+| `App\Impresion\ComprobanteVenta` | El PDF de la venta en un lugar, para la web y la tienda; el enlace firmado y temporal (D-22) sólo para lo cobrado (409 si no) | Nuevo |
+| `VentaController::pdf` | Delega el armado del PDF en `ComprobanteVenta`; conserva el aviso de la cancelada | Modificado |
+| `config/tienda.php` | `comprobante_minutos` 5 | Modificado |
+| `docs/api.md` | Revisión 9: §7.6 consulta de compras | Modificado |
+| `tests/Feature/Api/PedidoConsultaTest`, `Api/PedidoEscalaTest` | El pedido ajeno 404 igual que el inexistente; el mostrador no aparece; orden y paginado; el precio congelado; los dos estados en cada situación del pago; el comprobante (firmado, ajeno, sin pagar, vencido o tocado); las consultas del listado no crecen con los pedidos | Nuevo |
+
+> **El filtro por dueño es la consulta.** Listado, detalle y comprobante parten de `Venta::delCliente()`: un pedido
+> ajeno no se encuentra, y la respuesta es idéntica a la de uno que no existe.
+>
+> **El comprobante se abre sin credencial.** La app pide el enlace con su credencial; el navegador baja el PDF con
+> una firma de cinco minutos que nombra el pedido. La credencial nunca viaja en una URL.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Pedido` (+ `UltimoPago`) | El detalle de §7.6 en el mismo modelo de `POST /pedidos`: `estado_pago`, `ultimo_pago` y `comprobante_disponible` opcionales; `accionDePago(ahora)` («Pagar», «Reintentar» o nada) y `vencido(ahora)` | Modificado |
+| `PedidoResumen` | El renglón de `GET /pedidos` contra su JSON: los dos estados, `unidades`; sin `tienda.ver_precios`, sin `importes` | Nuevo |
+| `PedidoService` | `GET /pedidos` (paginado), `GET /pedidos/{id}` y `GET /pedidos/{id}/comprobante` (`EnlaceComprobante`: `url` y `vence`) | Modificado |
+| `PedidoRepository` | `listar`, `detalle` (ajeno o inexistente: `NoEncontrado`) y `abrirComprobante` (pide la URL en el toque y la abre con `NavegadorExterno`; no la guarda); la misma operación no sale dos veces mientras corre | Modificado |
+| `MisPedidosViewModel`, `MisPedidosVista` | Mis pedidos por páginas con el `Paginador`; «traer para actualizar» vuelve a pedir la que se ve; los seis estados | Nuevo |
+| `PedidoViewModel`, `PedidoVista` | El detalle: cabecera (total, estados, «Pagalo antes del…» o «Venció el plazo…»), renglones congelados, entrega y pago; una sola acción («Pagar», «Reintentar» → `Rutas.pagoDe`, o «Descargar comprobante»); al volver al frente, se vuelve a pedir | Nuevo |
+| `InsigniaEstado` e `InsigniasPedido`, `TarjetaPedido`, `CabeceraPedido`, `TarjetaSeccion` y `FilaClaveValor`, `RenglonPedido`, `TraerParaActualizar` (`ui/comun`) | Los estados con ícono y texto (dos iguales, una sola); la tarjeta de un pedido; las piezas del detalle; el `RefreshIndicator` | Nuevo |
+| `Rutas`, `router.dart`, `CuentaVista`, `fechaLocal` | `/cuenta/pedidos` y `/cuenta/pedidos/:id`, con sesión; «Mis pedidos» en Perfil (regla 34); la fecha sin hora | Modificado |
+| `test/data/{models/pedido,models/pedido_resumen,services/pedido_service,repositories/pedido_repository}_test`, `test/ui/pedidos/*`, `PedidoServiceFalso` | Serialización contra `api.md`; **el pedido ajeno es `NoEncontrado`, igual que uno que no existe** (`pedido_repository_test`, «el pedido ajeno es NoEncontrado, igual que uno que no existe»); el paginado; el comprobante (en el toque, 409, sin red, doble toque); los seis estados de las dos vistas; la guarda | Nuevo y modificado |
+
+> **La app no distingue ajeno de inexistente**, porque el servidor no lo distingue: los dos son «no existe».
+>
+> **Menos texto, más estructura** (HL-76): tras la prueba en el teléfono, cada pedido va en su tarjeta y el detalle
+> en una cabecera y tarjetas por sección, y Mis pedidos pasó de sumar páginas al llegar al final al paginador.
+
+### Tramo I — Pruebas, documentación y demostración
+
+El I cierra lo que la consigna pide presentar.
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `docs/api.md` | Revisión 10, final: las 24 rutas pedidas al servidor y comparadas con sus ejemplos; sin cambio de forma | Modificado |
+| `docs/pruebas-etapa-2.md` | Qué se probó en cada repositorio, los tests que importan por su nombre, dificultades y pendientes (P-10) | Nuevo |
+| `docs/seguridad-etapa-2.md` | El riesgo detectado y su solución: la cuenta desactivada que seguía operando por la API (P-9, §1.3 A del plan) | Nuevo |
+| `docs/demostracion-etapa-2.md` | El guion de la defensa, en el orden de la consigna, con los datos del seeder | Nuevo |
+| `README.md`, `.env.example` | La Etapa 2 en el README: la API, la tarea de la tienda, `serve --host=0.0.0.0`, `schedule:work`, las claves nuevas (HL-79); el aviso del simulador (HL-80) | Modificado |
+| `config/tienda.php`, `phpunit.xml` | El simulador, apagado por omisión (HL-80); los tests lo encienden, porque sus rutas se registran al arrancar | Modificado |
+
+> **El I no agrega componentes de código**, salvo el valor por omisión de una llave.
+>
+> **El contrato se verificó contra el servidor, no contra los tests.** Los tests fijan las formas; la
+> revisión final pidió cada ruta a `php artisan serve` y comparó la respuesta con su ejemplo. Encontró la ruta
+> del simulador publicada en desarrollo (HL-80), algo que ningún test podía ver porque cada test fija la llave.
+
+### Cierre de la Etapa 2
+
+**Cada exigencia de la consigna tiene su componente en las tablas de los tramos A a I** (la §2 del plan
+las enumera con el tramo que las cierra), y la matriz de seguimiento del plan (§13) está toda en «Hecho».
+Los servicios de la Etapa 1 que la tienda reutiliza —`VentaService`, `PagoService`, `StockService`,
+`UsuarioService`— figuran en el tramo que los extendió, con sus métodos nuevos o modificados: la tienda no
+tiene un camino paralelo. Lo que no se hizo tiene su motivo escrito: lo que la consigna no pide es la
+Etapa 4 del plan (§5), y lo que quedó abierto está en `pendientes-usabilidad.md` con su número (#85, el
+retiro del simulador). Falta, para dar la etapa por presentada, ensayar el guion dos veces.
+
+### Tramo J — Contenido que invita a comprar (opcional)
+
+Mejora declarada, no requisito: no cierra nada de la matriz.
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `GET /api/v1/tienda` (`TiendaController`, `TiendaResource`) | Lo que la tienda ofrece, para el bloque de confianza de Inicio: los modos de entrega, sin costo (HL-81) | Nuevo |
+| `TextosTienda::modosEntrega()` | Un solo lugar decide los modos de entrega: el checkout, la confirmación y `/tienda` | Nuevo |
+| `ResumenCheckoutResource`, `ConfirmarPedidoRequest` | Toman los modos de `modosEntrega()` en lugar de repetir la llave | Modificado |
+| `docs/api.md` | Revisión 11 | Modificado |
+
+> **El contrato creció por una sola razón.** El plan quería el J entero con el contrato de la r10. Pero el
+> visitante no tenía de dónde saber si la tienda hace envíos: sólo lo decía el checkout, con sesión y
+> carrito. Escribirlo en la app habría sido afirmar algo que el sistema no verifica (regla 16).
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Tienda` (+ `ModoEntregaTienda`) | `GET /tienda` contra su JSON de `api.md` §7.1: los modos con el texto del servidor, sin costo | Nuevo |
+| `CatalogoRepository.tienda()` | La pide con `traducirFallas`, junto a `categorias()`: pública, de sólo lectura | Modificado |
+| `InicioViewModel` (`atajosInicioProvider`, `tiendaInicioProvider`), `InicioVista` | Atajos a las categorías raíz (el mismo árbol del menú, una sola petición) y el bloque de entrega, aparte de los carruseles: si fallan, no aparecen y el resto sigue; tarjetas de 200 px | Modificado |
+| `AtajosCategorias`, `BloqueEntrega` (`ui/comun`) | La fila de raíces con `Iconos.deCategoria`; «Cómo recibís tu compra» con un ícono por modo y el texto de `/tienda` | Nuevo |
+| `cortesDeSilaba`, `TextoSilabeado` (`ui/comun`) | Un nombre que no entra se corta entre sílabas con guion, no en cualquier letra (HL-83); el lector lo lee entero | Nuevo |
+| `FichaVista`, `relacionadosProvider` (ahora en `ficha_view_model.dart`) | «Más de X» con «Ver todo», sin el producto actual (sin otros, no aparece: HL-84); la descripción en un plegable; la disponibilidad destacada | Modificado |
+| `Plegable`, `Entrada` (`ui/comun`); `InsigniaDisponibilidad` (`destacada`) | El plegable sobre `FAccordion`; las entradas encadenadas con `flutter_animate`, sin animar si el sistema lo pide y sin repetirse al desplazarse | Nuevo y modificado |
+| `test/data/{models/tienda,repositories/catalogo_repository}_test`, `test/ui/{inicio,ficha}/*`, `test/ui/comun/{entrada,silabas}_test`, `test/routing/*`, `CatalogoRepositoryFalso` | Serialización contra `api.md`; atajos, bloque y «Más de …» con sus fallas aisladas; ningún precio fuera de `Precio`; las sílabas de las categorías; las rutas con los buscadores acotados al menú y a la galería | Nuevo y modificado |
+
+> **Sólo contenido real.** Las piezas nuevas salen de `/categorias`, `/productos` y `/tienda`; ninguna inventa
+> stock, reseñas ni urgencia, y los precios siguen pasando sólo por `Precio` (sin sesión, «Iniciá sesión»).
+>
+> **`lottie` quedó recortado** (HL-82): no hay ningún recurso `.json`, y no se agrega uno sin preguntar.
+
+### Tramo L — Observaciones del revisor
+
+Corrige y amplía lo hecho a partir de la revisión: no cierra filas nuevas de la matriz.
+
+**Backend**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `config/app.php`, migración `corregir_zona_horaria_de_fechas` | La hora de la gestión es la de Argentina, también la ya guardada (HL-86, D-24) | Modificado y nuevo |
+| `x-gestor-imagenes` (`en-tienda`), `gestor-imagenes.js` | La ayuda dice que el orden es el de la tienda, de izquierda a derecha, y numera cada imagen (HL-87) | Modificado |
+| `MovimientoStock` (`deCanal`, `registradoPorTexto`, `ventaOnline`), `MovimientoFiltroRequest`, `StockController`, `ListadoMovimientos`, `stock/index` | La venta online en el kardex: su canal, quién la cobró, el filtro, y lo reservado explicado (HL-85, D-25) | Modificado |
+| `UsuarioService::darAccesoATienda()`, `AccesoTiendaRequest`, `ClienteController::darAccesoTienda`, `clientes/form` | La cuenta de la tienda para un cliente del mostrador, sobre su ficha, con el enlace para elegir la contraseña (HL-89, D-26) | Nuevo y modificado |
+| `RestablecerPasswordController`, `auth/cuenta-tienda-lista`, `Api/RegistroRequest` | Una cuenta de la tienda sabe que entra por la app; el registro rechaza el correo de una ficha del mostrador | Modificado y nuevo |
+| Migraciones `add_transferencia_to_ventas_medio_pago` y `create_comprobantes_transferencia_table`, `ComprobanteTransferencia` | El tercer medio y sus comprobantes, que sólo suman filas (HL-90, D-27) | Nuevo |
+| `TransferenciaService`, `Api\V1\ComprobanteTransferenciaController`, `Api/ComprobanteTransferenciaRequest` | `POST /pedidos/{id}/comprobante-transferencia`: el archivo al disco privado, la reserva a tres días hábiles | Nuevo |
+| `Venta` (`situacionDelPago`, `comprobantesTransferencia`, `dePago`), `VentaService`, `IntentoPagoService`, `TextosTienda` (`MEDIO`, `avisoTransferencia`), `ResumenCheckoutResource`, `PedidoResource`, `PedidoDetalleResource`, `ConfirmarPedidoRequest` | La transferencia a precio de contado, con su texto, su estado derivado y su bloque en el detalle | Modificado |
+| `ComprobanteTransferenciaController` (web), `ventas/show`, `ventas/cobro`, `PagoController`, `VentaFiltroRequest`, `ListadoVentas`, `ventas/index` | Ver el comprobante con su permiso, cobrar con el saldo en transferencia, encontrar lo que hay que revisar | Nuevo y modificado |
+| `RolPermisoSeeder` | `cliente.dar_acceso_tienda`, `tienda.cargar_comprobante`, `venta.ver_comprobante_transferencia` | Modificado |
+| `ZonaHorariaTest`, `GestorImagenesOrdenTest`, `KardexCanalTest`, `ClienteAccesoTiendaTest`, `Api/RegistroMostradorTest`, `Api/TransferenciaTest`, `VentaTransferenciaTest` | Cada observación con su test; cinco aserciones de la Etapa 2 actualizadas (HL-93) | Nuevo y modificado |
+| `docs/api.md` | Revisión 12 | Modificado |
+
+> **Ninguna observación se resolvió aflojando una regla.** El kardex sigue sin asiento para lo que no se
+> cobró (regla 5): lo que cambió es que lo explica. La transferencia no se confirma sola: con el
+> comprobante queda «en revisión» y la confirma el local con el cobro de siempre, que es lo que saca el
+> stock. La hora se corrigió en los datos, no sólo en la pantalla, para que los filtros por día digan lo
+> mismo que se ve.
+
+**App**
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `PagoVista`, `router.dart` (`_sinCerrarLaApp` con destino) | En «Pagar» el pedido ya existe: la flecha y el «atrás» del sistema llevan a su detalle, no al inicio (HL-88) | Modificado |
+| `CheckoutViewModel`, `BorradorCheckout`, `borradorCheckoutProvider` | Lo elegido (paso, entrega, dirección, medio) sobrevive a salir al carrito mientras dure la misma reserva (HL-88) | Modificado y nuevo |
+| `CheckoutVista` | Los tres medios con cómo se paga cada uno; «Al confirmar, el medio de pago queda elegido»; con envío, el efectivo atenuado y con su motivo (D-28) | Modificado |
+| `MedioDePago` (`modosEntrega`, `valeCon`), `OpcionElegible` (`atenuada`) | El medio sólo con las entregas que dice el servidor (r13); la opción no disponible se ve y dice por qué | Modificado |
+| `Pedido` (`Transferencia`, `porTransferencia`, `aceptaComprobante`), `ArchivoComprobante`, `ComprobanteCargado` | La clave `transferencia` del detalle (§7.7) y cuándo se ofrece cargar el comprobante | Modificado |
+| `SelectorArchivos` | La única clase que importa `file_picker` (D-27): un PDF o una foto, leído en bytes | Nuevo |
+| `PedidoService.cargarComprobante`, `PedidoRepository.cargarComprobante` | `POST /pedidos/{id}/comprobante-transferencia` en `multipart`; tipo y 5 MB revisados antes de subir; `_unaVez`, sin reintento | Modificado |
+| `PedidoViewModel` (`cargarComprobante`, `cargando`, `errorCarga`) | La carga: bien, cancelada, 409 (vuelve a pedir el detalle), 422, sin red, sesión vencida | Modificado |
+| `TarjetaTransferencia` | Alias con «Copiar alias», titular, «Cargar comprobante» u «otro», el aviso del servidor y el error | Nuevo |
+| `PedidoRegistradoVista`, `PedidoVista` | El cierre y el detalle por transferencia: qué hacer y antes de cuándo, la tarjeta y el estado «en revisión» | Modificado |
+| `file_picker` 13.3.3 (`pubspec.yaml`, `pubspec.lock`) | La librería aprobada en D-27 | Nuevo |
+| Tests: `checkout_vista_test`, `checkout_view_model_test`, `pago_vista_test`, `routing/atras_test`, `pedido_test`, `carrito_test`, `pedido_service_test`, `pedido_repository_test`, `pedido_view_model_test`, `pedido_vista_test` | «Atrás» por pasos con la flecha y el del sistema, el borrador, «Pagar» → detalle, el JSON de r12 y r13, la carga en sus estados, D-28 | Modificado (986 → 1032) |
+
+

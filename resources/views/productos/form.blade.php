@@ -310,7 +310,7 @@
         <fieldset class="card card-body border-0 shadow-sm mb-4">
             <legend class="h5 mb-3">Imágenes</legend>
 
-            <x-gestor-imagenes :actuales="$imagenes" :max="Producto::MAX_IMAGENES" :descripcion="$producto->nombre ?: 'el producto'" />
+            <x-gestor-imagenes :actuales="$imagenes" :max="Producto::MAX_IMAGENES" :descripcion="$producto->nombre ?: 'el producto'" en-tienda />
         </fieldset>
 
         {{-- Estado --}}
@@ -321,6 +321,16 @@
                 <label class="form-check-label" for="activo">Producto activo</label>
                 <div class="form-text">Un producto inactivo no se ofrece en ventas.</div>
             </div>
+
+            @can('producto.editar')
+                <div class="form-check mt-3">
+                    {{-- Con errores de validación, una casilla destildada no vuelve en old(): se mira si hubo envío. --}}
+                    <input class="form-check-input" type="checkbox" value="1" id="destacado" name="destacado"
+                        @checked(session()->hasOldInput() ? old('destacado') : ($producto->destacado ?? false))>
+                    <label class="form-check-label" for="destacado">Destacado en la tienda</label>
+                    <div class="form-text">Aparece en la sección «Destacados» del inicio de la tienda. Si el producto está inactivo, no se muestra.</div>
+                </div>
+            @endcan
         </div>
 
         <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">

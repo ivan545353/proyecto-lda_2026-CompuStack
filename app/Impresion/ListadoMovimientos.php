@@ -5,6 +5,7 @@ namespace App\Impresion;
 use App\Models\MovimientoStock;
 use App\Models\Producto;
 use App\Models\User;
+use App\Models\Venta;
 use Illuminate\Support\Carbon;
 
 /**
@@ -29,7 +30,7 @@ final class ListadoMovimientos extends Listado
 
     public function relaciones(): array
     {
-        return ['producto:id,codigo,nombre', 'usuario:id,nombre,apellido'];
+        return ['producto:id,codigo,nombre', 'usuario:id,nombre,apellido', 'origen'];
     }
 
     public function orientacion(): string
@@ -63,9 +64,7 @@ final class ListadoMovimientos extends Listado
             new Columna('motivo', 'Motivo u origen',
                 fn (MovimientoStock $movimiento) => $movimiento->motivo ?? $movimiento->origenTexto()),
             new Columna('remito', 'Remito del proveedor', fn (MovimientoStock $movimiento) => $movimiento->remitoTexto()),
-            new Columna('usuario', 'Lo registró', fn (MovimientoStock $movimiento) => $movimiento->usuario
-                ? "{$movimiento->usuario->nombre} {$movimiento->usuario->apellido}"
-                : 'Generado por el sistema'),
+            new Columna('usuario', 'Lo registró', fn (MovimientoStock $movimiento) => $movimiento->registradoPorTexto()),
         ];
     }
 
@@ -78,6 +77,7 @@ final class ListadoMovimientos extends Listado
             'Producto'    => $producto?->rotulo(),
             'Tipo'        => MovimientoStock::TIPOS[$filtros['tipo'] ?? ''] ?? null,
             'Lo registró' => $usuario ? "{$usuario->apellido}, {$usuario->nombre}" : null,
+            'Canal'       => Venta::CANALES[$filtros['canal'] ?? ''] ?? null,
             'Desde'       => filled($filtros['desde'] ?? null) ? Carbon::parse($filtros['desde'])->format('d/m/Y') : null,
             'Hasta'       => filled($filtros['hasta'] ?? null) ? Carbon::parse($filtros['hasta'])->format('d/m/Y') : null,
         ]);

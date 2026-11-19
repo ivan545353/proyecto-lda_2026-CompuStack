@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ComprobanteTransferenciaController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\MarcaController;
 use App\Http\Controllers\RolController;
@@ -208,6 +209,9 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::delete('/clientes/{cliente}', [ClienteController::class, 'destroy'])
         ->middleware('can:cliente.eliminar')->name('clientes.destroy');
 
+    Route::post('/clientes/{cliente}/acceso-tienda', [ClienteController::class, 'darAccesoTienda'])
+        ->middleware('can:cliente.dar_acceso_tienda')->name('clientes.acceso_tienda');
+
     // Direcciones del cliente.
     Route::middleware('can:cliente.editar')->group(function () {
         Route::get('/clientes/{cliente}/direcciones/crear', [DireccionController::class, 'create'])
@@ -399,6 +403,9 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->middleware('can:venta.editar')->name('ventas.cancelar');
 
     // COBRO Y ENTREGA
+    Route::get('/ventas/{venta}/comprobantes-transferencia/{comprobante}', [ComprobanteTransferenciaController::class, 'show'])
+        ->middleware('can:venta.ver_comprobante_transferencia')->name('ventas.comprobante_transferencia');
+
     Route::get('/ventas/{venta}/cobro', [PagoController::class, 'create'])
         ->whereNumber('venta')
         ->middleware('can:venta.cobrar')->name('pagos.create');

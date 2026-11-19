@@ -45,6 +45,16 @@ Convenciones: todo importe es `decimal(12,2)` (nunca `float`, ver A-17 de la aud
 ### `rol_permiso`
 `rol_id FK, permiso_id FK` — clave primaria compuesta.
 
+**Los permisos de la tienda** *(Etapa 2, tramo D; D-6).* El módulo `tienda` suma tres claves, una por
+acción: `tienda.ver_precios` (los dos precios y el orden por precio), `tienda.comprar` (carrito,
+confirmación y pago; lo usan los tramos E a G) y `tienda.ver_pedidos` (la consulta de compras; tramo H).
+El tramo L suma `tienda.cargar_comprobante` (el comprobante de una transferencia) y, en la gestión,
+`cliente.dar_acceso_tienda` (la cuenta de la tienda de un cliente del mostrador, D-26) y
+`venta.ver_comprobante_transferencia` (abrir el comprobante; lo tienen el Administrador y el Cajero).
+El rol Cliente recibe `tienda.*`; sigue sin ningún permiso de gestión. El Administrador también las
+recibe por su `'*'`, sin efecto: la API rechaza las cuentas de gestión (D-3). Son filas de `permisos`
+como cualquier otra: no hay columna nueva ni migración, las crea `RolPermisoSeeder`.
+
 **Por qué vuelven las tablas de permisos.** La consigna de la Etapa 1 pide explícitamente un módulo de *administración de roles y permisos*. Eso es un requisito funcional con pantallas: el administrador tiene que poder ver y modificar qué hace cada rol sin que nadie recompile nada.
 
 **Por qué no se replica el modelo anterior.** El sistema original tenía `perfiles`, `modulos` y `permisos` con cuatro banderas CRUD por par (perfil, módulo). Ese diseño produjo el hallazgo C-2 de la auditoría: toda acción que no fuera crear, leer, actualizar o borrar caía en un `?? "can_update"` por defecto. Un vendedor podía anular ventas cobradas porque anular no era ninguna de las cuatro y heredaba el permiso de actualizar.
@@ -75,6 +85,8 @@ La causa de fondo es que el negocio tiene acciones que no son CRUD, y un modelo 
 1. Un cliente de mostrador **no tiene cuenta**. Si los datos fiscales vivieran en `users`, cada venta presencial exigiría crear un usuario con contraseña que nadie va a usar.
 2. Los datos fiscales (CUIT, condición IVA) sólo aplican a clientes. Meterlos en `users` deja cinco columnas siempre nulas para todos los empleados.
 3. `condicion_iva` es la que decide si emitís **Factura A o B**. Es un dato del sujeto de la operación, no de la cuenta de acceso.
+
+**Qué edita el cliente desde la tienda (tramo K, D-22).** La ficha es una sola y tiene dos entradas: el cajero, en la web, y el propio cliente, con `PATCH /perfil` (`PerfilService`). El cliente edita nombre y apellido (viven en `users`; `razon_social` los sigue cuando cambian), `telefono`, el documento (`tipo_doc` + `nro_doc`, juntos o ninguno) y su dirección predeterminada. **No** edita `condicion_iva` (decide Factura A o B: declararla mal es un problema fiscal del local), `email` ni `razon_social` directamente. La tienda pide más que el cajero: DNI de 7 u 8 dígitos y el dígito verificador del CUIT o CUIL (HL-66). `tipo_doc` no admite vacío: «sin documento» es `nro_doc` nulo, y el registro guarda `dni` de relleno, que la API no muestra (HL-65). Quien es Responsable inscripto o Monotributo no puede quitarse el documento (HL-67).
 
 `ventas.cliente_id` es nullable: la venta rápida de mostrador a consumidor final no necesita identificar a nadie, y ARCA acepta doc tipo 99 para esos casos.
 
@@ -118,7 +130,7 @@ dígito verificador.
 ### `direcciones`
 `id, cliente_id FK, calle, numero, piso_depto, codigo_postal, localidad, provincia, es_predeterminada`
 
-Sólo para envíos. Un cliente puede tener varias; la que se usa se **copia** al pedido, no se referencia. En la Etapa 2 la app no administra direcciones: el envío mínimo copia la dirección en la propia venta (§5). Las varias direcciones desde la app y la tabla `envios` (§7) son de la Etapa 4.
+Sólo para envíos. Un cliente puede tener varias; la que se usa se **copia** al pedido, no se referencia. En la Etapa 2 la app no administra direcciones: el envío mínimo copia la dirección en la propia venta (§5). Desde el tramo K el cliente edita **una**, la predeterminada (la crea, la cambia o la quita, siempre por `DireccionService`); si la quita y tenía otras cargadas en el local, asciende la más antigua (HL-68). Un pedido ya hecho no cambia: su dirección está copiada. Las varias direcciones desde la app y la tabla `envios` (§7) son de la Etapa 4.
 
 **Invariante:** si el cliente tiene al menos una dirección, exactamente una
 tiene `es_predeterminada`. El esquema no puede expresarlo —un `boolean` con
@@ -129,6 +141,34 @@ con ninguna no tiene nada que ofrecer. Toda operación bloquea la fila del
 **cliente** —no las de las direcciones— para que dos pestañas simultáneas no
 dejen dos marcadas, y para que el alta de la primera también se serialice,
 cuando todavía no hay ninguna fila de dirección que bloquear.
+
+### `personal_access_tokens`
+
+*(Etapa 2, tramo A. La crea Sanctum; la usa `App\Services\CredencialService`, que es la única clase que lo sabe.)*
+
+| Campo                        | Tipo               | Nota                                                           |
+| ---------------------------- | ------------------ | -------------------------------------------------------------- |
+| id                           | bigint PK          |                                                                |
+| tokenable_type, tokenable_id | varchar + bigint   | la cuenta dueña (`App\Models\User`); índice compuesto          |
+| name                         | text               | `app-tienda`                                                   |
+| token                        | varchar(64) UNIQUE | **hash** de la credencial: la credencial en claro no se guarda |
+| abilities                    | text null          | `["*"]`; no se usa para permisos (eso es `rol_permiso`)        |
+| last_used_at                 | timestamp null     |                                                                |
+| expires_at                   | timestamp null     | siempre se escribe: emisión + `SANCTUM_EXPIRATION`             |
+
+**Por qué una fila por credencial.** Es lo que hace posible *revocar*: en el sistema original el
+perfil viajaba dentro del JWT y desactivar a alguien no lo desconectaba hasta que el token vencía
+(A-5). Acá, desactivar o dar de baja una cuenta borra sus filas (`UsuarioService`, en la misma
+transacción), y cada pedido además revalida que la cuenta esté activa. Desde el tramo D, cambiar o
+restablecer la contraseña también las borra (`UsuarioService::cambiarPassword()`): quien la cambia
+porque se la sacaron espera que el otro quede afuera, también en la app.
+
+**Revocar borra la fila.** No choca con la regla de no borrar hechos del negocio: una credencial no
+es un hecho del negocio sino un permiso de acceso, y un permiso revocado no tiene historia que
+conservar. Lo que se guarda como historia (quién vendió, quién cobró) sigue en `ventas` y `pagos`.
+
+**No tiene clave foránea** (es polimórfica), así que no se borra sola con la cuenta: por eso
+`UsuarioService::eliminar()` las revoca antes de borrar la fila de `users`.
 
 ---
 
@@ -170,7 +210,7 @@ Tabla mínima, existe sólo para filtrar en la tienda.
 | stock_minimo           | int                | dispara la orden de compra                                           |
 | cantidad_reposicion    | int                | cuánto pedir cuando se dispara                                       |
 | peso_gramos            | int null           | si es null, usa el de la categoría                                   |
-| destacado              | boolean            | destaque manual (requerimiento 54)                                   |
+| destacado              | boolean            | destaque manual (requerimiento 54); se tilda en el formulario con `producto.editar` |
 | activo                 | boolean            | baja lógica                                                          |
 | **ganancia**           | decimal(6,3) null  | multiplicador propio; null = hereda de la categoría                  |
 | **precio_manual**      | boolean            | lo saca del recálculo: una promoción, una liquidación                |
@@ -255,6 +295,32 @@ ninguna unidad, así que su fila de kardex tendría cantidad cero y el mismo sal
 anterior: un asiento que no registra ningún movimiento, en un libro donde cada fila
 registra uno. El rastro de ese cambio va donde corresponde, que es `historial_precios`
 con su `costo_anterior` y su lote.
+
+**Lo que la tienda muestra de un producto se deriva, no se guarda (Etapa 2, tramo C).** Hay tres
+datos que la API publica y que no tienen columna:
+
+- **La novedad.** No hay `es_novedad`: es novedad el producto de la tienda creado dentro de
+  `novedades.dias` (30) y entre los `novedades.tope` (10) más recientes de ésos, con desempate por
+  `created_at` y `id`. Una columna se desactualizaría sola con el paso de los días, y un `created_at`
+  ya existe. La ventana sola no alcanza —el catálogo de volumen se cargó en dos días, así que todos
+  serían «nuevos»—, por eso además hay tope. `Producto::idsNovedades()` es la única definición y la
+  usan la sección y la marca de cada fila.
+- **La descripción breve.** Las primeras `descripcion_breve.palabras` (25) palabras de
+  `descripcion`, con «…» si se cortó (D-12), y nunca más de `descripcion_breve.caracteres` (250): un
+  texto sin espacios sería una sola «palabra». Una columna `descripcion_breve` pediría un campo más en el
+  formulario del producto —una tercera ampliación de la web— y dos textos que mantener a la par.
+- **La disponibilidad.** Tres niveles (`disponible`, `ultimas_unidades`, `sin_stock`) calculados sobre
+  `stock − stock_reservado` con el umbral `disponibilidad.ultimas_unidades` (3). El número nunca sale
+  del servidor.
+
+Y una regla de **visibilidad**: la tienda sólo muestra un producto activo cuya categoría sea activa *y*
+tenga todos sus ancestros activos. `CategoriaService` puede desactivar un padre sin tocar a sus hijas,
+así que `activo = 1` en la hija no alcanza; `Categoria::idsVisiblesEnTienda()` lo resuelve con una
+consulta sobre una tabla chica (69 filas hoy), una vez por pedido.
+
+**`imagenes` es una lista ordenada de rutas relativas al disco `public`** (`productos/xxx.jpg`):
+el orden es el de la galería y la primera es la imagen principal. Vacía o `null` significa «sin foto», y
+la API responde entonces con la imagen por omisión, nunca con `null`.
 
 ### `movimientos_stock`
 `id, producto_id FK, tipo, cantidad (con signo), stock_resultante, origen_type, origen_id, usuario_id FK null, motivo, remito_numero null, remito_fecha null, created_at`
@@ -674,14 +740,21 @@ quiere entrar al sistema, se le crea un rol con sus permisos y se le muestran su
 ## 4. Carrito
 
 ### `carritos`
-`id, user_id FK, estado, reservado_hasta timestamp null` — Etapa 2
+`id, user_id FK, estado, reservado_hasta timestamp null, timestamps` — Etapa 2 (tramo E). Índices
+(`user_id`, `estado`), para encontrar el vigente, y (`estado`, `reservado_hasta`), para los vencidos.
 
 `session_token varchar null` — Etapa 4 (carrito anónimo, ver abajo)
 
-`estado`: `activo`, `en_checkout`, `convertido`, `abandonado`.
+`estado`: `activo`, `en_checkout`, `convertido`, `abandonado`. Una cuenta tiene un solo carrito
+**vigente** (`activo` o `en_checkout`); para que dos pedidos simultáneos no creen dos, `CarritoService`
+bloquea la fila de `users` antes de buscarlo. `abandonado` se declara y no se usa en esta etapa: agregar
+un valor a un ENUM después reescribe la tabla. Un carrito no se borra: se convierte en pedido (tramo F),
+y el convertido apunta a su venta por `ventas.carrito_id`. El siguiente carrito de la cuenta es uno nuevo.
 
 ### `carrito_lineas`
-`id, carrito_id FK, producto_id FK, cantidad` — UNIQUE(carrito_id, producto_id)
+`id, carrito_id FK (cascada), producto_id FK, cantidad unsigned, contado_referencia decimal(12,2) null,
+lista_referencia decimal(12,2) null, timestamps` — UNIQUE(carrito_id, producto_id): agregar un producto
+que ya está suma cantidad en el mismo renglón.
 
 **Por qué el carrito no es una venta en estado "carrito".** Si el carrito fuera una venta, la tabla de ventas se llenaría de carritos abandonados — filas que nadie decidió comprar mezcladas con documentos comerciales, y todas las métricas del dashboard tendrían que filtrarlas. Separarlo mantiene `ventas` limpia: una fila ahí significa que alguien decidió comprar.
 
@@ -689,11 +762,29 @@ quiere entrar al sistema, se le crea un rol con sus permisos y se le muestran su
 
 **La reserva de stock** ocurre al pasar a `en_checkout`: se suma la cantidad a `productos.stock_reservado` y se fija `reservado_hasta = now() + 20 min`. Es lo que evita que dos clientes compren la última unidad. Tres cosas que la Etapa 2 tiene que respetar:
 
-- **Pasa por `StockService`**, como todo lo que toca el stock (A-13). Hoy el servicio no tiene `reservar` ni `liberar`, y `descontar` no sabe que una unidad pudo venir de una reserva: son las operaciones que la etapa agrega.
+- **Pasa por `StockService`**, como todo lo que toca el stock (A-13): `reservar()` (bloquea, exige el
+  disponible, suma), `liberar()` (bloquea y resta, **nunca baja de cero ni falla**: un ajuste de
+  inventario pudo dejar el stock por debajo de lo reservado) y `descontar(..., $deReserva)`, que
+  consume la reserva propia de la venta. **La reserva no deja asiento en el kardex** (D-5): el kardex
+  dice qué entró y salió del depósito, y una reserva no mueve mercadería. Varios productos se reservan
+  y se liberan ordenados por `id`, para que dos checkouts no se bloqueen mutuamente.
 - **La liberación de las vencidas corre cada minuto**, no con la reposición de las 07:00: una reserva de veinte minutos liberada una vez por día bloquea la mercadería hasta el día siguiente.
 - **Una reserva baja el disponible que ve el mostrador**, porque el disponible es `stock - stock_reservado` (`Producto::DISPONIBLE`). Es lo correcto —esa unidad está comprometida— y los avisos de faltante del tramo F de la Fase 7.5 ya lo cuentan así.
 
+**La reserva tiene dos dueños sucesivos** (HL-4): primero el carrito en checkout, después el pedido
+(tramo F, `ventas.reserva_vence`). Cambia de dueño en la transacción de la confirmación, sin moverse.
+La invariante, con test: **`stock_reservado` de cada producto = lo reservado por los carritos en
+checkout vigentes + lo de los pedidos pendientes con reserva**. Toda escritura sobre un carrito en
+checkout lo suelta primero (libera y vuelve a `activo`): así la reserva siempre coincide con los renglones.
+
 **El carrito no guarda precios.** Se recalculan contra `productos` al mostrar y al cerrar el checkout. Congelar el precio al agregar al carrito significa vender a un precio viejo si el carrito quedó tres días abierto.
+
+**Guarda una referencia, que no es un precio** (D-11). `contado_referencia` y `lista_referencia` son
+los precios que la persona vio al agregar. Nunca se cobran: sólo dicen contra qué comparar para
+«informar si cambió el precio». El carrito los muestra como aviso, y el checkout, si difieren, responde
+409 `carrito_cambio` con los cambios y **actualiza la referencia antes de responder** (confirma la
+transacción y recién después lanza): el segundo intento, ya revisado, pasa. Son `null`-ables porque
+la referencia es un dato de ayuda, no del documento.
 
 ---
 
@@ -714,8 +805,57 @@ quiere entrar al sistema, se le crea un rol con sus permisos y se le muestran su
 | costo_envio   | decimal      | 0 si retira                     |
 | total         | decimal      |                                 |
 | observaciones | varchar null |                                 |
+| carrito_id    | FK null UNIQUE | el carrito del que nació (tramo F); null en el mostrador |
+| medio_pago    | enum null    | `contado`, `transferencia` (tramo L), `pasarela`; null en el mostrador |
+| reserva_vence | timestamp null | hasta cuándo el pedido retiene su stock |
+| entrega_calle … entrega_provincia | varchar null | la dirección del envío, copiada |
 
-**Lo que la Etapa 2 agrega a `ventas`, y decide su plan.** La dirección de entrega congelada en el pedido —el envío mínimo de la consigna no usa la tabla `envios`—, la lista de precios con la que se cotizó y la clave de idempotencia de la confirmación. El precio de una venta online depende del medio de pago: **contado** (`precio_contado`) para efectivo o transferencia, **lista** (`precio_lista`, «tarjeta y cuotas») para Mercado Pago. Hoy `VentaService` cotiza siempre a contado.
+**Lo que la Etapa 2 agrega a `ventas` (tramo F).** Todo `nullable` y sin reescribir datos: el
+mostrador no cambia y sus 25.000 filas quedan como estaban. Índices (`estado`, `reserva_vence`), para
+los pedidos vencidos que la tarea busca cada minuto, y `canal`, para el filtro del listado.
+
+- **`carrito_id` UNIQUE es la idempotencia de la confirmación** (D-8). Un segundo `POST /pedidos` del
+  mismo carrito no puede crear otra venta: la base lo impide, sin tabla ni cabecera aparte. Además
+  deja escrito de qué carrito salió cada pedido.
+- **`medio_pago` decide la lista** con la que se cotizan los renglones (HL-14): `contado` (efectivo, en
+  el local) y `transferencia` (tramo L, D-27) → `precio_contado`, `pasarela` → `precio_lista`. Es nulo en el
+  mostrador porque allá el medio se elige al cobrar, en `pagos`, y puede ser más de uno.
+- **`reserva_vence` dice si el pedido todavía retiene stock**, no sólo hasta cuándo. No nulo: las
+  unidades del pedido están en `stock_reservado`. Al cobrarse, `marcarPagada()` las consume
+  (`descontar(..., $deReserva)`) y lo pone en nulo; al cancelarse o vencer, se liberan y también. Una
+  reserva cuya hora pasó y que nadie liberó **sigue siendo del pedido** (HL-10): cobrarla es válido.
+  Plazos: 48 horas de contado (`reservas.contado_horas`), 20 minutos por pasarela
+  (`reservas.pasarela_minutos`); por transferencia, 48 horas para cargar el comprobante y, al cargarlo,
+  tres días hábiles (`tienda.transferencia.*`, D-27).
+
+### `comprobantes_transferencia` *(Etapa 2, tramo L)*
+
+| Columna         | Tipo         | Nota |
+| --------------- | ------------ | ---- |
+| id              | PK           | |
+| venta_id        | FK           | el pedido por transferencia |
+| ruta            | varchar      | en el disco privado (`local`); se sirve por una ruta con permiso |
+| nombre_original | varchar      | como lo subió el comprador |
+| tipo            | varchar      | JPG, PNG o PDF |
+| tamano          | int          | bytes; hasta 5 MB |
+| created_at      | timestamp    | con `DEFAULT` explícito (HL-73); sin `updated_at` |
+
+- **Sólo suma filas** (regla 1): un segundo comprobante no pisa el primero, y el modelo no deja
+  modificar ni borrar uno. Quien revisa ve todos.
+- **El estado del pago se deriva de esta tabla** (regla 9): un pedido por transferencia con
+  comprobante y sin cobrar está `en_revision`; sin comprobante, `falta_comprobante` (que la API dice
+  `pendiente`). Confirmarlo es el cobro de siempre (`PagoService::cobrar`, método `transferencia`).
+- **La dirección se copia, no se referencia**: editar después las direcciones del cliente no cambia
+  adónde se mandó un pedido. Lleva los largos de `direcciones`. `costo_envio` sale de
+  `tienda.envio.costo` (8.000, Q-1) con envío, y es cero con retiro.
+
+**El pedido online en la máquina de estados.** Nace en `pendiente_pago`, que **no es una
+transición** sino su estado de nacimiento, como `presupuesto` en el mostrador. Desde ahí:
+`pagada` (cobrado en el local, o acreditado por la pasarela en el tramo G) o `cancelada` (a mano en la
+web, o por la tarea cuando la reserva vence). Ninguna transición nueva: la tabla ya las declaraba. El
+pedido no se edita —no es un presupuesto—, así que el precio no se recotiza: es el que se aceptó.
+
+**La lista depende del medio.** El precio de una venta online depende del medio de pago: **contado** (`precio_contado`) para efectivo o transferencia, **lista** (`precio_lista`, «tarjeta y cuotas») para Mercado Pago. Desde el tramo F, `VentaService::escribirLineas()` recibe la lista; el mostrador sigue cotizando a contado.
 
 **Por qué no hay columna `numero`.** El número de venta es el `id`, formateado
 `V-00042`, por el mismo criterio que las órdenes de compra: la venta de la Etapa 1 no
@@ -856,9 +996,11 @@ lugar de «demora un poco más».
 **Por qué una sola tabla para mostrador y online.** Lo confirmaste (31). Son el mismo hecho económico con distinto origen. Duplicarlas obligaría a duplicar líneas, pagos, comprobantes, devoluciones y todas las consultas del dashboard. `canal` es una columna.
 
 ### `pagos`
-`id, venta_id FK, metodo, monto, comision, neto_acreditado, cuotas, mp_payment_id varchar UNIQUE null, mp_status, usuario_id FK null, fecha`
+`id, venta_id FK, metodo, monto, comision, neto_acreditado, cuotas, mp_payment_id varchar UNIQUE null, mp_status, usuario_id FK null, fecha, intento_pago_id FK UNIQUE null`
 
-`metodo`: `efectivo`, `transferencia`, `qr`, `mercadopago`.
+`metodo`: `efectivo`, `transferencia`, `qr`, `mercadopago`, `simulador`. El cajero ofrece los tres primeros (`Pago::METODOS_EN_USO`); `mercadopago` y `simulador` los escribe sólo `PagoService::acreditarIntento()`, después de que el proveedor confirmó. `simulador` («Simulador — no es cobro real», D-13) entró en el tramo G **al final** del ENUM: con la tabla cargada, es lo único que MariaDB agrega sin reescribir cada fila.
+
+`intento_pago_id` (tramo G, HL-2): el intento que este pago acredita; null en el mostrador. **UNIQUE**: un intento aprobado da, como mucho, un pago. `mp_payment_id` no alcanzaba para eso: el simulador no tiene identificador de Mercado Pago, e inventarle uno en una columna `mp_*` afirmaría algo falso. `mp_payment_id` sigue guardando el identificador real del proveedor.
 
 **Por qué sigue siendo tabla aparte si eliminaste los pagos parciales.** Por dos motivos que no dependen de eso:
 
@@ -867,7 +1009,20 @@ lugar de «demora un poco más».
 
 `usuario_id` es el cajero que cobró — lo que permite separar "quién vendió" de "quién cobró" en las métricas. Es nullable: un pago que aprueba la pasarela no tiene cajero.
 
-**`pagos` es el libro de la plata, no el registro de intentos.** El panel suma `SUM(pagos.monto)` y el saldo de la venta sale de ahí, así que una fila es plata que entró o que volvió. **Un intento de pago rechazado no puede ser una fila de `pagos`**: inflaría lo cobrado. La consigna de la Etapa 2 pide que los intentos —pendientes, aprobados y rechazados— queden registrados y asociados al pedido, así que van en una tabla propia, que diseña el plan de esa etapa; `pagos` recibe sólo el intento aprobado. El simulador de pagos tampoco cabe hoy: `metodo` no tiene un valor para él, y registrarlo como `mercadopago` afirmaría algo falso.
+**`pagos` es el libro de la plata, no el registro de intentos.** El panel suma `SUM(pagos.monto)` y el saldo de la venta sale de ahí, así que una fila es plata que entró o que volvió. **Un intento de pago rechazado no puede ser una fila de `pagos`**: inflaría lo cobrado. La consigna de la Etapa 2 pide que los intentos —pendientes, aprobados y rechazados— queden registrados y asociados al pedido, así que van en una tabla propia, `intentos_pago`; `pagos` recibe sólo el intento aprobado.
+
+### `intentos_pago`
+**Tramo G.** `id, venta_id FK, pasarela, estado, importe decimal(12,2), referencia uuid UNIQUE, url_pago null, payment_id null, detalle null, vence_at, resuelto_at null, acreditado_at null, timestamps`; índice (`venta_id`, `estado`).
+
+`pasarela`: `simulador`, `mercadopago`. `estado`: `pendiente`, `aprobado`, `rechazado`, `vencido`, `error`. `vencido` dice que el plazo pasó con respuesta del proveedor y sin pago; `error`, que no se pudo iniciar. Ninguno afirma un rechazo que no ocurrió (regla 16).
+
+- **Por qué no es `pagos`.** Un intento no movió plata hasta que el proveedor lo confirma; en el libro de la plata, uno rechazado inflaría lo cobrado. El intento es el registro de lo que se intentó; el pago, de lo que entró.
+- `referencia` es la `external_reference` de Mercado Pago: con ella se buscan los pagos del intento. Un intento puede tener varios pagos del lado del proveedor (el comprador reintenta dentro del checkout); manda el aprobado (HL-72).
+- `importe` se congela al nacer (el saldo del pedido). Un aprobado por otro importe queda `aprobado` con `detalle = importe_distinto` y no se acredita solo: lo revisa una persona.
+- `aprobado` con `acreditado_at` nulo es «aprobado sin acreditar»: la plata entró y su fila en `pagos` todavía no (§1.3 E del plan). El pedido no se cancela, y la tarea programada reintenta.
+- **Como mucho un intento `pendiente` por pedido**, verificado con la venta bloqueada (§6.6 del plan). Un pedido con un intento pendiente, o aprobado sin acreditar, no vence (D-9).
+- `vence_at` es `TIMESTAMP NOT NULL` **con `DEFAULT` explícito** (HL-73): en MariaDB, sin él, la primera columna así de la tabla recibe `ON UPDATE CURRENT_TIMESTAMP`, y cada `UPDATE` del intento le pisaba el vencimiento. `pagos.fecha` tenía la misma definición y se corrigió en la misma migración, sin cambiar ningún valor guardado.
+- No se borra (M-16): se resuelve o vence.
 
 ### `vales`
 **Etapa 4.** La consigna de la Etapa 2 no los pide.
@@ -1043,8 +1198,8 @@ congelados por renglón, lotes de ajuste y entregas).
 | Etapa 1 (backend Laravel, cerrada)                                                | Etapa 2 (tienda móvil)                                                | Etapa 4 (mejoras)                    |
 | --------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------ |
 | `users`, `roles`, `permisos`, `rol_permiso`                                       | `carritos`, `carrito_lineas`                                          | `comprobantes`, `comprobante_lineas` |
-| `clientes`, `empleados`, `direcciones`                                            | La tabla de intentos de pago                                          | `envios`                             |
-| `categorias`, `marcas`, `productos`, `producto_proveedor`                         | Los tokens de sesión de la API                                        | `vales` y `ventas.vale_id`           |
+| `clientes`, `empleados`, `direcciones`                                            | `intentos_pago` y `pagos.intento_pago_id` (tramo G)                   | `envios`                             |
+| `categorias`, `marcas`, `productos`, `producto_proveedor`                         | `personal_access_tokens` (credenciales de la API; tramo A)            | `vales` y `ventas.vale_id`           |
 | `movimientos_stock`                                                               | Columnas de entrega y de idempotencia en `ventas` (las decide su plan) | `banners`                            |
 | `proveedores`, `ordenes_compra`, `orden_compra_lineas`                            |                                                                       | `carritos.session_token`             |
 | `ventas`, `venta_lineas`, `pagos`                                                 |                                                                       |                                      |
@@ -1063,7 +1218,7 @@ Casos concretos:
 
 - `ventas.estado` declara sus valores aunque la Etapa 1 sólo use `presupuesto`, `pagada`, `entregada_parcial`, `entregada`, `cancelada` y las dos devoluciones. Eran diez; el tramo H de la Fase 7.5 agregó `entregada_parcial`, cuando la tabla todavía no tenía datos que reescribir.
 - `ventas.canal` declara `mostrador` y `online` aunque la Etapa 1 sólo use el primero. El segundo es el de la app.
-- `pagos` se crea con `comision`, `neto_acreditado`, `cuotas` y `mp_payment_id` con índice único, todas nulas hasta que llegue Mercado Pago. Cuando llegue, no hay que tocar la tabla.
+- `pagos` se crea con `comision`, `neto_acreditado`, `cuotas` y `mp_payment_id` con índice único, todas nulas hasta que llegue Mercado Pago. Cuando llegó (tramo G), la tabla recibió sólo lo que la regla admite: una columna nullable (`intento_pago_id`) y un valor **al final** del ENUM (`simulador`), las dos cosas que MariaDB hace sin reescribir la tabla.
 - `venta_lineas.cantidad_devuelta` existe desde el inicio con valor cero.
 
 **Única excepción:** las claves foráneas que apuntan a tablas de etapas siguientes (`ventas.vale_id`) se agregan cuando exista la tabla destino, porque una FK no puede referenciar algo inexistente. Es un `ADD COLUMN` nullable, sin migración de datos.
@@ -1077,7 +1232,7 @@ Casos concretos:
 | Stock              | `movimientos_stock`                                                                 |
 | Compras            | `proveedores`, `producto_proveedor`, `ordenes_compra`, `orden_compra_lineas`        |
 | Carrito            | `carritos`, `carrito_lineas`                                                        |
-| Ventas             | `ventas`, `venta_lineas`, `venta_linea_impuestos`, `pagos`, `vales`                 |
+| Ventas             | `ventas`, `venta_lineas`, `venta_linea_impuestos`, `pagos`, `intentos_pago`, `vales` |
 | Facturación        | `comprobantes`, `comprobante_lineas`                                                |
 | Logística          | `envios`                                                                            |
 | Contenido          | `banners`                                                                           |

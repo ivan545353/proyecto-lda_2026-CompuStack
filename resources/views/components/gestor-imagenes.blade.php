@@ -17,6 +17,7 @@
       campo        nombre del campo de archivo (imagenes, logo…)
       campoQuitar  sólo con max = 1: campo que pide quitar la imagen
       etiquetaAgregar  texto de la tarjeta de agregar
+      enTienda     el orden es el de la galería de la tienda, y la ayuda lo dice (HL-87)
 --}}
 @props([
     'actuales' => [],
@@ -26,10 +27,14 @@
     'campo' => 'imagenes',
     'campoQuitar' => null,
     'etiquetaAgregar' => 'Agregar imagen',
+    'enTienda' => false,
 ])
 
 @php
     $simple = (int) $max === 1;
+    $orden = $enTienda
+        ? 'En la tienda se muestran en este orden, de izquierda a derecha: la primera es la principal.'
+        : 'La primera es la principal.';
     $tipos = 'image/jpeg,image/png,image/webp';
     $datosActuales = collect($actuales)->map(fn($ruta) => ['ruta' => $ruta, 'url' => Storage::url($ruta)])->values();
     $mensajes = collect($errors->get($campo))
@@ -52,9 +57,9 @@
                     <li>
                         <img src="{{ Storage::url($ruta) }}" alt="Imagen {{ $i + 1 }} de {{ $descripcion }}"
                             width="96" height="96" class="rounded border object-fit-cover d-block">
-                        @if ($i === 0 && !$simple)
-                            <span class="badge text-bg-dark mt-1">Principal</span>
-                        @endif
+                        @unless ($simple)
+                            <span class="badge text-bg-dark mt-1" data-posicion="{{ $i + 1 }}">{{ $i === 0 ? '1 · Principal' : $i + 1 }}</span>
+                        @endunless
                     </li>
                 @endforeach
             </ul>
@@ -91,9 +96,9 @@
         {{ $simple ? 'Una imagen' : "Hasta {$max} imágenes" }} JPG, PNG o WEBP,
         de hasta {{ $maxKb >= 1024 ? $maxKb / 1024 . ' MB' : $maxKb . ' KB' }}{{ $simple ? '' : ' cada una' }}.
         @unless ($simple)
-            <span class="js-sin-script">Las nuevas se agregan al final; la primera es la principal.</span>
+            <span class="js-sin-script">Las nuevas se agregan al final. {{ $orden }}</span>
             <span class="js-con-script d-none">
-                Arrastrá las tarjetas o usá sus botones para ordenarlas: la primera es la principal.
+                Arrastrá las tarjetas o usá sus botones para ordenarlas. {{ $orden }}
             </span>
         @endunless
         <span class="js-con-script d-none">Los cambios se aplican al guardar.</span>

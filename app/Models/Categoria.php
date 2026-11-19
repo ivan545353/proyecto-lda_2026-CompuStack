@@ -7,20 +7,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Pagination\LengthAwarePaginator;
 use App\Support\Like;
 
 /**
  * Categoría del catálogo, con jerarquía por autorreferencia
  * (Componentes › Almacenamiento › SSD).
- *
- * En el sistema original era una lista plana de (id, nombre). La jerarquía es
- * un pedido nuevo de la Etapa 1.
- *
- * Por qué autorreferencia simple y no un árbol anidado (nested set): con pocos
- * niveles, subir o bajar por el árbol cuesta una consulta por nivel, y un
- * nested set obliga a renumerar medio árbol en cada alta. PROFUNDIDAD_MAXIMA
- * convierte ese "pocos niveles" en regla: la decisión de diseño se sostiene
- * porque el código no permite que deje de ser cierta.
  *
  * Scopes (uno por filtro del listado; la correspondencia con el parámetro de
  * la URL está declarada acá y en CategoriaFiltroRequest):
@@ -112,6 +104,60 @@ class Categoria extends Model
     // ------------------------------------------------------------------
     // Jerarquía
     // ------------------------------------------------------------------
+
+    /**
+     * Las categorías que la tienda muestra: activas y con todos sus ancestros activos.
+     *
+     * `CategoriaService` puede desactivar un padre sin tocar a sus hijas, y una hija
+     * activa bajo un padre inactivo no se ve. Una sola consulta, sobre una tabla
+     * chica; quien lo necesita lo llama una vez por pedido.
+     *
+     * @return array<int, int>
+     */
+    public static function idsVisiblesEnTienda(): array
+    {
+        $filas    = static::query()->get(['id', 'parent_id', 'activo'])->keyBy('id');
+        $visibles = [];
+
+        foreach ($filas as $fila) {
+            $actual = $fila;
+            $vistos = [];
+
+            // Un ciclo en la base (carga a mano) deja la rama oculta en vez de colgar el pedido.
+            while ($actual !== null) {
+                if (! $actual->activo || isset($vistos[$actual->id])) {
+                    continue 2;
+                }
+
+                $vistos[$actual->id] = true;
+                $actual = $actual->parent_id === null ? null : $filas->get($actual->parent_id);
+            }
+
+            $visibles[] = $fila->id;
+        }
+
+        return $visibles;
+    }
+
+    /**
+     * Una página de raíces visibles, cada una con sus hijas y nietas visibles.
+     *
+     * Se pagina por raíz y el árbol viaja anidado: no hay más de PROFUNDIDAD_MAXIMA
+     * niveles, así que las consultas son siempre las mismas aunque crezca el árbol.
+     */
+    public static function arbolEnTienda(int $pagina, int $porPagina): LengthAwarePaginator
+    {
+        $visibles  = static::idsVisiblesEnTienda();
+        $ordenadas = fn ($consulta) => $consulta
+            ->whereIn('categorias.id', $visibles)
+            ->orderBy('categorias.orden')->orderBy('categorias.nombre')->orderBy('categorias.id');
+
+        return static::query()
+            ->whereNull('categorias.parent_id')
+            ->tap($ordenadas)
+            ->with(['hijas' => $ordenadas, 'hijas.hijas' => $ordenadas])
+            ->paginate($porPagina, ['*'], 'page', $pagina);
+    }
 
     /**
      * Ids de todas las descendientes: hijas, nietas, etcétera.

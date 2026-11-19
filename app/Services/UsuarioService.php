@@ -2,19 +2,17 @@
 
 namespace App\Services;
 
+use App\Models\Cliente;
 use App\Models\Rol;
 use App\Models\User;
 use Illuminate\Support\Facades\Password as BrokerDePassword;
 use Illuminate\Database\Eloquent\Collection;
 use App\Exceptions\ReglaDeNegocioException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Reglas de negocio de personal.
- *
- * Mismo patrón que MarcaService y CategoriaService: recibe datos ya validados,
- * no conoce la petición ni la sesión, y la API de la Etapa 3 lo va a usar sin
- * cambios.
  *
  * Reglas propias:
  *
@@ -39,8 +37,11 @@ use Illuminate\Support\Facades\DB;
  *
  * Métodos:
  *   crear()       alta del usuario y de su satélite, en una transacción
- *   actualizar()  edición de los datos personales y del satélite
- *   eliminar()    baja física o lógica según tenga historial; devuelve cuál fue
+ *   darAccesoATienda()  la cuenta de la tienda sobre la ficha de un cliente del mostrador (D-26)
+ *   actualizar()  edición de los datos personales y del satélite; si queda inactiva,
+ *                 revoca sus credenciales de la API
+ *   eliminar()    baja física o lógica según tenga historial; devuelve cuál fue.
+ *                 En las dos revoca sus credenciales de la API
  */
 class UsuarioService
 {
@@ -48,6 +49,11 @@ class UsuarioService
      * El permiso que permite recomponer el sistema.
      */
     private const PERMISO_DE_RESCATE = 'usuario.editar';
+
+    public function __construct(private readonly CredencialService $credenciales)
+    {
+    }
+
     /**
      * Columnas que registran quién hizo qué.
      */
@@ -78,6 +84,51 @@ class UsuarioService
         });
     }
 
+    /**
+     * Le da cuenta de la tienda a un cliente del mostrador, sobre su misma ficha: sus compras siguen
+     * siendo suyas. La contraseña no la sabe nadie: la fija la persona con el enlace.
+     *
+     * @throws ReglaDeNegocioException
+     */
+    public function darAccesoATienda(Cliente $cliente, string $nombre, string $apellido): User
+    {
+        return DB::transaction(function () use ($cliente, $nombre, $apellido) {
+            $c = Cliente::lockForUpdate()->findOrFail($cliente->id);
+
+            if ($c->user_id !== null) {
+                throw new ReglaDeNegocioException("«{$c->razon_social}» ya tiene cuenta de la tienda.");
+            }
+
+            if (blank($c->email)) {
+                throw new ReglaDeNegocioException(
+                    'Cargale un correo a la ficha primero: es con lo que va a entrar a la app.'
+                );
+            }
+
+            if (User::where('email', $c->email)->exists()) {
+                throw new ReglaDeNegocioException(
+                    "El correo {$c->email} ya es de otra cuenta. Corregí el de la ficha si no es el de este cliente."
+                );
+            }
+
+            $usuario = User::create([
+                'nombre'   => $nombre,
+                'apellido' => $apellido,
+                'email'    => $c->email,
+                'password' => Str::random(64),   // inutilizable hasta que use el enlace
+                // El rol de sistema de la tienda, no por su nombre (igual que el registro de la app).
+                'rol_id'   => Rol::where('ambito', 'tienda')->where('es_sistema', true)->valueOrFail('id'),
+                'activo'   => true,
+            ]);
+
+            // Acá, y no en ClienteService: la invariante rol↔satélite es de este servicio.
+            $c->user_id = $usuario->id;
+            $c->save();
+
+            return $usuario;
+        });
+    }
+
     public function actualizar(User $usuario, array $datos): User
     {
         return DB::transaction(function () use ($usuario, $datos) {
@@ -95,6 +146,12 @@ class UsuarioService
                 'activo'   => $datos['activo'],
             ]);
 
+            // Una cuenta desactivada no sigue operando por la API: se cortan sus
+            // credenciales en la misma transacción que la desactivó.
+            if (! $datos['activo']) {
+                $this->credenciales->revocarTodas($usuario);
+            }
+
             $this->guardarSatelite($usuario, $usuario->rol, $datos);
 
             return $usuario->fresh();
@@ -108,27 +165,28 @@ class UsuarioService
     {
         $this->exigirQueQuedeAlguienQuePuedaAdministrar($usuario, 'eliminar');
 
+        // Las dos ramas cortan las credenciales: la que desactiva no pasa por
+        // actualizar(), y `personal_access_tokens` no tiene FK, así que borrar la
+        // fila de `users` las dejaría huérfanas.
         if ($this->tieneHistorial($usuario)) {
-            $usuario->update(['activo' => false]);
+            DB::transaction(function () use ($usuario) {
+                $usuario->update(['activo' => false]);
+                $this->credenciales->revocarTodas($usuario);
+            });
 
             return false;
         }
-        DB::transaction(fn () => $usuario->delete());
+
+        DB::transaction(function () use ($usuario) {
+            $this->credenciales->revocarTodas($usuario);
+            $usuario->delete();
+        });
 
         return true;
     }
 
     /**
      * Roles que se le pueden asignar a esta persona.
-     *
-     * Sólo los de su mismo ámbito. Cambiar de gestión a tienda no es un cambio
-     * de rol: es cambiar qué clase de persona es, y el satélite lo demuestra.
-     * Un Vendedor tiene legajo y fecha de ingreso; un Cliente tiene CUIT y
-     * condición frente al IVA. Convertir uno en otro exigiría datos que este
-     * formulario no pide y borraría historial laboral que nadie pidió borrar.
-     *
-     * Esto es a la vez el juego de opciones de la pantalla y la fuente de
-     * verdad que valida CambiarRolRequest: una sola definición, no dos.
      *
      * @return Collection<int, Rol>
      */
@@ -158,9 +216,6 @@ class UsuarioService
                 );
             }
 
-            // Sólo si el rol nuevo NO conserva la capacidad de administrar:
-            // pasar de Administrador a un rol que también puede editar
-            // usuarios es perfectamente válido.
             if (! $rolNuevo->permisos()->where('clave', self::PERMISO_DE_RESCATE)->exists()) {
                 $this->exigirQueQuedeAlguienQuePuedaAdministrar($usuario, 'cambiarle el rol a');
             }
@@ -173,11 +228,6 @@ class UsuarioService
 
     /**
      * Cambia la contraseña de una cuenta.
-     *
-     * Borra los tokens de restablecimiento pendientes de ese correo. Si alguien
-     * pidió un token y después se acordó de la contraseña y la cambió a mano, el
-     * token viejo tiene que morir: si no, sigue sirviendo para cambiarla de
-     * nuevo hasta que expire.
      */
     public function cambiarPassword(User $usuario, string $password): User
     {
@@ -189,16 +239,17 @@ class UsuarioService
 
             DB::table('password_reset_tokens')->where('email', $usuario->email)->delete();
 
+            // Quien cambia la contraseña porque se la sacaron espera que el otro quede
+            // afuera: también en la app, no sólo en el navegador.
+            $this->credenciales->revocarTodas($usuario);
+
             return $usuario->fresh();
         });
     }
 
-        /**
+    /**
      * Crea un token de un solo uso para que una persona fije su contraseña.
      *
-     * El token lo genera y guarda el broker de Laravel: hasheado, con fecha, y
-     * comparado contra auth.passwords.users.expire. No se reinventa. Crear uno
-     * nuevo invalida el anterior de esa misma cuenta.
      */
     public function crearTokenDeRestablecimiento(User $usuario): string
     {
@@ -223,9 +274,6 @@ class UsuarioService
                 'dni'           => $datos['empleado']['dni'],
                 'telefono'      => $datos['empleado']['telefono'] ?? null,
                 'fecha_ingreso' => $datos['empleado']['fecha_ingreso'],
-                // La baja laboral NO toca users.activo: son datos distintos.
-                // Un empleado dado de baja conserva su historial y sigue
-                // apareciendo en los reportes del período en que trabajó.
                 'fecha_baja'    => $datos['empleado']['fecha_baja'] ?? null,
             ]),
 

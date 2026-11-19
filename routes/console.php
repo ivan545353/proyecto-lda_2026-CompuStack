@@ -30,3 +30,12 @@ Artisan::command('inspire', function () {
 |
 */
 Schedule::command('compras:generar-reposicion --isolated')->dailyAt('07:00');
+
+/*
+| Cada minuto, las reservas vencidas de la tienda (tramo E: los checkouts). La reserva de un
+| checkout dura 20 minutos y baja el disponible que ve el cajero: barrer cada hora dejaría ese
+| stock trabado hasta tres veces su plazo. Un minuto es lo más fino que da el cron, y la
+| consulta usa el índice (`estado`, `reservado_hasta`): sin nada vencido, no lee ninguna fila.
+| `withoutOverlapping()`: si una pasada tarda más de un minuto, la siguiente no se le encima.
+*/
+Schedule::command('tienda:vencer-reservas')->everyMinute()->withoutOverlapping();

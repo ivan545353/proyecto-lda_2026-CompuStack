@@ -58,8 +58,9 @@ use LogicException;
  *   - `venta_id` lo pone la relación (`$venta->pagos()->create(...)`), no el
  *     formulario.
  *   - `usuario_id` es el cajero, y sale de la sesión. Es nullable porque un pago de
- *     Mercado Pago lo acredita un webhook y no una persona; en la Etapa 1 siempre
- *     está.
+ *     pasarela lo acredita el servidor al consultar al proveedor, no una persona
+ *     (tramo G); en el mostrador siempre está.
+ *   - `intento_pago_id` es el intento que el pago acredita; null en el mostrador.
  *   - `fecha` es `NOT NULL` **y no tiene `DEFAULT`**, así que todo camino que escriba
  *     un pago tiene que asignarla. Existe al lado de `created_at` porque son dos
  *     cosas distintas: `fecha` es cuándo entró la plata y `created_at` cuándo se
@@ -90,7 +91,8 @@ use LogicException;
  *
  * Relaciones:
  *   venta()    BelongsTo   el documento que se está cobrando
- *   usuario()  BelongsTo   el cajero que cobró; null si lo acreditó un webhook
+ *   usuario()      BelongsTo   el cajero que cobró; null si lo acreditó una pasarela
+ *   intentoPago()  BelongsTo   el intento de pasarela que acredita; null en el mostrador
  *
  * Métodos:
  *   metodoTexto()  el texto de pantalla del método
@@ -109,18 +111,18 @@ class Pago extends Model
         'transferencia' => 'Transferencia',
         'qr'            => 'QR',
         'mercadopago'   => 'Mercado Pago',
+        'simulador'     => 'Simulador — no es cobro real',
     ];
 
     /**
-     * Los que la Etapa 1 ofrece, que son tres y no cuatro.
+     * Los que ofrece el cajero, que son tres y no cinco.
      *
-     * `mercadopago` queda declarado en el ENUM y **no se ofrece**, por el mismo
-     * motivo por el que la Fase 5 decidió no mandarle el correo al proveedor: el
-     * sistema no afirma un hecho que no puede verificar. No hay integración con
-     * Mercado Pago, así que un pago registrado con ese método tendría `comision` y
-     * `neto_acreditado` en null, y «neto acreditado» es una métrica del panel: el
-     * sistema estaría diciendo que cobró por un canal que no operó y que le
-     * acreditaron un neto que no conoce.
+     * `mercadopago` y `simulador` **no se ofrecen en el mostrador**: los escribe sólo
+     * la acreditación de un intento de pasarela (`PagoService::acreditarIntento()`,
+     * tramo G), después de que el proveedor confirmó el pago. Un cajero que eligiera
+     * «Mercado Pago» estaría afirmando un cobro que el sistema no puede verificar: la
+     * única prueba es la consulta al proveedor, y esa la hace el servidor, no la
+     * persona. El simulador, además, no es plata: se dice como lo que es.
      *
      * `qr` sí se ofrece, y la diferencia es exactamente esa: un cobro por QR es plata
      * que entró y que el cajero vio entrar, sin que el sistema tenga que saber nada
@@ -189,6 +191,12 @@ class Pago extends Model
     public function usuario(): BelongsTo
     {
         return $this->belongsTo(User::class, 'usuario_id');
+    }
+
+    /** El intento de pasarela que este pago acredita; null en el mostrador (HL-2). */
+    public function intentoPago(): BelongsTo
+    {
+        return $this->belongsTo(IntentoPago::class, 'intento_pago_id');
     }
 
     // ------------------------------------------------------------------

@@ -8,8 +8,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
 use LogicException;
 
 /**
@@ -21,6 +23,10 @@ use LogicException;
  *   lineas()       HasMany     qué se vendió, con el precio congelado
  *   pagos()        HasMany     con qué se cobró; el cajero vive en la fila del pago
  *   movimientos()  MorphMany   lo que salió del depósito por esta venta
+ *   carrito()      BelongsTo   el carrito de la tienda del que nació; null en el mostrador
+ *   intentosPago() HasMany     los intentos de pago por pasarela (tramo G)
+ *
+ * Pertenencia (API): delCliente($cliente)   los pedidos de la tienda de ese cliente; siempre filtra
  *
  * Scopes (uno por filtro del listado; el contrato está declarado acá y en
  * VentaFiltroRequest):
@@ -28,6 +34,8 @@ use LogicException;
  *   ?estado=       → conEstado($estado)    lista cerrada de ESTADOS
  *   ?cliente_id=   → deCliente($id)
  *   ?vendedor_id=  → deVendedor($id)       quién vendió, no quién cobró
+ *   ?canal=        → deCanal($canal)       mostrador u online
+ *   ?pago=         → dePago($filtro)       transferencias por revisar (tramo L)
  *   ?desde=        → desde($fecha)         por fecha de emisión, inclusive
  *   ?hasta=        → hasta($fecha)
  *
@@ -40,6 +48,8 @@ use LogicException;
  *   descuentoPorcentaje()  el porcentaje, derivado del monto guardado
  *   pagado()               cuánta plata quedó de esta venta, sumada en la base
  *   saldo()                lo que falta cobrar; se lee DESPUÉS del lock
+ *   situacionDelPago()     la situación del pago, derivada; elige el texto para el cliente
+ *   estadoDelPago()        aprobado, pendiente, en_revision, rechazado o sin_cobrar (tramo G)
  *   tienePendientesDeDevolver()  si queda algo sin devolver; de acá sale el estado
  *   clienteTexto()         «Sin identificar» cuando no hay cliente
 
@@ -65,8 +75,9 @@ class Venta extends Model
         'devuelta'          => 'Devuelta',
     ];
 
+    // `pendiente_pago` entra con la tienda (tramo F, D-2): el cajero tiene que poder filtrar los pedidos.
     public const ESTADOS_EN_USO = [
-        'presupuesto', 'pagada', 'entregada_parcial', 'entregada', 'cancelada', 'devuelta_parcial', 'devuelta',
+        'presupuesto', 'pendiente_pago', 'pagada', 'entregada_parcial', 'entregada', 'cancelada', 'devuelta_parcial', 'devuelta',
     ];
 
     public const ESTADOS_VENDIDOS = [
@@ -75,6 +86,17 @@ class Venta extends Model
     ];
 
     public const ESTADOS_SIN_COBRO = ['presupuesto', 'pendiente_pago', 'cancelada'];
+
+    /** Filtros del listado por la situación del pago, con su texto (tramo L, D-27). */
+    public const FILTROS_PAGO = [
+        'transferencia_en_revision' => 'Transferencias por revisar',
+    ];
+
+    /** Los valores del ENUM `canal`, con su texto para la pantalla. */
+    public const CANALES = [
+        'mostrador' => 'Mostrador',
+        'online'    => 'Tienda online',
+    ];
 
     protected $table = 'ventas';
 
@@ -97,6 +119,7 @@ class Venta extends Model
             'descuento'   => 'decimal:2',
             'costo_envio' => 'decimal:2',
             'total'       => 'decimal:2',
+            'reserva_vence' => 'datetime',
         ];
     }
 
@@ -145,6 +168,37 @@ class Venta extends Model
         return $this->hasMany(Entrega::class, 'venta_id')->orderBy('id');
     }
 
+
+    /** El carrito de la tienda del que nació el pedido (D-8). */
+    public function carrito(): BelongsTo
+    {
+        return $this->belongsTo(Carrito::class, 'carrito_id');
+    }
+
+    /** Cada intento de pagar el pedido por una pasarela (tramo G). */
+    public function intentosPago(): HasMany
+    {
+        return $this->hasMany(IntentoPago::class, 'venta_id');
+    }
+
+    /** Los comprobantes de transferencia que cargó el comprador (tramo L, D-27). */
+    public function comprobantesTransferencia(): HasMany
+    {
+        return $this->hasMany(ComprobanteTransferencia::class, 'venta_id');
+    }
+
+    /** ¿Cargó el comprobante? Con `withExists` ya leído no consulta: el listado no crece por pedido. */
+    public function tieneComprobanteTransferencia(): bool
+    {
+        return (bool) ($this->comprobantes_transferencia_exists
+            ?? $this->comprobantesTransferencia()->exists());
+    }
+
+    /** El último intento: decide el estado del pago. Relación, para leerlo una vez por pedido. */
+    public function ultimoIntentoPago(): HasOne
+    {
+        return $this->hasOne(IntentoPago::class, 'venta_id')->latestOfMany('id');
+    }
 
     /** Lo que salió del depósito por esta venta, con su fecha y su usuario. */
     public function movimientos(): MorphMany
@@ -213,6 +267,53 @@ class Venta extends Model
     }
     
     /**
+     * En qué situación está el pago del pedido, derivada de los datos (regla 9, plan tramo G).
+     * Es más fina que `estadoDelPago()`: las tres formas de «pendiente» se dicen distinto.
+     *
+     * @return 'pagado'|'contado'|'falta_comprobante'|'esperando'|'en_revision'|'rechazado'|'falta_pagar'|'sin_cobrar'
+     */
+    public function situacionDelPago(): string
+    {
+        if (in_array($this->estado, self::ESTADOS_VENDIDOS, true)) {
+            return 'pagado';
+        }
+
+        if ($this->estado === 'cancelada') {
+            return 'sin_cobrar';
+        }
+
+        if ($this->medio_pago === 'contado') {
+            return 'contado';
+        }
+
+        if ($this->medio_pago === 'transferencia') {
+            return $this->tieneComprobanteTransferencia() ? 'en_revision' : 'falta_comprobante';
+        }
+
+        $ultimo = $this->ultimoIntentoPago;
+
+        return match (true) {
+            $ultimo === null                  => 'falta_pagar',
+            $ultimo->estado === 'pendiente'   => 'esperando',
+            $ultimo->aprobadoSinAcreditar()   => 'en_revision',
+            $ultimo->estado === 'rechazado'   => 'rechazado',
+            default                           => 'falta_pagar',   // vencido o con error
+        };
+    }
+
+    /** @return 'aprobado'|'pendiente'|'en_revision'|'rechazado'|'sin_cobrar' */
+    public function estadoDelPago(): string
+    {
+        return match ($this->situacionDelPago()) {
+            'pagado'                            => 'aprobado',
+            'contado', 'falta_comprobante', 'esperando', 'falta_pagar' => 'pendiente',
+            'en_revision'                       => 'en_revision',
+            'rechazado'                         => 'rechazado',
+            'sin_cobrar'                        => 'sin_cobrar',
+        };
+    }
+
+    /**
      * ¿Queda algo sin devolver?
      */
     public function tienePendientesDeDevolver(): bool
@@ -231,16 +332,29 @@ class Venta extends Model
 }
 
     /**
-     * Los renglones que piden más unidades de las que hay disponibles hoy.
+     * Los renglones que piden más unidades de las que hay disponibles hoy. Un pedido con reserva
+     * cuenta las suyas como propias: si no, avisaría faltantes de lo que él mismo retiene (§1.3 C).
      *
      * @return Collection<int, VentaLinea>
      */
     public function faltantesDeStock(): Collection
     {
+        $propias = $this->reserva_vence !== null;
+
         return $this->lineas
             ->filter(fn (VentaLinea $linea) => $linea->producto !== null
-                && $linea->cantidad > $linea->producto->stock_disponible)
+                && $linea->cantidad > $linea->producto->stock_disponible + ($propias ? $linea->cantidad : 0))
             ->values();
+    }
+
+    public function canalTexto(): string
+    {
+        return self::CANALES[$this->canal] ?? $this->canal;
+    }
+
+    public function esOnline(): bool
+    {
+        return $this->canal === 'online';
     }
 
     /**
@@ -319,6 +433,30 @@ class Venta extends Model
     }
 
     /**
+     * Los pedidos de la tienda de este cliente: la pertenencia de la API (HL-70). No es
+     * `deCliente()`, que es un filtro del listado y sin valor no filtra; éste siempre filtra.
+     */
+    public function scopeDelCliente(Builder $query, Cliente $cliente): Builder
+    {
+        return $query->where('ventas.cliente_id', $cliente->id)->where('ventas.canal', 'online');
+    }
+
+    /**
+     * Mis pedidos (tramo H): del más nuevo al más viejo, con lo que el listado lee ya traído
+     * (el último intento y las unidades, sumadas por la base). Sin ficha de cliente, ninguno.
+     */
+    public static function paginaDelCliente(?Cliente $cliente, int $pagina, int $porPagina): LengthAwarePaginator
+    {
+        return ($cliente === null ? self::query()->whereKey([]) : self::delCliente($cliente))
+            ->with('ultimoIntentoPago')
+            ->withExists('comprobantesTransferencia')
+            ->withSum('lineas as unidades', 'cantidad')
+            ->orderByDesc('ventas.created_at')
+            ->orderByDesc('ventas.id')
+            ->paginate($porPagina, ['ventas.*'], 'pagina', $pagina);
+    }
+
+    /**
      * Quién vendió.
      */
     public function scopeDeVendedor(Builder $query, int|string|null $id): Builder
@@ -326,6 +464,26 @@ class Venta extends Model
         return $query->when(
             ctype_digit((string) $id),
             fn (Builder $query) => $query->where('ventas.usuario_id', (int) $id),
+        );
+    }
+
+    /** Pedidos por transferencia con comprobante y sin cobrar: lo que el local tiene que revisar. */
+    public function scopeDePago(Builder $query, ?string $filtro): Builder
+    {
+        return $query->when(
+            $filtro === 'transferencia_en_revision',
+            fn (Builder $query) => $query->where('ventas.medio_pago', 'transferencia')
+                ->where('ventas.estado', 'pendiente_pago')
+                ->whereHas('comprobantesTransferencia'),
+        );
+    }
+
+    /** Por canal; un valor fuera de la lista no filtra (la validación ya lo rechazó). */
+    public function scopeDeCanal(Builder $query, ?string $canal): Builder
+    {
+        return $query->when(
+            array_key_exists((string) $canal, self::CANALES),
+            fn (Builder $query) => $query->where('ventas.canal', $canal),
         );
     }
 

@@ -6,9 +6,11 @@ use App\Http\Controllers\Concerns\ImprimeListados;
 use App\Http\Requests\AjusteStockRequest;
 use App\Http\Requests\MovimientoFiltroRequest;
 use App\Impresion\ListadoMovimientos;
+use App\Models\CarritoLinea;
 use App\Models\MovimientoStock;
 use App\Models\Producto;
 use App\Models\User;
+use App\Models\VentaLinea;
 use App\Services\StockService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -35,15 +37,16 @@ class StockController extends Controller
     public function index(MovimientoFiltroRequest $request): View
     {
         $movimientos = $this->filtradas($request)
-            ->with(['producto:id,codigo,nombre', 'usuario:id,nombre,apellido'])
+            ->with(['producto:id,codigo,nombre', 'usuario:id,nombre,apellido', 'origen'])
             ->paginate(15)
             ->withQueryString();
 
+        $producto = $request->filled('producto_id') ? Producto::find($request->integer('producto_id')) : null;
+
         return view('stock.index', [
             'movimientos' => $movimientos,
-            'producto' => $request->filled('producto_id')
-                ? Producto::find($request->integer('producto_id'))
-                : null,
+            'producto' => $producto,
+            'reservas' => $producto ? $this->reservasDe($producto) : null,
 
             'usuarios' => User::query()
                 ->whereIn('id', MovimientoStock::query()->whereNotNull('usuario_id')->select('usuario_id'))
@@ -87,6 +90,24 @@ class StockController extends Controller
     }
 
     
+    /**
+     * Quién retiene lo reservado (D-25): un pedido sin cobrar todavía no tiene asiento (regla 5),
+     * y así se ve por qué. Las dos sumas las hace la base (regla 14).
+     *
+     * @return array{pedidos: int, carritos: int}
+     */
+    private function reservasDe(Producto $producto): array
+    {
+        return [
+            'pedidos' => (int) VentaLinea::query()->where('producto_id', $producto->id)
+                ->whereHas('venta', fn (Builder $venta) => $venta->whereNotNull('reserva_vence'))
+                ->sum('cantidad'),
+            'carritos' => (int) CarritoLinea::query()->where('producto_id', $producto->id)
+                ->whereHas('carrito', fn (Builder $carrito) => $carrito->whereNotNull('reservado_hasta'))
+                ->sum('cantidad'),
+        ];
+    }
+
     /** Los filtros del kardex, en un solo lugar: lo que la pantalla muestra es lo que se imprime. */
     private function filtradas(MovimientoFiltroRequest $request): Builder
     {
@@ -94,6 +115,7 @@ class StockController extends Controller
             ->deProducto($request->query('producto_id'))
             ->deTipo($request->query('tipo'))
             ->deUsuario($request->query('usuario_id'))
+            ->deCanal($request->query('canal'))
             ->desde($request->query('desde'))
             ->hasta($request->query('hasta'))
             ->orderByDesc('created_at')

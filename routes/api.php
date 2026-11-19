@@ -1,0 +1,121 @@
+<?php
+
+use App\Http\Controllers\Api\V1\ComprobanteTransferenciaController;
+use App\Http\Controllers\Api\V1\CarritoController;
+use App\Http\Controllers\Api\V1\CarritoLineaController;
+use App\Http\Controllers\Api\V1\CategoriaController;
+use App\Http\Controllers\Api\V1\CheckoutController;
+use App\Http\Controllers\Api\V1\PagoPedidoController;
+use App\Http\Controllers\Api\V1\PedidoController;
+use App\Http\Controllers\Api\V1\PerfilController;
+use App\Http\Controllers\Api\V1\ProductoController;
+use App\Http\Controllers\Api\V1\RegistroController;
+use App\Http\Controllers\Api\V1\SesionController;
+use App\Http\Controllers\Api\V1\SimuladorController;
+use App\Http\Controllers\Api\V1\TiendaController;
+use App\Impresion\ComprobanteVenta;
+use Illuminate\Support\Facades\Route;
+
+/*
+|--------------------------------------------------------------------------
+| API de la tienda — /api/v1
+|--------------------------------------------------------------------------
+|
+| El prefijo `api` y el grupo de middlewares `api` (ForzarJson) los pone
+| `withRouting(api: …)` en bootstrap/app.php; acá se agrega la versión.
+|
+| Tres grupos, según lo que exige la ruta (docs/api.md, «Autenticación»). Los
+| middlewares de cada uno se definen UNA vez, en bootstrap/app.php, como grupos
+| con nombre: las rutas y los tests nombran el mismo grupo, y no hay dos listas
+| que puedan separarse.
+|
+|   pública          nada. La credencial no se lee.
+|   sesión opcional  el catálogo. Sin credencial sigue como visitante; con una
+|                    inválida, 401 `sesion_invalida`. Con sesión y permiso, agrega precios.
+|   protegida        credencial válida, cuenta activa y de tienda; el permiso lo pide
+|                    cada ruta.
+|
+| Todavía vacíos: los endpoints entran por tramo (C catálogo, D cuenta y precios,
+| E carrito, F pedidos, G pagos, H consulta). El inicio de sesión y el registro,
+| que van con `throttle:tienda-acceso`, son del tramo D.
+|
+*/
+Route::prefix('v1')->group(function () {
+
+    // Pública.
+    Route::group([], function () {
+        // El árbol no depende de quién mira: no lee la credencial (plan §6.8).
+        Route::get('categorias', [CategoriaController::class, 'index']);
+
+        // Lo que la tienda ofrece, para el bloque de confianza de Inicio (tramo J, HL-81). Sin precios.
+        Route::get('tienda', [TiendaController::class, 'show']);
+
+        // Límite por correo e IP (AppServiceProvider): frena la prueba de contraseñas y el alta en masa.
+        Route::middleware('throttle:tienda-acceso')->group(function () {
+            Route::post('registro', [RegistroController::class, 'store']);
+            Route::post('sesion', [SesionController::class, 'store']);
+        });
+
+        // El comprobante, abierto por el navegador sin credencial: la firma temporal es la
+        // autorización (D-22). La pide `GET pedidos/{pedido}/comprobante`; vencida o tocada, 403.
+        Route::get('pedidos/{pedido}/comprobante.pdf', [PedidoController::class, 'descargarComprobante'])
+            ->whereNumber('pedido')->middleware('signed')->name(ComprobanteVenta::RUTA);
+    });
+
+    // Sesión opcional.
+    Route::middleware('tienda.sesion_opcional')->group(function () {
+        Route::get('productos', [ProductoController::class, 'index']);
+        // Sin binding implícito: el modelo encontraría un producto inactivo.
+        Route::get('productos/{producto}', [ProductoController::class, 'show'])->whereNumber('producto');
+    });
+
+    // Protegida.
+    Route::middleware('tienda.protegida')->group(function () {
+        // Sin permiso propio: cerrar la sesión es de toda cuenta, como cambiar la contraseña.
+        Route::delete('sesion', [SesionController::class, 'destroy']);
+        Route::get('perfil', [PerfilController::class, 'show']);
+        // La cuenta propia, como leerla (D-22): lo fiscal que decide el comprobante no viaja.
+        Route::patch('perfil', [PerfilController::class, 'update']);
+
+        // El carrito (tramo E). `{linea}` sin binding implícito: el servicio la busca dentro del
+        // carrito del usuario, y una ajena es 404 igual que una que no existe.
+        Route::middleware('can:tienda.comprar')->group(function () {
+            Route::get('carrito', [CarritoController::class, 'show']);
+            Route::delete('carrito', [CarritoController::class, 'vaciar']);
+            Route::post('carrito/lineas', [CarritoLineaController::class, 'store']);
+            Route::patch('carrito/lineas/{linea}', [CarritoLineaController::class, 'update'])->whereNumber('linea');
+            Route::delete('carrito/lineas/{linea}', [CarritoLineaController::class, 'destroy'])->whereNumber('linea');
+            // Reserva el carrito. Cualquier escritura posterior al carrito suelta la reserva.
+            Route::post('carrito/checkout', [CheckoutController::class, 'store']);
+            // Confirma el checkout (tramo F). Idempotente por `carrito_id` (D-8).
+            Route::post('pedidos', [PedidoController::class, 'store']);
+
+            // Pagar (tramo G). Como mucho un intento pendiente por pedido (§6.6). Ajeno, 404.
+            Route::post('pedidos/{pedido}/pagos', [PagoPedidoController::class, 'store'])->whereNumber('pedido');
+
+            // El simulador existe sólo con su llave encendida: en producción no hay ruta (D-13).
+            if (config('tienda.pagos.simulador')) {
+                Route::post('simulador/intentos/{intento}/aprobar', [SimuladorController::class, 'aprobar'])->whereNumber('intento');
+                Route::post('simulador/intentos/{intento}/rechazar', [SimuladorController::class, 'rechazar'])->whereNumber('intento');
+            }
+        });
+
+        // El comprobante de una transferencia (tramo L, D-27). Ajeno, 404; si no lo espera, 409.
+        Route::middleware('can:tienda.cargar_comprobante')->group(function () {
+            Route::post('pedidos/{pedido}/comprobante-transferencia', [ComprobanteTransferenciaController::class, 'store'])
+                ->whereNumber('pedido');
+        });
+
+        // Leer los pagos (tramo G). Si el intento está pendiente, `show` consulta al proveedor antes.
+        Route::middleware('can:tienda.ver_pedidos')->group(function () {
+            // Mis pedidos (tramo H). Sólo los online de la cuenta; ajeno o inexistente, 404.
+            Route::get('pedidos', [PedidoController::class, 'index']);
+            Route::get('pedidos/{pedido}', [PedidoController::class, 'show'])->whereNumber('pedido');
+            Route::get('pedidos/{pedido}/comprobante', [PedidoController::class, 'comprobante'])->whereNumber('pedido');
+
+            Route::get('pedidos/{pedido}/pagos', [PagoPedidoController::class, 'index'])->whereNumber('pedido');
+            Route::get('pedidos/{pedido}/pagos/{intento}', [PagoPedidoController::class, 'show'])
+                ->whereNumber(['pedido', 'intento']);
+        });
+    });
+});

@@ -273,6 +273,41 @@
         cambia de precio, la venta no cambia.
     </p>
 
+    {{-- La transferencia de la tienda (D-27): lo que cargó el comprador, para revisarlo antes de cobrar. --}}
+    @if ($venta->medio_pago === 'transferencia')
+        <div class="card card-body border-0 shadow-sm mb-4" data-transferencia>
+            <h2 class="h5 mb-1">Pago por transferencia</h2>
+
+            @if ($venta->comprobantesTransferencia->isEmpty())
+                <p class="text-body-secondary small mb-0">
+                    El comprador todavía no cargó el comprobante. Hasta que llegue, el pedido no se cobra.
+                </p>
+            @else
+                <p class="text-body-secondary small mb-2">
+                    Revisá que la plata haya entrado a la cuenta antes de cobrar: el comprobante lo cargó el
+                    comprador, no lo confirma el banco.
+                </p>
+                <ul class="list-unstyled mb-0">
+                    @foreach ($venta->comprobantesTransferencia as $comprobante)
+                        <li class="py-1">
+                            @can('venta.ver_comprobante_transferencia')
+                                <a href="{{ route('ventas.comprobante_transferencia', [$venta, $comprobante]) }}"
+                                    target="_blank" rel="noopener">
+                                    <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                                    {{ $comprobante->nombre_original }}</a>
+                            @else
+                                {{ $comprobante->nombre_original }}
+                            @endcan
+                            <span class="small text-body-secondary">
+                                · cargado el {{ $comprobante->created_at->format('d/m/Y H:i') }}
+                            </span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </div>
+    @endif
+
     @if ($venta->observaciones)
         <div class="card card-body border-0 shadow-sm mb-4">
             <h2 class="h6 text-body-secondary">Observaciones</h2>
@@ -421,11 +456,15 @@
                              que él mismo cargó. `venta.anular` es de la devolución,
                              que es la que toca el dinero. --}}
                         @can('venta.editar')
+                            {{-- El pedido de la tienda retiene stock: el aviso lo dice, porque cancelarlo lo libera. --}}
                             <form method="POST" action="{{ route('ventas.cancelar', $venta) }}"
-                                onsubmit="return confirm(@js('El presupuesto va a quedar cancelado y no se puede volver atrás. No se borra: queda registrado con sus líneas. ¿Seguimos?'));">
+                                onsubmit="return confirm(@js($venta->esOnline()
+                                    ? 'El pedido va a quedar cancelado y no se puede volver atrás. Las unidades que tiene reservadas vuelven al disponible y otro cliente las puede comprar. No se borra: queda registrado. ¿Seguimos?'
+                                    : 'El presupuesto va a quedar cancelado y no se puede volver atrás. No se borra: queda registrado con sus líneas. ¿Seguimos?'));">
                                 @csrf
                                 <button type="submit" class="btn btn-outline-danger w-100">
-                                    <i class="bi bi-x-circle" aria-hidden="true"></i> Cancelar el presupuesto
+                                    <i class="bi bi-x-circle" aria-hidden="true"></i>
+                                    {{ $venta->esOnline() ? 'Cancelar el pedido' : 'Cancelar el presupuesto' }}
                                 </button>
                             </form>
                         @endcan
