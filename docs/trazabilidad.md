@@ -1458,3 +1458,24 @@ contra lo mismo.
 de las cuentas de gestión salió del inicio de sesión. La vigencia la decide el ámbito de la cuenta,
 que es un dato, y no el cliente que dice ser (D-31): 8 horas para gestión, 7 días para la tienda. Las
 rutas propias de la tienda conservan su frontera, porque una cuenta de gestión no tiene ficha de cliente.
+
+### Tramo C — Autorización común y el cliente de API de la web
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Middleware/AutenticarConCredencial` | Lee la credencial de la cookie y pone su cuenta en el guard web, sin guardar nada en la sesión. La vencida, revocada, inventada, inactiva o de tienda: al ingreso con el motivo, o 401 con la forma del contrato si el pedido es JSON | Nuevo |
+| `bootstrap/app.php` | La cookie `credencial` sin cifrar (la lee el JS), y el middleware antes de `Authenticate` en la prioridad, que si no lo adelanta | Modificado |
+| `resources/js/api/cliente.js` | El módulo central: dirección, credencial (el único que la lee y la escribe), cabeceras, sobre y errores (401, 403, 419, 422, 409, sin red con reintento); `ingresar()` y `salir()` | Nuevo |
+| `resources/js/api/estados.js` | Los seis estados: carga, sin resultados, completado, validación (con `aria-describedby`), sin conexión y sesión vencida | Nuevo |
+| `resources/js/pantallas/sesion.js` | El formulario de ingreso y el botón de salir, por la API | Nuevo |
+| `auth/login.blade.php`, `partials/navbar.blade.php` | Sin `action` ni CSRF; sin «Mantener la sesión abierta» (la cookie muere al cerrar el navegador); salir es un botón | Modificado |
+| `selects-buscables.js`, `lineas-pedido.js`, `alta-rapida.js` | Piden por el módulo central (HL-100) y pierden su propio tratamiento de errores | Modificado |
+| `AuthController` | Queda sólo `mostrarLogin`; `LoginRequest` se borra. Se retiran `POST login` y `POST logout` | Modificado |
+| `ingresoAdministracion()` en `tests/Pest.php` | Entra como el formulario: credencial de la API, en cookie, hasta la portada. Reemplaza a `post(route('login.attempt'))` | Nuevo |
+| `tests/Feature/CredencialWebTest.php` | Entrar con la cookie, cada motivo de rechazo, 403 sin permiso, permiso quitado en el pedido siguiente, 401 JSON, y que la API no acepta la cookie | Nuevo |
+
+**La decisión que lo condicionó.** D-30: la credencial en una cookie (HL-109). Las pantallas que
+todavía no se migraron necesitan saber quién pide hasta el tramo I, y `sessionStorage` no viaja en la
+navegación. Con una sola credencial, todo lo que la invalida corta a la vez la API y las pantallas. Las
+13 llamadas de los tests se migraron conservando la aserción. La de fijación de sesión pasó a
+«cada ingreso emite una credencial nueva, y una que trae el cliente no sirve», con el OK del usuario.

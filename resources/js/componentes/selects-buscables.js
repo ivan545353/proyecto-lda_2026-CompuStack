@@ -1,4 +1,5 @@
 import TomSelect from 'tom-select';
+import { api } from '../api/cliente';
 
 /**
  * Selectores con búsqueda.
@@ -176,21 +177,8 @@ const configuracionRemota = (select) => {
                 enCurso?.abort();
                 enCurso = new AbortController();
 
-                fetch(destino, {
-                    signal: enCurso.signal,
-                    credentials: 'same-origin',
-                    headers: {
-                        Accept: 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                })
-                    .then((respuesta) => {
-                        if (!respuesta.ok) {
-                            throw new Error(String(respuesta.status));
-                        }
-
-                        return respuesta.json();
-                    })
+                // Por el módulo central: el error ya lo trató y lo mostró él (tramo C).
+                api.get(destino.toString(), { propia: true, senal: enCurso.signal })
                     .then((cuerpo) => {
                         const resultados = cuerpo.resultados ?? [];
 
@@ -208,10 +196,11 @@ const configuracionRemota = (select) => {
                             return;
                         }
 
+                        // El desplegable no afirma «no hay coincidencias» de una búsqueda que no se hizo.
                         fallo = true;
                         delete buscador.loadedSearches[texto];
 
-                        avisar(pie, 'No se pudo buscar. Revisá la conexión y probá de nuevo.', true);
+                        avisar(pie, 'No se pudo buscar.', true);
                         callback([]);
                     });
             },

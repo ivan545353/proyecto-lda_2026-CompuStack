@@ -282,7 +282,7 @@
                                 Los campos con <span class="text-danger" aria-hidden="true">*</span> son obligatorios.
                             </p>
 
-                            <div class="alert alert-danger" role="alert" data-alta-rapida-error hidden></div>
+                            <div class="alert alert-danger" role="alert" data-errores-formulario hidden></div>
 
                             @include('clientes._campos', [
                                 'cliente' => new App\Models\Cliente([

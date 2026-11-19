@@ -16,7 +16,7 @@ use Illuminate\Http\Request;
 |
 | - withRouting()     archivos de rutas y punto de entrada; `api:` agrega /api con
 |                     el grupo de middlewares `api`
-| - withMiddleware()  web: VerificarUsuarioActivo en todo el grupo.
+| - withMiddleware()  web: AutenticarConCredencial y VerificarUsuarioActivo en todo el grupo.
 |                     api: ForzarJson en todo el grupo; y tres grupos con nombre,
 |                     `api.protegida` (los dos clientes), `tienda.sesion_opcional`
 |                     y `tienda.protegida`, que usan routes/api.php y los tests.
@@ -37,8 +37,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // Se revalida en TODO request con sesión, no sólo en el login.
+        // La administración entra con la credencial de la API, en cookie (D-30): la lee
+        // AutenticarConCredencial y después se revalida la cuenta en TODO request.
+        // El JS la escribe y la lee para mandarla como Bearer: no puede ir cifrada.
+        $middleware->encryptCookies(except: [\App\Http\Middleware\AutenticarConCredencial::COOKIE]);
         $middleware->web(append: [
+            \App\Http\Middleware\AutenticarConCredencial::class,
             \App\Http\Middleware\VerificarUsuarioActivo::class,
         ]);
 
@@ -54,6 +58,13 @@ return Application::configure(basePath: dirname(__DIR__))
             'api.cuenta_activa'      => \App\Http\Middleware\Api\VerificarCuentaActiva::class,
             'tienda.cuenta'          => \App\Http\Middleware\Api\VerificarCuentaTienda::class,
         ]);
+
+        // La credencial se lee antes de que `auth` pregunte quién es: sin esto, la prioridad
+        // del framework adelanta Authenticate y toda credencial válida terminaría en el login.
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            prepend: \App\Http\Middleware\AutenticarConCredencial::class,
+        );
 
         // La frontera corre antes de buscar el modelo de la ruta: si no, una cuenta de la
         // tienda distinguiría un id que existe (login) de uno que no (404) (HL-54).

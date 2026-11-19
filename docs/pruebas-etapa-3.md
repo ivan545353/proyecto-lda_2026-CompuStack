@@ -156,3 +156,40 @@ dejaría una ruta viva sin cobertura. Siguen pasando.
 **Tests nuevos**: `Api/SesionComunTest` (10: mismo endpoint, `/yo` por rol en las dos direcciones, cierre
 de sesión de gestión, D-3, el helper, 429 de gestión, ni token ni contraseña en el log) y en
 `Api/CredencialTest`, la vigencia de gestión y `vencio()`.
+
+## 7. Tramo C — La administración entra con la credencial
+
+**La ayuda del tramo**: `ingresoAdministracion($test, $email, $password)`, en `tests/Pest.php`. Hace lo
+que el formulario: `POST /api/v1/sesion` y, si emitió la credencial, la lleva en la cookie hasta la
+portada. Devuelve la respuesta del ingreso. Reemplaza a `post(route('login.attempt'))`.
+
+**Migradas las 13 llamadas** (12 `login.attempt` + 1 `logout`; el inventario del A contaba 12). Quedan
+**272 en 23 archivos**.
+
+| Test | Fijaba | Ahora | Por qué |
+| --- | --- | --- | --- |
+| `AutenticationTest` › «un usuario de gestión puede iniciar sesión» | Redirección a `inicio` y autenticado | Ingreso 200, la portada lleva al panel, y autenticado | Misma aserción, de punta a punta |
+| `AutenticationTest` › «rechaza credenciales incorrectas sin revelar cuál falló» | Error en `email` y sigue invitado | 422 con el mismo mensaje para la contraseña incorrecta **y** para un correo inexistente | La aserción gana un caso |
+| `AutenticationTest` › «inactivo» | Error en `email` | 422 en `email` e invitado | Ídem |
+| `AutenticationTest` › «ámbito tienda no entra al sistema de gestión» | El login la rechaza | La API le emite su credencial (HL-98), pero con ella la portada manda al ingreso, e invitado | Lo decide el servidor en cada pantalla |
+| `AutenticationTest` › «el login limita los intentos» | 429 al sexto | 429 al sexto, en la API | Ídem |
+| `AutenticationTest` › «el identificador de sesión cambia al autenticarse» | Fijación de sesión | **«Cada ingreso emite una credencial nueva, y una elegida por el cliente no sirve»** | Ya no se entra con la sesión; la defensa pasa a la credencial. **Con el OK del usuario** |
+| `CuentaPasswordTest` › «la contraseña nueva sirve y la vieja no» | `logout` + dos `login.attempt` | `DELETE /api/v1/sesion` + dos ingresos (422 la vieja, entra la nueva) | Misma aserción |
+| `RestablecerPasswordTest` (3) | Entra / no entra | Ídem, con `ingresoAdministracion()` | Misma aserción |
+
+**Tests nuevos**: `CredencialWebTest`, con 11 casos:
+- entrar con la cookie, sin nada en la sesión;
+- sin credencial;
+- vencida, con el aviso y la cookie borrada;
+- revocada, inventada, inactiva y de tienda;
+- 401 JSON para un componente;
+- 403 sin permiso;
+- permiso quitado, reflejado en el pedido siguiente;
+- la API rechaza la cookie sin `Bearer`.
+
+**Dos trampas que costaron una corrida cada una**:
+- `getJson()` no manda cookies si no se le pide `withCredentials()`. Sin eso, «la API no acepta la cookie» pasaba sin haberla mandado.
+- Una ruta con `auth:sanctum` deja `sanctum` como guard por omisión en el resto del test, porque `config/sanctum.php` tiene `guard => []`. El pedido web siguiente no encuentra al usuario. La ayuda hace `shouldUse('web')`.
+
+**El JS no tiene tests**: no hay corredor en `package.json` y no se agregan librerías. Se verificó con
+`npm run build`, y lo que el servidor contesta lo prueban los tests de arriba.

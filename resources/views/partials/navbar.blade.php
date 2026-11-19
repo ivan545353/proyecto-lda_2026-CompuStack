@@ -201,14 +201,11 @@
                             <hr class="dropdown-divider">
                         </li>
 
-                        {{-- Cierre de sesión (vía POST con protección CSRF) --}}
+                        {{-- Cierre de sesión: DELETE /api/v1/sesion por el módulo central (tramo C) --}}
                         <li>
-                            <form method="POST" action="{{ route('logout') }}">
-                                @csrf
-                                <button type="submit" class="dropdown-item">
-                                    <i class="bi bi-box-arrow-left"></i> Cerrar sesión
-                                </button>
-                            </form>
+                            <button type="button" class="dropdown-item" data-accion="salir">
+                                <i class="bi bi-box-arrow-left" aria-hidden="true"></i> Cerrar sesión
+                            </button>
                         </li>
                     </ul>
                 </li>

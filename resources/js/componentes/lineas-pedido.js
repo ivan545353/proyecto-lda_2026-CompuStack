@@ -1,3 +1,4 @@
+import { api } from '../api/cliente';
 import { iniciarSelectsBuscables } from './selects-buscables';
 
 /**
@@ -64,17 +65,8 @@ export function iniciarArmadorDePedido(raiz = document) {
         if (cacheProveedores.has(productoId)) return cacheProveedores.get(productoId);
 
         try {
-            const respuesta = await fetch(urlProveedores.replace('__ID__', productoId), {
-                credentials: 'same-origin',
-                headers: {
-                    Accept: 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-            });
-
-            if (!respuesta.ok) throw new Error(String(respuesta.status));
-
-            const cuerpo = await respuesta.json();
+            // Por el módulo central: el error ya lo trató y lo mostró él (tramo C).
+            const cuerpo = await api.get(urlProveedores.replace('__ID__', productoId), { propia: true });
 
             cacheProveedores.set(productoId, cuerpo.resultados ?? []);
 

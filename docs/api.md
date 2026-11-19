@@ -123,6 +123,9 @@ entera en el renderer y la excepción queda en el log. Un estado HTTP que no fig
   como una credencial que no sirve (`sesion_invalida`).
 - Sólo la credencial `Bearer` autentica: una sesión de navegador abierta en el panel **no** sirve
   contra `api/*`.
+- **La administración web guarda la credencial en una cookie** (D-30, tramo C) y la manda como `Bearer`.
+  La cookie sirve sólo para que la navegación entre pantallas la lleve. **La API no la lee**: un pedido
+  con la cookie y sin `Authorization` es 401 `sin_sesion`. No cambia ninguna forma y la revisión sigue en 14.
 - **Vigencia, según el ámbito de la cuenta** (D-31, r14). La decide un dato de la cuenta y no el cliente que
   dice ser:
   - **Tienda: 7 días** (`SANCTUM_EXPIRATION`, en minutos; vacío = 10080). Un teléfono no se comparte, y

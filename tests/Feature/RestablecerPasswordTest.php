@@ -94,10 +94,7 @@ test('generar el enlace no invalida la contrasena actual', function () {
 
     enlaceParaRestablecer($objetivo);
 
-    $this->post(route('login.attempt'), [
-        'email'    => $objetivo->email,
-        'password' => 'Vieja12345',
-    ]);
+    ingresoAdministracion($this, $objetivo->email, 'Vieja12345')->assertOk();
 
     $this->assertAuthenticatedAs($objetivo);
 });
@@ -126,10 +123,7 @@ test('la persona fija su contrasena con el enlace y entra con ella', function ()
 
     expect(Hash::check('Nueva67890', $objetivo->fresh()->password))->toBeTrue();
 
-    $this->post(route('login.attempt'), [
-        'email'    => $objetivo->email,
-        'password' => 'Nueva67890',
-    ]);
+    ingresoAdministracion($this, $objetivo->email, 'Nueva67890')->assertOk();
 
     $this->assertAuthenticatedAs($objetivo);
 });
@@ -145,10 +139,7 @@ test('la contrasena vieja deja de servir', function () {
         'password_confirmation' => 'Nueva67890',
     ]);
 
-    $this->post(route('login.attempt'), [
-        'email'    => $objetivo->email,
-        'password' => 'Vieja12345',
-    ])->assertSessionHasErrors();
+    ingresoAdministracion($this, $objetivo->email, 'Vieja12345')->assertJsonValidationErrors('email', 'errores');
 
     $this->assertGuest();
 });

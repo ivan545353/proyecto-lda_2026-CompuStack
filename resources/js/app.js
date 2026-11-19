@@ -10,6 +10,7 @@ import { iniciarGraficosDelPanel } from './componentes/graficos';
 import { iniciarAltasRapidas } from './componentes/alta-rapida';
 import { iniciarCobro } from './componentes/cobro';
 import { iniciarOpcionesDeImpresion } from './componentes/impresion';
+import { iniciarIngreso, iniciarSalida } from './pantallas/sesion';
 
 window.bootstrap = bootstrap;
 
@@ -277,6 +278,13 @@ document.addEventListener('DOMContentLoaded', () => iniciarCobro());
 
 // El diálogo «Opciones de impresión» de los listados: ver componentes/impresion.js
 document.addEventListener('DOMContentLoaded', () => iniciarOpcionesDeImpresion());
+
+
+// Entrar y salir de la administración, por la API: ver pantallas/sesion.js
+document.addEventListener('DOMContentLoaded', () => {
+    iniciarIngreso();
+    iniciarSalida();
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     const operacion = document.getElementById('operacion');

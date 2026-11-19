@@ -190,6 +190,14 @@ tramo D, que comparte `productos` con la administración (regla 36), tiene que s
 frontera de ámbito y decidir la representación por permiso. No rompe nada hoy: ningún cliente de gestión
 lo llama todavía.
 
+### HL-109 — Las pantallas sin migrar necesitan saber quién pide, hasta el tramo I
+
+*Registrado en el tramo C.* D-30 preveía shells sin datos privados, que no necesitan saber quién los
+pide. Pero de D a I las pantallas que todavía no se migraron siguen armando sus datos en el servidor,
+detrás de `auth`, y usan `@can`. Un token en `sessionStorage` no viaja en una navegación: retirar el
+`POST login` las habría dejado inservibles desde el tramo C. Lo resolvió D-30 con la credencial en
+una cookie, que la navegación manda sola.
+
 ---
 
 ## 4. Alcance
@@ -513,6 +521,19 @@ El problema está en HL-102. Tres salidas:
 consigna en lo que importa —el mismo mecanismo de token contra la API, nada que sobreviva al cierre
 de la pestaña— y conserva la navegación existente, que la §8 pide expresamente. Se documenta la
 decisión y se nombra la alternativa estricta y por qué se descartó.
+
+**Decidida en el tramo C: la credencial en una cookie** (HL-109). Es una sola credencial, la de Sanctum
+que emite `POST /api/v1/sesion`. El módulo central (`resources/js/api/cliente.js`) la escribe en la cookie
+`credencial` y la manda como `Bearer` a la API. La navegación la manda sola, y `AutenticarConCredencial`
+la lee para servir las pantallas Blade, `@can` incluido. No se guarda nada en la sesión, que queda sólo
+para el CSRF y los avisos. La API no lee la cookie: sólo el `Bearer` (`CredencialWebTest`).
+- **Contra `sessionStorage`**: no viaja en la navegación, y las pantallas sin migrar quedarían rotas hasta el I.
+- **Contra «sesión para los shells»**: serían dos credenciales con vigencias y revocaciones distintas.
+  Con una sola, revocarla, que venza (8 h, D-31) o desactivar la cuenta corta la API y las pantallas
+  en el mismo pedido. Y un permiso quitado se nota en el pedido siguiente.
+- **Lo que cuesta**: un XSS podría leerla, igual que con `sessionStorage` (el JS tiene que leerla para
+  el `Bearer`). Muere al cerrar el navegador, no la pestaña. Lleva `SameSite=Strict` y `Secure` en https.
+  Las rutas web que todavía escriben siguen pidiendo el token CSRF.
 
 ### D-31 — Vigencia del token
 

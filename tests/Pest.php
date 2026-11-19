@@ -82,6 +82,29 @@ function bearer(\App\Models\User $usuario): array
 }
 
 /**
+ * Entra a la administración como el formulario (tramo C, D-30): la API emite la credencial y,
+ * si la emitió, la cookie la lleva a la portada. Devuelve la respuesta del ingreso. Cada pedido
+ * empieza sin guard en memoria, como en producción. Es lo que reemplaza a `post(route('login.attempt'))`.
+ */
+function ingresoAdministracion($test, string $email, string $password)
+{
+    app('auth')->forgetGuards();
+
+    $ingreso = $test->postJson('/api/v1/sesion', ['email' => $email, 'password' => $password]);
+
+    if ($ingreso->status() === 200) {
+        // `auth:sanctum` deja `sanctum` como guard por omisión en el proceso del test; un pedido
+        // web real arranca con `web`.
+        app('auth')->forgetGuards();
+        app('auth')->shouldUse('web');
+        $test->withUnencryptedCookie(\App\Http\Middleware\AutenticarConCredencial::COOKIE, $ingreso->json('datos.credencial'))
+            ->get(route('inicio'));
+    }
+
+    return $ingreso;
+}
+
+/**
  * Hace la petición con el verbo indicado. Los GET van sin cuerpo; el resto
  * lleva $datos. La usan los datasets de permisos de cada módulo, que recorren
  * todas las rutas con el mismo test.

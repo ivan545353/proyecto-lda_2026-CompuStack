@@ -85,19 +85,14 @@ test('la contrasena nueva sirve para entrar y la vieja no', function () {
         'password_confirmation' => 'Nueva67890',
     ]);
 
-    $this->post(route('logout'));
+    // Salir e ingresar van por la API desde el tramo C (D-30).
+    $this->deleteJson('/api/v1/sesion', [], bearer($usuario))->assertNoContent();
 
-    $this->post(route('login.attempt'), [
-        'email'    => $usuario->email,
-        'password' => 'Vieja12345',
-    ])->assertSessionHasErrors();
+    ingresoAdministracion($this, $usuario->email, 'Vieja12345')->assertJsonValidationErrors('email', 'errores');
 
     $this->assertGuest();
 
-    $this->post(route('login.attempt'), [
-        'email'    => $usuario->email,
-        'password' => 'Nueva67890',
-    ]);
+    ingresoAdministracion($this, $usuario->email, 'Nueva67890')->assertOk();
 
     $this->assertAuthenticatedAs($usuario);
 });

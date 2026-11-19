@@ -59,3 +59,44 @@ Accept: application/json
 Content-Type: application/json
 
 { "email": "vendedor@sistema.local", "password": "equivocada1" }
+
+###
+
+### ── Tramo C — La administración, cliente de la API ─────────────────────────
+
+# El formulario de ingreso de la administración hace esta misma petición (módulo central).
+# La credencial queda en la cookie `credencial`, y la navegación la manda para servir las pantallas.
+# @name sesionAdmin
+POST {{base}}/sesion
+Accept: application/json
+Content-Type: application/json
+
+{ "email": "vendedor@sistema.local", "password": "demo1234" }
+
+###
+
+# La API no acepta la cookie: sin `Authorization`, 401 sin_sesion aunque el navegador la mande.
+GET {{base}}/yo
+Accept: application/json
+Cookie: credencial={{sesionAdmin.response.body.datos.credencial}}
+
+###
+
+# Con Bearer, sí. `rol.ambito` = gestion: el formulario sólo deja seguir a esas cuentas.
+GET {{base}}/yo
+Accept: application/json
+Authorization: Bearer {{sesionAdmin.response.body.datos.credencial}}
+
+###
+
+# La pantalla también la lee de la cookie: sin permiso panel.ver_global, el panel general da 403.
+GET http://localhost:8000/panel/general
+Accept: text/html
+Cookie: credencial={{sesionAdmin.response.body.datos.credencial}}
+
+###
+
+# Salir desde la administración: 204. Después, la cookie ya no abre ninguna pantalla.
+DELETE {{base}}/sesion
+Accept: application/json
+Authorization: Bearer {{sesionAdmin.response.body.datos.credencial}}

@@ -36,8 +36,8 @@ use Illuminate\Support\Facades\Route;
 | exige. Un permiso mal escrito acá deniega el acceso; nunca lo concede.
 |
 | Grupos:
-|   guest            login (con throttle:5,1)
-|   auth             logout
+|   guest            el formulario de ingreso (entrar y salir van por la API: tramo C, D-30)
+|   auth             la cuenta propia
 |   auth + gestion   todo el sistema de gestión
 |
 */
@@ -49,10 +49,6 @@ Route::redirect('/', '/inicio');
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'mostrarLogin'])->name('login');
 
-    Route::post('/login', [AuthController::class, 'login'])
-        ->middleware('throttle:5,1')
-        ->name('login.attempt');
-
     Route::get('/restablecer/{token}', [RestablecerPasswordController::class, 'mostrar'])
         ->name('password.reset');
 
@@ -61,10 +57,8 @@ Route::middleware('guest')->group(function () {
         ->name('password.store');
 });
 
-//CIERRE DE SESIÓN Y CUENTA
+// CUENTA PROPIA
 Route::middleware('auth')->group(function () {
-    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
-
     Route::get('/cuenta/password', [CuentaController::class, 'editarPassword'])
         ->name('cuenta.password.edit');
 

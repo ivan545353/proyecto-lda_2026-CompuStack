@@ -3,10 +3,13 @@
 @section('title', 'Ingresar')
 
 @section('content')
-    <form method="POST" action="{{ route('login.attempt') }}" class="form-authentication" autocomplete="off" novalidate>
-        @csrf
+    {{-- Lo envía el módulo central a POST /api/v1/sesion (tramo C, D-30): no tiene action ni CSRF. --}}
+    <form id="formularioIngreso" data-destino="{{ route('inicio') }}" class="form-authentication"
+        autocomplete="off" novalidate>
 
         <div class="card card-body m-3 gap-2 shadow-sm border-0">
+
+            <div id="avisosApi" aria-live="polite"></div>
 
             <div class="d-flex justify-content-center mb-4">
                 <img src="{{ asset('assets/imagotipo.svg') }}" alt="{{ config('app.name') }}" height="48">
@@ -35,14 +38,6 @@
                         <div class="invalid-feedback">{{ $message }}</div>
                     @enderror
                 </div>
-            </div>
-
-            <div class="form-check mb-3">
-                <input type="checkbox" class="form-check-input" id="recordarme" name="recordarme" value="1"
-                    {{ old('recordarme') ? 'checked' : '' }}>
-                <label class="form-check-label small" for="recordarme">
-                    Mantener la sesión abierta
-                </label>
             </div>
 
             <button type="submit" class="btn btn-acento">Ingresar</button>
