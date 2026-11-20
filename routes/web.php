@@ -20,7 +20,6 @@ use App\Http\Controllers\PagoController;
 use App\Http\Controllers\PanelController;
 use App\Http\Controllers\InformeVentasController;
 use App\Http\Controllers\PrecioController;
-use App\Http\Controllers\BusquedaController;
 use App\Http\Controllers\AjusteMasivoController;
 use Illuminate\Support\Facades\Route;
 
@@ -77,80 +76,38 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/panel/general', [PanelController::class, 'general'])
         ->middleware('can:panel.ver_global')->name('panel.general');
 
-    // Catálogo — Marcas
+    // Catálogo — Marcas: sólo pantallas; las operaciones van por la API (tramo D)
     Route::get('/marcas', [MarcaController::class, 'index'])
         ->middleware('can:marca.ver')
         ->name('marcas.index');
-
-    Route::get('/marcas/imprimir', [MarcaController::class, 'imprimir'])
-        ->middleware('can:marca.ver')
-        ->name('marcas.imprimir');
 
     Route::get('/marcas/crear', [MarcaController::class, 'create'])
         ->middleware('can:marca.crear')
         ->name('marcas.create');
 
-    Route::post('/marcas', [MarcaController::class, 'store'])
-        ->middleware('can:marca.crear')
-        ->name('marcas.store');
-
     Route::get('/marcas/{marca}/editar', [MarcaController::class, 'edit'])
         ->middleware('can:marca.editar')
         ->name('marcas.edit');
 
-    Route::put('/marcas/{marca}', [MarcaController::class, 'update'])
-        ->middleware('can:marca.editar')
-        ->name('marcas.update');
-
-    Route::delete('/marcas/{marca}', [MarcaController::class, 'destroy'])
-        ->middleware('can:marca.eliminar')
-        ->name('marcas.destroy');
 
     // Catálogo — productos
     Route::get('/productos', [ProductoController::class, 'index'])
         ->middleware('can:producto.ver')->name('productos.index');
-    
-    // Imprimir lo que el listado muestra pide el mismo permiso que verlo: el costo lo cuida su columna.
-    Route::get('/productos/imprimir', [ProductoController::class, 'imprimir'])
-        ->middleware('can:producto.ver')->name('productos.imprimir');
 
+    // Las operaciones y la impresión, por la API (tramo D): acá sólo quedan las pantallas.
     Route::get('/productos/crear', [ProductoController::class, 'create'])
         ->middleware('can:producto.crear')->name('productos.create');
-
-    Route::post('/productos', [ProductoController::class, 'store'])
-        ->middleware('can:producto.crear')->name('productos.store');
 
     Route::get('/productos/{producto}/editar', [ProductoController::class, 'edit'])
         ->middleware('can:producto.editar')->name('productos.edit');
 
-    Route::put('/productos/{producto}', [ProductoController::class, 'update'])
-        ->middleware('can:producto.editar')->name('productos.update');
-
-    Route::delete('/productos/{producto}', [ProductoController::class, 'destroy'])
-        ->middleware('can:producto.eliminar')->name('productos.destroy');
-    Route::post('/productos/{producto}/recalcular', [ProductoController::class, 'recalcular'])
-        ->middleware('can:precio.recalcular')->name('productos.recalcular');
-    
-    // Proveedores de un producto: el comparador de precios.
+    // Proveedores de un producto: el comparador de precios. Las operaciones, por la API (tramo D).
     Route::middleware('can:producto.editar')->group(function () {
     Route::get('/productos/{producto}/proveedores', [ProductoProveedorController::class, 'index'])
         ->name('producto-proveedores.index');
 
-    Route::post('/productos/{producto}/proveedores', [ProductoProveedorController::class, 'store'])
-        ->name('producto-proveedores.store');
-
     Route::get('/productos/{producto}/proveedores/{proveedor}/editar', [ProductoProveedorController::class, 'edit'])
         ->name('producto-proveedores.edit');
-
-    Route::put('/productos/{producto}/proveedores/{proveedor}', [ProductoProveedorController::class, 'update'])
-        ->name('producto-proveedores.update');
-
-    // Acción propia: elegir a quién pedirle sin reenviar el costo ni el código.
-    Route::patch('/productos/{producto}/proveedores/{proveedor}/preferido', [ProductoProveedorController::class, 'preferido'])
-        ->name('producto-proveedores.preferido');
-
-    Route::delete('/productos/{producto}/proveedores/{proveedor}', [ProductoProveedorController::class, 'destroy'])
-        ->name('producto-proveedores.destroy');
 });
 
     // Personas — Personal (cuentas de ámbito gestión)
@@ -228,23 +185,12 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/categorias', [CategoriaController::class, 'index'])
         ->middleware('can:categoria.ver')->name('categorias.index');
 
-    Route::get('/categorias/imprimir', [CategoriaController::class, 'imprimir'])
-        ->middleware('can:categoria.ver')->name('categorias.imprimir');
-
     Route::get('/categorias/crear', [CategoriaController::class, 'create'])
         ->middleware('can:categoria.crear')->name('categorias.create');
-
-    Route::post('/categorias', [CategoriaController::class, 'store'])
-        ->middleware('can:categoria.crear')->name('categorias.store');
 
     Route::get('/categorias/{categoria}/editar', [CategoriaController::class, 'edit'])
         ->middleware('can:categoria.editar')->name('categorias.edit');
 
-    Route::put('/categorias/{categoria}', [CategoriaController::class, 'update'])
-        ->middleware('can:categoria.editar')->name('categorias.update');
-
-    Route::delete('/categorias/{categoria}', [CategoriaController::class, 'destroy'])
-        ->middleware('can:categoria.eliminar')->name('categorias.destroy');
 
     // Compras — Proveedores
     Route::get('/proveedores', [ProveedorController::class, 'index'])
@@ -279,20 +225,6 @@ Route::middleware(['auth', 'gestion'])->group(function () {
 
     Route::post('/stock/{producto}/ajuste', [StockController::class, 'guardarAjuste'])
         ->middleware('can:stock.ajustar')->name('stock.ajuste.store');
-
-    // Buscador remoto.
-    Route::get('/buscar/productos', [BusquedaController::class, 'productos'])
-        ->middleware('can:producto.ver')->name('busqueda.productos');
-
-    Route::get('/buscar/productos/{producto}/proveedores', [BusquedaController::class, 'proveedoresDeProducto'])
-        ->whereNumber('producto')
-        ->middleware('can:proveedor.ver')->name('busqueda.producto.proveedores');
-
-    Route::get('/buscar/clientes', [BusquedaController::class, 'clientes'])
-        ->middleware('can:cliente.ver')->name('busqueda.clientes');
-
-    Route::get('/buscar/proveedores', [BusquedaController::class, 'proveedores'])
-        ->middleware('can:proveedor.ver')->name('busqueda.proveedores');
 
     // Compras
     Route::get('/compras', [CompraController::class, 'index'])

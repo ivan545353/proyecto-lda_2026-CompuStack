@@ -66,9 +66,10 @@ export function iniciarArmadorDePedido(raiz = document) {
 
         try {
             // Por el módulo central: el error ya lo trató y lo mostró él (tramo C).
-            const cuerpo = await api.get(urlProveedores.replace('__ID__', productoId), { propia: true });
+            // Tramo D: `GET /productos/{p}/proveedores`, ya en el orden en que conviene elegir.
+            const cuerpo = await api.get(urlProveedores.replace('__ID__', productoId));
 
-            cacheProveedores.set(productoId, cuerpo.resultados ?? []);
+            cacheProveedores.set(productoId, cuerpo.datos ?? []);
 
             return cacheProveedores.get(productoId);
         } catch {
@@ -80,13 +81,13 @@ export function iniciarArmadorDePedido(raiz = document) {
     const etiquetaDe = (proveedor) => {
         // Sin `precio.ver_costo` la clave no viene, y decir «sin costo cargado»
         // afirmaría algo que el servidor no contestó.
-        const costo = 'costo' in proveedor
-            ? ` — ${proveedor.costo === null ? 'sin costo cargado' : pesos.format(Number(proveedor.costo))}`
+        const costo = 'costo_ultimo' in proveedor
+            ? ` — ${proveedor.costo_ultimo === null ? 'sin costo cargado' : pesos.format(Number(proveedor.costo_ultimo))}`
             : '';
 
-        return proveedor.preferido
-            ? `${proveedor.nombre}${costo} (el elegido)`
-            : `${proveedor.nombre}${costo}`;
+        return proveedor.es_preferido
+            ? `${proveedor.razon_social}${costo} (el elegido)`
+            : `${proveedor.razon_social}${costo}`;
     };
     // ------------------------------------------------------------------
     // Grupos por proveedor
@@ -182,8 +183,8 @@ export function iniciarArmadorDePedido(raiz = document) {
 
         const vinculo = (opciones ?? []).find((proveedor) => String(proveedor.id) === proveedorId);
 
-        const sugerido = vinculo && vinculo.costo !== undefined && vinculo.costo !== null
-            ? decimal.format(Number(vinculo.costo))
+        const sugerido = vinculo && vinculo.costo_ultimo !== undefined && vinculo.costo_ultimo !== null
+            ? decimal.format(Number(vinculo.costo_ultimo))
             : '';
 
         // Se sobrescribe lo vacío y lo que el sistema mismo sugirió antes. Lo que el

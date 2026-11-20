@@ -35,12 +35,17 @@ export function iniciarGestoresDeImagenes(raiz = document) {
         return;
     }
 
-    raiz.querySelectorAll('.js-gestor-imagenes').forEach((contenedor) => {
-        if (!contenedor.dataset.iniciado) {
-            contenedor.dataset.iniciado = '1';
-            new GestorDeImagenes(contenedor);
-        }
-    });
+    // Uno diferido espera sus imágenes de la API: lo arranca su pantalla con iniciarGestor().
+    raiz.querySelectorAll('.js-gestor-imagenes:not([data-diferido])').forEach(iniciarGestor);
+}
+
+/** Arranca un gestor; `actuales` ([{ruta, url}]) reemplaza las que trajo el HTML. */
+export function iniciarGestor(contenedor, actuales = null) {
+    if (!soportaListasDeArchivos() || contenedor.dataset.iniciado) return;
+
+    if (actuales !== null) contenedor.dataset.actuales = JSON.stringify(actuales);
+    contenedor.dataset.iniciado = '1';
+    new GestorDeImagenes(contenedor);
 }
 
 class GestorDeImagenes {

@@ -96,55 +96,55 @@ script.)*
 
 | Operación | Rutas actuales | Entrada | Salida | Permiso | Interfaz | Endpoint | Tramo · Estado |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Consultar catálogo | `GET productos` ·P — `ProductoController@index` · API: `GET api/v1/productos`, `GET api/v1/productos/{producto}` | `q`, `categoria_id`, `marca_id`, `proveedor_id`, `estado`, `stock`, `page` (`ProductoFiltroRequest`) | Vista `productos.index` con `productos` paginados, `categorias`, `marcas` | `producto.ver` / público en la API | Admin web: el listado, los filtros y el paginado pasan a la API. Flutter: sin cambio | `GET /api/v1/productos` *(existe: se extiende con `marca_id`, `proveedor_id`, `estado`, `stock` y la representación por permiso de costo, stock y proveedores)* | D · Pendiente |
-| Imprimir el listado de productos | `GET productos/imprimir` ·D — `ProductoController@imprimir` | Los filtros del listado | Página imprimible | `producto.ver` | Admin web: abre la URL firmada | `GET /api/v1/productos/impresion` → URL firmada | D · Pendiente |
-| Crear producto | `GET productos/crear` ·P · `POST productos` ·N — `ProductoController@create`, `@store` | `codigo`, `nombre`, `descripcion`, `categoria_id`, `marca_id`, `precio_lista`, `precio_contado`, `precio_manual`, `ganancia`, `alicuota_iva`, `stock_minimo`, `cantidad_reposicion`, `activo`, `destacado` (`ProductoRequest`) | Formulario con valores por omisión; tras guardar, redirección con aviso | `producto.crear` | Admin web: el formulario envía por la API y pide categorías y marcas por la API | `POST /api/v1/productos` | D · Pendiente |
-| Modificar producto | `GET productos/{producto}/editar` ·P · `PUT productos/{producto}` ·N — `ProductoController@edit`, `@update` | Ídem `ProductoRequest` | Formulario con `producto`, `calculo` de precio e `historial`; tras guardar, redirección | `producto.editar` | Admin web | `GET /api/v1/productos/{producto}` *(existe: se extiende con cálculo e historial por permiso)* · `PATCH /api/v1/productos/{producto}` | D · Pendiente |
-| Eliminar o desactivar producto | `DELETE productos/{producto}` ·N — `ProductoController@destroy` | — | Redirección; si está referenciado, se desactiva (regla 2) | `producto.eliminar` | Admin web | `DELETE /api/v1/productos/{producto}` | D · Pendiente |
-| Recalcular el precio de un producto | `POST productos/{producto}/recalcular` ·N — `ProductoController@recalcular` | — | Redirección con el precio nuevo | `precio.recalcular` | Admin web | `POST /api/v1/productos/{producto}/recalcular` | D · Pendiente |
+| Consultar catálogo | `GET productos` ·P — `ProductoController@index` · API: `GET api/v1/productos`, `GET api/v1/productos/{producto}` | `q`, `categoria_id`, `marca_id`, `proveedor_id`, `estado`, `stock`, `page` (`ProductoFiltroRequest`) | Vista `productos.index` con `productos` paginados, `categorias`, `marcas` | `producto.ver` / público en la API | Admin web: el listado, los filtros y el paginado pasan a la API. Flutter: sin cambio | `GET /api/v1/productos?forma=gestion` *(existe: otra representación del mismo recurso, con `producto.ver`; costo y stock por su permiso)* | D · Finalizado *(sin `forma`, la tienda de siempre; HL-108)* |
+| Imprimir el listado de productos | `GET productos/imprimir` ·D — `ProductoController@imprimir` | Los filtros del listado | Página imprimible | `producto.ver` | Admin web: abre la URL firmada | `GET /api/v1/productos/impresion` → URL firmada | D · Finalizado |
+| Crear producto | `GET productos/crear` ·P · `POST productos` ·N — `ProductoController@create`, `@store` | `codigo`, `nombre`, `descripcion`, `categoria_id`, `marca_id`, `precio_lista`, `precio_contado`, `precio_manual`, `ganancia`, `alicuota_iva`, `stock_minimo`, `cantidad_reposicion`, `activo`, `destacado` (`ProductoRequest`) | Formulario con valores por omisión; tras guardar, redirección con aviso | `producto.crear` | Admin web: el formulario envía por la API y pide categorías y marcas por la API | `POST /api/v1/productos` | D · Finalizado |
+| Modificar producto | `GET productos/{producto}/editar` ·P · `PUT productos/{producto}` ·N — `ProductoController@edit`, `@update` | Ídem `ProductoRequest` | Formulario con `producto`, `calculo` de precio e `historial`; tras guardar, redirección | `producto.editar` | Admin web | `GET /api/v1/productos/{producto}?forma=gestion` *(cálculo e historial por permiso)* · `GET /api/v1/productos/opciones` · `PATCH /api/v1/productos/{producto}` *(con imágenes, `POST` + `_method=PATCH`: HL-110)* | D · Finalizado |
+| Eliminar o desactivar producto | `DELETE productos/{producto}` ·N — `ProductoController@destroy` | — | Redirección; si está referenciado, se desactiva (regla 2) | `producto.eliminar` | Admin web | `DELETE /api/v1/productos/{producto}` | D · Finalizado |
+| Recalcular el precio de un producto | `POST productos/{producto}/recalcular` ·N — `ProductoController@recalcular` | — | Redirección con el precio nuevo | `precio.recalcular` | Admin web | `POST /api/v1/productos/{producto}/recalcular` | D · Finalizado |
 
 ### Proveedores de un producto
 
 | Operación | Rutas actuales | Entrada | Salida | Permiso | Interfaz | Endpoint | Tramo · Estado |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Ver los proveedores de un producto | `GET productos/{producto}/proveedores` ·P — `ProductoProveedorController@index` | — | Vista `productos.proveedores` con `producto` y `vinculos` | `producto.editar` | Admin web | `GET /api/v1/productos/{producto}/proveedores` | D · Pendiente |
-| Vincular un proveedor | `POST productos/{producto}/proveedores` ·N — `ProductoProveedorController@store` | `proveedor_id`, `costo_ultimo`, `codigo_proveedor`, `es_preferido` (`ProductoProveedorRequest`) | Redirección | `producto.editar` | Admin web | `POST /api/v1/productos/{producto}/proveedores` | D · Pendiente |
-| Modificar el vínculo | `GET productos/{producto}/proveedores/{proveedor}/editar` ·P · `PUT productos/{producto}/proveedores/{proveedor}` ·N — `@edit`, `@update` | `costo_ultimo`, `codigo_proveedor`, `es_preferido` | Formulario con `vinculo`; redirección | `producto.editar` | Admin web | `PATCH /api/v1/productos/{producto}/proveedores/{proveedor}` | D · Pendiente |
-| Marcar el proveedor preferido | `PATCH productos/{producto}/proveedores/{proveedor}/preferido` ·N — `@preferido` | — | Redirección | `producto.editar` | Admin web | `POST /api/v1/productos/{producto}/proveedores/{proveedor}/preferido` | D · Pendiente |
-| Desvincular un proveedor | `DELETE productos/{producto}/proveedores/{proveedor}` ·N — `@destroy` | — | Redirección | `producto.editar` | Admin web | `DELETE /api/v1/productos/{producto}/proveedores/{proveedor}` | D · Pendiente |
+| Ver los proveedores de un producto | `GET productos/{producto}/proveedores` ·P — `ProductoProveedorController@index` | — | Vista `productos.proveedores` con `producto` y `vinculos` | `producto.editar` | Admin web | `GET /api/v1/productos/{producto}/proveedores?forma=comparador` · `?forma=disponibles` | D · Finalizado |
+| Vincular un proveedor | `POST productos/{producto}/proveedores` ·N — `ProductoProveedorController@store` | `proveedor_id`, `costo_ultimo`, `codigo_proveedor`, `es_preferido` (`ProductoProveedorRequest`) | Redirección | `producto.editar` | Admin web | `POST /api/v1/productos/{producto}/proveedores` | D · Finalizado |
+| Modificar el vínculo | `GET productos/{producto}/proveedores/{proveedor}/editar` ·P · `PUT productos/{producto}/proveedores/{proveedor}` ·N — `@edit`, `@update` | `costo_ultimo`, `codigo_proveedor`, `es_preferido` | Formulario con `vinculo`; redirección | `producto.editar` | Admin web | `PATCH /api/v1/productos/{producto}/proveedores/{proveedor}` | D · Finalizado |
+| Marcar el proveedor preferido | `PATCH productos/{producto}/proveedores/{proveedor}/preferido` ·N — `@preferido` | — | Redirección | `producto.editar` | Admin web | `POST /api/v1/productos/{producto}/proveedores/{proveedor}/preferido` | D · Finalizado |
+| Desvincular un proveedor | `DELETE productos/{producto}/proveedores/{proveedor}` ·N — `@destroy` | — | Redirección | `producto.editar` | Admin web | `DELETE /api/v1/productos/{producto}/proveedores/{proveedor}` | D · Finalizado |
 
 ### Categorías
 
 | Operación | Rutas actuales | Entrada | Salida | Permiso | Interfaz | Endpoint | Tramo · Estado |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Consultar categorías | `GET categorias` ·P — `CategoriaController@index` · API: `GET api/v1/categorias` | `q`, `parent_id`, `estado`, `page` (`CategoriaFiltroRequest`) | Vista con `categorias`, `padreFiltrado`, `padresConHijas` | `categoria.ver` / público en la API | Admin web. Flutter: sin cambio | `GET /api/v1/categorias` *(existe: se extiende con `q`, `parent_id`, `estado` por permiso)* | D · Pendiente |
-| Imprimir categorías | `GET categorias/imprimir` ·D — `@imprimir` | Los filtros | Página imprimible | `categoria.ver` | Admin web | `GET /api/v1/categorias/impresion` → URL firmada | D · Pendiente |
-| Crear categoría | `GET categorias/crear` ·P · `POST categorias` ·N — `@create`, `@store` | `nombre`, `parent_id`, `orden`, `activo`, `desactivar_contenido` (`CategoriaRequest`) | Formulario; redirección | `categoria.crear` | Admin web | `POST /api/v1/categorias` | D · Pendiente |
-| Modificar categoría | `GET categorias/{categoria}/editar` ·P · `PUT categorias/{categoria}` ·N — `@edit`, `@update` | Ídem | Formulario con `categoria` y `padres`; redirección | `categoria.editar` | Admin web | `GET /api/v1/categorias/{categoria}` · `PATCH /api/v1/categorias/{categoria}` | D · Pendiente |
-| Eliminar o desactivar categoría | `DELETE categorias/{categoria}` ·N — `@destroy` | — | Redirección | `categoria.eliminar` | Admin web | `DELETE /api/v1/categorias/{categoria}` | D · Pendiente |
+| Consultar categorías | `GET categorias` ·P — `CategoriaController@index` · API: `GET api/v1/categorias` | `q`, `parent_id`, `estado`, `page` (`CategoriaFiltroRequest`) | Vista con `categorias`, `padreFiltrado`, `padresConHijas` | `categoria.ver` / público en la API | Admin web. Flutter: sin cambio | `GET /api/v1/categorias?forma=lista` *(existe: otra representación, con `categoria.ver`)* · `GET /api/v1/categorias/padres-posibles` | D · Finalizado *(el árbol de la tienda, en «credencial si sirve»)* |
+| Imprimir categorías | `GET categorias/imprimir` ·D — `@imprimir` | Los filtros | Página imprimible | `categoria.ver` | Admin web | `GET /api/v1/categorias/impresion` → URL firmada | D · Finalizado |
+| Crear categoría | `GET categorias/crear` ·P · `POST categorias` ·N — `@create`, `@store` | `nombre`, `parent_id`, `orden`, `activo`, `desactivar_contenido` (`CategoriaRequest`) | Formulario; redirección | `categoria.crear` | Admin web | `POST /api/v1/categorias` | D · Finalizado |
+| Modificar categoría | `GET categorias/{categoria}/editar` ·P · `PUT categorias/{categoria}` ·N — `@edit`, `@update` | Ídem | Formulario con `categoria` y `padres`; redirección | `categoria.editar` | Admin web | `GET /api/v1/categorias/{categoria}` · `PATCH /api/v1/categorias/{categoria}` | D · Finalizado |
+| Eliminar o desactivar categoría | `DELETE categorias/{categoria}` ·N — `@destroy` | — | Redirección | `categoria.eliminar` | Admin web | `DELETE /api/v1/categorias/{categoria}` | D · Finalizado |
 
 ### Marcas
 
 | Operación | Rutas actuales | Entrada | Salida | Permiso | Interfaz | Endpoint | Tramo · Estado |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Consultar marcas | `GET marcas` ·P — `MarcaController@index` | `q`, `estado`, `page` (`MarcaFiltroRequest`) | Vista con `marcas` paginadas | `marca.ver` | Admin web | `GET /api/v1/marcas` | D · Pendiente |
-| Imprimir marcas | `GET marcas/imprimir` ·D — `@imprimir` | Los filtros | Página imprimible | `marca.ver` | Admin web | `GET /api/v1/marcas/impresion` → URL firmada | D · Pendiente |
-| Crear marca | `GET marcas/crear` ·P · `POST marcas` ·N — `@create`, `@store` | `nombre`, `logo` (archivo), `quitar_logo`, `activo`, `desactivar_productos` (`MarcaRequest`) | Formulario; redirección | `marca.crear` | Admin web: el logo viaja en `multipart/form-data` | `POST /api/v1/marcas` | D · Pendiente |
-| Modificar marca | `GET marcas/{marca}/editar` ·P · `PUT marcas/{marca}` ·N — `@edit`, `@update` | Ídem | Formulario con `marca`; redirección | `marca.editar` | Admin web | `GET /api/v1/marcas/{marca}` · `PATCH /api/v1/marcas/{marca}` · el logo por `POST /api/v1/marcas/{marca}/logo` (PHP no lee archivos en un `PATCH` multipart) | D · Pendiente |
-| Eliminar o desactivar marca | `DELETE marcas/{marca}` ·N — `@destroy` | — | Redirección | `marca.eliminar` | Admin web | `DELETE /api/v1/marcas/{marca}` | D · Pendiente |
+| Consultar marcas | `GET marcas` ·P — `MarcaController@index` | `q`, `estado`, `page` (`MarcaFiltroRequest`) | Vista con `marcas` paginadas | `marca.ver` | Admin web | `GET /api/v1/marcas` | D · Finalizado |
+| Imprimir marcas | `GET marcas/imprimir` ·D — `@imprimir` | Los filtros | Página imprimible | `marca.ver` | Admin web | `GET /api/v1/marcas/impresion` → URL firmada | D · Finalizado |
+| Crear marca | `GET marcas/crear` ·P · `POST marcas` ·N — `@create`, `@store` | `nombre`, `logo` (archivo), `quitar_logo`, `activo`, `desactivar_productos` (`MarcaRequest`) | Formulario; redirección | `marca.crear` | Admin web: el logo viaja en `multipart/form-data` | `POST /api/v1/marcas` | D · Finalizado |
+| Modificar marca | `GET marcas/{marca}/editar` ·P · `PUT marcas/{marca}` ·N — `@edit`, `@update` | Ídem | Formulario con `marca`; redirección | `marca.editar` | Admin web | `GET /api/v1/marcas/{marca}` · `PATCH /api/v1/marcas/{marca}` *(con logo, `POST` + `_method=PATCH` en el mismo endpoint: HL-110; no hizo falta `/logo`)* | D · Finalizado |
+| Eliminar o desactivar marca | `DELETE marcas/{marca}` ·N — `@destroy` | — | Redirección | `marca.eliminar` | Admin web | `DELETE /api/v1/marcas/{marca}` | D · Finalizado |
 
 ### Búsquedas de los selectores
 
 | Operación | Rutas actuales | Entrada | Salida | Permiso | Interfaz | Endpoint | Tramo · Estado |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Buscar productos | `GET buscar/productos` ·N — `BusquedaController@productos` | `q`, `estado`, `proveedor_id`, `con_proveedor`, `excluir` (`BusquedaRequest`) | JSON por sesión (HL-100) | `producto.ver` | Admin web: `selects-buscables.js`, `lineas-pedido.js` | `GET /api/v1/productos?q=…` *(se pliega en el listado: un recurso, un camino)* | D · Pendiente |
-| Buscar los proveedores de un producto | `GET buscar/productos/{producto}/proveedores` ·N — `@proveedoresDeProducto` | — | JSON | `proveedor.ver` | Admin web: armador de compras | `GET /api/v1/productos/{producto}/proveedores` | D · Pendiente |
-| Buscar clientes | `GET buscar/clientes` ·N — `@clientes` | `q`, `excluir` | JSON | `cliente.ver` | Admin web: venta | `GET /api/v1/clientes?q=…` | D · Pendiente |
-| Buscar proveedores | `GET buscar/proveedores` ·N — `@proveedores` | `q`, `estado` | JSON | `proveedor.ver` | Admin web: filtros y compras | `GET /api/v1/proveedores?q=…` | D · Pendiente |
+| Buscar productos | `GET buscar/productos` ·N — `BusquedaController@productos` | `q`, `estado`, `proveedor_id`, `con_proveedor`, `excluir` (`BusquedaRequest`) | JSON por sesión (HL-100) | `producto.ver` | Admin web: `selects-buscables.js`, `lineas-pedido.js` | `GET /api/v1/productos?forma=gestion&q=…` *(se pliega en el listado: un recurso, un camino; suma `con_proveedor` y `excluir[]`)* | D · Finalizado *(el mínimo de dos caracteres pasa a la interfaz)* |
+| Buscar los proveedores de un producto | `GET buscar/productos/{producto}/proveedores` ·N — `@proveedoresDeProducto` | — | JSON | `proveedor.ver` | Admin web: armador de compras | `GET /api/v1/productos/{producto}/proveedores` | D · Finalizado |
+| Buscar clientes | `GET buscar/clientes` ·N — `@clientes` | `q` | JSON | `cliente.ver` | Admin web: venta | `GET /api/v1/clientes?q=…` | D · Finalizado |
+| Buscar proveedores | `GET buscar/proveedores` ·N — `@proveedores` | `q`, `estado` | JSON | `proveedor.ver` | Admin web: filtros y compras | `GET /api/v1/proveedores?q=…` | D · Finalizado |
 
 > Las búsquedas de clientes y proveedores son del tramo D porque las usan los selectores del catálogo.
-> Sus listados (tramo E) las absorben: hasta el E, el D deja `GET /api/v1/clientes` y
-> `GET /api/v1/proveedores` mínimos, sólo con `q`.
+> Sus listados (tramo E) las absorben: el D dejó `GET /api/v1/clientes` (con `q`) y
+> `GET /api/v1/proveedores` (con `q` y `estado`) mínimos.
 
 ## 4. Terceros — tramo E
 

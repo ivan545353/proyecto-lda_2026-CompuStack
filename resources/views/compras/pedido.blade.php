@@ -53,7 +53,7 @@
             @csrf
 
             <div class="card border-0 shadow-sm mb-4" data-armador data-proximo-indice="{{ $proximoIndice }}"
-                data-proveedores-url="{{ route('busqueda.producto.proveedores', ['producto' => '__ID__']) }}">
+                data-proveedores-url="/productos/__ID__/proveedores">
                 <div class="card-body">
                     <div
                         class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-3">

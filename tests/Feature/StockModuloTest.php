@@ -62,9 +62,11 @@ test('quien solo puede ver el kardex no recibe el boton de ajustar', function ()
         ->assertDontSee(route('stock.ajuste.create', $producto));
 });
 
+// Desde el tramo D de la Etapa 3 la fila del listado es una plantilla del shell (regla 37): el enlace
+// lleva `__ID__`, que la pantalla reemplaza por el id de cada producto que trae la API.
 test('el listado de productos ofrece el acceso al stock solo con permiso', function () {
-    $producto = Producto::factory()->conStock(5)->create();
-    $enlace   = route('stock.index', ['producto_id' => $producto->id]);
+    Producto::factory()->conStock(5)->create();
+    $enlace = route('stock.index', ['producto_id' => '__ID__']);
 
     $this->actingAs(usuarioCon('producto.ver', 'stock.ver'))
         ->get(route('productos.index'))

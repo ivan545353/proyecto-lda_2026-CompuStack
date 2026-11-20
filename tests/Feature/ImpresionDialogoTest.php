@@ -18,14 +18,19 @@ beforeEach(function () {
 });
 
 dataset('listados con dialogo', [
-    'catálogo'    => ['productos.index', 'productos.imprimir', 'producto.ver'],
     'ventas'      => ['ventas.index', 'ventas.exportar', 'venta.ver'],
     'compras'     => ['compras.index', 'compras.imprimir', 'compra.ver'],
     'clientes'    => ['clientes.index', 'clientes.imprimir', 'cliente.ver'],
     'proveedores' => ['proveedores.index', 'proveedores.imprimir', 'proveedor.ver'],
-    'categorías'  => ['categorias.index', 'categorias.imprimir', 'categoria.ver'],
-    'marcas'      => ['marcas.index', 'marcas.imprimir', 'marca.ver'],
     'kardex'      => ['stock.index', 'stock.imprimir', 'stock.ver'],
+]);
+
+// Los migrados a la API (tramo D): el botón y el diálogo piden el enlace firmado al endpoint.
+// Ya no funcionan sin JavaScript: la credencial viaja como Bearer, y sólo la manda el JS (HL-111).
+dataset('listados con dialogo por la API', [
+    'catálogo'   => ['productos.index', '/productos/impresion', 'producto.ver'],
+    'categorías' => ['categorias.index', '/categorias/impresion', 'categoria.ver'],
+    'marcas'     => ['marcas.index', '/marcas/impresion', 'marca.ver'],
 ]);
 
 test('el dialogo vive afuera del formulario de filtros y apunta a la ruta de impresion', function (string $listado, string $imprimir, string $permiso) {
@@ -44,6 +49,23 @@ test('el boton que abre el dialogo nace oculto y el de imprimir funciona sin jav
     expect($abre[0])->toMatch('/\shidden[\s>]/')
         ->and($html)->toContain('href="'.route($imprimir).'"');
 })->with('listados con dialogo');
+
+test('en un listado migrado, el dialogo vive afuera del formulario de filtros y apunta al endpoint', function (string $listado, string $endpoint, string $permiso) {
+    $html = $this->actingAs(usuarioCon($permiso))->get(route($listado))->assertOk()->getContent();
+
+    expect(strpos($html, 'data-impresion>'))->toBeGreaterThan(strpos($html, '</main>'))
+        ->and(($this->dialogo)($html))->toContain('data-imprimir-api="'.$endpoint.'"')->not->toContain('action=');
+})->with('listados con dialogo por la API');
+
+test('en un listado migrado, el boton que abre el dialogo nace oculto y el de imprimir apunta al endpoint', function (string $listado, string $endpoint, string $permiso) {
+    $html = $this->actingAs(usuarioCon($permiso))->get(route($listado))->assertOk()->getContent();
+
+    preg_match('/<button[^>]*data-impresion-abre[^>]*>/', $html, $abre);
+    preg_match('/<button[^>]*data-imprimir\s[^>]*>/', $html, $imprimir);
+
+    expect($abre[0])->toMatch('/\shidden[\s>]/')
+        ->and($imprimir[0])->toContain('data-imprimir-api="'.$endpoint.'"');
+})->with('listados con dialogo por la API');
 
 test('el dialogo lleva los filtros puestos y no la pagina', function () {
     $marca = Marca::factory()->create();

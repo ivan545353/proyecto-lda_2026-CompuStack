@@ -100,3 +100,143 @@ Cookie: credencial={{sesionAdmin.response.body.datos.credencial}}
 DELETE {{base}}/sesion
 Accept: application/json
 Authorization: Bearer {{sesionAdmin.response.body.datos.credencial}}
+
+###
+
+### ── Tramo D — El catálogo, un recurso para los dos clientes ───────────────────
+
+# La frase de la etapa: modificar un producto desde la administración y verlo desde el teléfono,
+# por el mismo endpoint y con la misma credencial. El administrativo edita; el cliente lo ve.
+# @name sesionAdministrativo
+POST {{base}}/sesion
+Accept: application/json
+Content-Type: application/json
+
+{ "email": "administrativo@sistema.local", "password": "demo1234" }
+
+###
+
+# El listado de gestión: otra representación del mismo recurso que la tienda (regla 36). Con
+# precio.ver_costo viajan costo_promedio y margen; con stock.ver, stock y stock_reservado.
+GET {{base}}/productos?forma=gestion&q=VG248&estado=activos
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# La ficha de gestión: el cálculo del precio y los últimos cambios, por permiso.
+GET {{base}}/productos/1?forma=gestion
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# La misma forma pedida por una cuenta de tienda: 403 sin_permiso. Sin credencial: 401 sin_sesion.
+GET {{base}}/productos?forma=gestion
+Accept: application/json
+Authorization: Bearer {{sesionTienda.response.body.datos.credencial}}
+
+###
+
+# El administrativo cambia el precio (con precio_manual, el precio lo pone él).
+PATCH {{base}}/productos/1
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{
+  "codigo": "VG248QG", "nombre": "Monitor ASUS VG248QG 165Hz", "categoria_id": 11, "marca_id": 1,
+  "precio_manual": true, "precio_contado": "489.000,00", "precio_lista": "586.800,00",
+  "alicuota_iva": "21.00", "stock_minimo": 2, "cantidad_reposicion": 5, "activo": true
+}
+
+###
+
+# Y el teléfono lo ve: la ficha de la tienda, sin forma, con la credencial del cliente. Mismo recurso.
+GET {{base}}/productos/1
+Accept: application/json
+Authorization: Bearer {{sesionTienda.response.body.datos.credencial}}
+
+###
+
+# La validación rechaza, no corrige: sin `activo` ni `precio_manual`, 422 (la API no adivina una casilla).
+POST {{base}}/productos
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{ "codigo": "DEMO-1", "nombre": "Producto de prueba", "categoria_id": 11, "alicuota_iva": "21.00" }
+
+###
+
+# Sin el permiso de la acción, 403: el vendedor ve el catálogo pero no lo da de alta.
+POST {{base}}/productos
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+{}
+
+###
+
+# Recalcular el precio desde el costo: con precio manual, dice que quedó como estaba.
+POST {{base}}/productos/1/recalcular
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# El comparador de proveedores del producto: por costo, el más barato y cuánto más caro es cada uno.
+GET {{base}}/productos/1/proveedores?forma=comparador
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# A quién pedirle (lo usa el armador de compras): el elegido primero; el costo, sólo con su permiso.
+GET {{base}}/productos/1/proveedores
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# La impresión: el endpoint valida y devuelve una URL firmada de cinco minutos (D-22). El navegador
+# la abre sin credencial; vencida o tocada, 403.
+GET {{base}}/productos/impresion?formato=pdf&stock=critico
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Una columna que pide un permiso que no se tiene es 422, no una columna vacía.
+GET {{base}}/productos/impresion?formato=pdf&columnas[]=costo
+Accept: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+###
+
+# Categorías: el árbol de la tienda no cambia con quién mira. Con una credencial que no sirve, el
+# árbol igual (credencial si sirve); la lista de gestión pide categoria.ver.
+GET {{base}}/categorias
+Accept: application/json
+Authorization: Bearer inventada
+
+###
+
+GET {{base}}/categorias?forma=lista&parent_id=raiz
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Marcas: la baja de una marca con productos no borra, desactiva (regla 2), y el mensaje lo dice.
+GET {{base}}/marcas?estado=activas
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# El buscador de la venta es el listado de clientes, con `q`.
+GET {{base}}/clientes?q=tilos
+Accept: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}

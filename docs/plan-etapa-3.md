@@ -190,6 +190,13 @@ tramo D, que comparte `productos` con la administración (regla 36), tiene que s
 frontera de ámbito y decidir la representación por permiso. No rompe nada hoy: ningún cliente de gestión
 lo llama todavía.
 
+*Resuelto en el tramo D.* Nace el grupo `api.sesion_opcional`, que es `tienda.sesion_opcional` sin la
+frontera de ámbito: `GET /productos` y su ficha pasan ahí. La gestión pide `?forma=gestion` con
+`producto.ver`; sin `forma`, la respuesta es la de la tienda aunque quien pregunte tenga ese permiso. Sin
+sesión, `forma=gestion` es 401 `sin_sesion` (lo que falta es ingresar). `GET /categorias`, que era pública,
+pasa a «credencial si sirve»: una credencial que no sirve no es error, porque el árbol no depende de quién
+mira.
+
 ### HL-109 — Las pantallas sin migrar necesitan saber quién pide, hasta el tramo I
 
 *Registrado en el tramo C.* D-30 preveía shells sin datos privados, que no necesitan saber quién los
@@ -197,6 +204,29 @@ pide. Pero de D a I las pantallas que todavía no se migraron siguen armando sus
 detrás de `auth`, y usan `@can`. Un token en `sessionStorage` no viaja en una navegación: retirar el
 `POST login` las habría dejado inservibles desde el tramo C. Lo resolvió D-30 con la credencial en
 una cookie, que la navegación manda sola.
+
+### HL-110 — Los archivos no viajan en un `PATCH`
+
+*Registrado en el tramo D.* PHP sólo arma `$_FILES` en un `POST`: el logo de una marca y las imágenes de un
+producto, mandados en un `PATCH` multipart, llegan vacíos. El relevamiento proponía un `POST /marcas/{id}/logo`
+aparte. Se descartó: partir la edición en dos endpoints obligaba a partir `ProductoService::actualizar`, que es
+mover una regla (D-34). Se manda **`POST` con `_method=PATCH`**: Laravel lo enruta al `PATCH`, el endpoint es uno
+y la llamada al servicio también. Sin archivos, el `PATCH` es un `PATCH` común.
+
+### HL-111 — La impresión ya no funciona sin JavaScript
+
+*Registrado en el tramo D.* El diálogo de impresión de los listados migrados era un `<form method="GET">` que
+el navegador mandaba solo. Ahora pide la URL firmada a la API (D-22), y la credencial viaja como `Bearer`: sólo
+la manda el JS. `ImpresionDialogoTest` («funciona sin JS») se migró al endpoint con el usuario: lo que fija es
+que el diálogo apunta a `/<recurso>/impresion` y que la URL firmada abre el archivo sin credencial.
+
+### HL-112 — Lo que el buscador validaba pasa a la interfaz
+
+*Registrado en el tramo D.* `/buscar/productos` exigía `q` de dos caracteres o más (422). Esa búsqueda es ahora
+el listado de gestión, donde `q` es opcional: sin texto, el listado trae todo, y es la pantalla del catálogo.
+Decidido con el usuario: **el mínimo es de la interfaz** (`data-buscable-minimo="2"`, el selector no pregunta
+antes), y la API rechaza sólo lo que no puede ser una búsqueda (más de 100 caracteres). `estado=todos` deja de
+existir: «todos» es no mandar el estado. El test de la Etapa 1 se migró a esas dos aserciones.
 
 ---
 
@@ -575,8 +605,8 @@ de esta tabla están ahí, módulo por módulo. Las filas de abajo quedan como e
 
 | Operación | Implementación anterior | Endpoint RESTful | Permiso requerido | Cambio en la interfaz | Estado |
 | --- | --- | --- | --- | --- | --- |
-| Consultar catálogo | `GET /productos` · `ProductoController@index` | `GET /api/v1/productos` | `producto.ver` / público | Administración web y Flutter | Pendiente |
-| Modificar producto | `PUT /productos/{id}` · `ProductoController@update` | `PATCH /api/v1/productos/{id}` | `producto.editar` | Administración web | Pendiente |
+| Consultar catálogo | `GET /productos` · `ProductoController@index` | `GET /api/v1/productos?forma=gestion` | `producto.ver` / público | Administración web y Flutter | Finalizado (tramo D) |
+| Modificar producto | `PUT /productos/{id}` · `ProductoController@update` | `PATCH /api/v1/productos/{id}` | `producto.editar` | Administración web | Finalizado (tramo D) |
 | Registrar pedido | `POST /api/v1/pedidos` | *(ya en la API)* | Cliente | Flutter | Finalizado |
 | Administrar roles | `PUT /roles/{id}` · `RolController@update` | `PATCH /api/v1/roles/{id}` | `rol.editar` | Administración web | Pendiente |
 | … | | | | | |

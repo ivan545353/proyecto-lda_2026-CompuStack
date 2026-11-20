@@ -15,7 +15,7 @@ use App\Support\Like;
  * (Componentes › Almacenamiento › SSD).
  *
  * Scopes (uno por filtro del listado; la correspondencia con el parámetro de
- * la URL está declarada acá y en CategoriaFiltroRequest):
+ * la URL está declarada acá y en Api\CategoriaFiltroRequest):
  *   ?q=          → buscar($texto)      nombre contiene
  *   ?parent_id=  → dePadre($padre)     'raiz' = primer nivel; id = hijas directas
  *   ?estado=     → conEstado($estado)  activas | inactivas | sin filtrar

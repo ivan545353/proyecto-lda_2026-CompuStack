@@ -25,13 +25,22 @@ const DATOS_CATEGORIA    = ['nombre' => 'Categoría de prueba', 'orden' => 0, 'a
 |
 */
 
+// Las pantallas, que quedan en la web como shells (regla 37).
 dataset('rutas de categorias', [
     'listado'         => ['get',    'categorias.index',   'categoria.ver',      false],
     'formulario alta' => ['get',    'categorias.create',  'categoria.crear',    false],
-    'alta'            => ['post',   'categorias.store',   'categoria.crear',    false],
     'formulario edic' => ['get',    'categorias.edit',    'categoria.editar',   true],
-    'edicion'         => ['put',    'categorias.update',  'categoria.editar',   true],
-    'baja'            => ['delete', 'categorias.destroy', 'categoria.eliminar', true],
+]);
+
+// Las operaciones, en la API (tramo D de la Etapa 3). `{categoria}` se reemplaza por la del test.
+dataset('endpoints de categorias', [
+    'listado'         => ['get',    '/api/v1/categorias?forma=lista',       'categoria.ver'],
+    'impresion'       => ['get',    '/api/v1/categorias/impresion',         'categoria.ver'],
+    'padres posibles' => ['get',    '/api/v1/categorias/padres-posibles',   'categoria.ver'],
+    'ficha'           => ['get',    '/api/v1/categorias/{categoria}',       'categoria.ver'],
+    'alta'            => ['post',   '/api/v1/categorias',                   'categoria.crear'],
+    'edicion'         => ['patch',  '/api/v1/categorias/{categoria}',       'categoria.editar'],
+    'baja'            => ['delete', '/api/v1/categorias/{categoria}',       'categoria.eliminar'],
 ]);
 
 test('ningun otro permiso del modulo habilita la ruta', function (string $metodo, string $ruta, string $permiso, bool $conCategoria) {
@@ -51,14 +60,56 @@ test('el permiso de la ruta alcanza para pasar', function (string $metodo, strin
     expect($respuesta->status())->not->toBe(403);
 })->with('rutas de categorias');
 
+test('en la API, ningun otro permiso del modulo habilita el endpoint', function (string $metodo, string $url, string $permiso) {
+    $categoria = Categoria::factory()->create();
+    $otros     = array_values(array_diff(PERMISOS_CATEGORIA, [$permiso]));
+
+    $this->json($metodo, str_replace('{categoria}', $categoria->id, $url), [...DATOS_CATEGORIA, 'parent_id' => null], bearer(usuarioCon(...$otros)))
+        ->assertForbidden()
+        ->assertJsonPath('codigo', 'sin_permiso');
+})->with('endpoints de categorias');
+
+test('en la API, el permiso del endpoint alcanza para pasar', function (string $metodo, string $url, string $permiso) {
+    $categoria = Categoria::factory()->create();
+
+    $respuesta = $this->json($metodo, str_replace('{categoria}', $categoria->id, $url), [...DATOS_CATEGORIA, 'parent_id' => null], bearer(usuarioCon($permiso)));
+
+    expect($respuesta->status())->toBeLessThan(300);
+})->with('endpoints de categorias');
+
 test('quien solo puede ver no recibe los botones de alta, edicion ni baja', function () {
     $categoria = Categoria::factory()->create();
 
+    // Desde el tramo D la fila es una plantilla del shell: lo que se afirma es que la plantilla
+    // no trae el botón. Y en la otra dirección, que sí lo trae para quien tiene el permiso.
     $this->actingAs(usuarioCon('categoria.ver'))
         ->get(route('categorias.index'))
         ->assertOk()
         ->assertDontSee(route('categorias.create'))
-        ->assertDontSee(route('categorias.edit', $categoria));
+        ->assertDontSee(route('categorias.edit', $categoria))
+        ->assertDontSee('data-accion="editar"', false)
+        ->assertDontSee('data-listado-eliminar', false);
+
+    $this->actingAs(usuarioCon(...PERMISOS_CATEGORIA))
+        ->get(route('categorias.index'))
+        ->assertSee(route('categorias.create'))
+        ->assertSee('data-accion="editar"', false)
+        ->assertSee('data-listado-eliminar', false);
+});
+
+// Regla 37: la página llega con su estructura, y los datos por la API.
+test('los shells de categorias no traen datos de negocio', function () {
+    $padre     = Categoria::factory()->create(['nombre' => 'Rama Secreta']);
+    $categoria = Categoria::factory()->hijaDe($padre)->create(['nombre' => 'Hoja Secreta']);
+    $usuario   = usuarioCon(...PERMISOS_CATEGORIA);
+
+    $this->actingAs($usuario)->get(route('categorias.index', ['parent_id' => $padre->id]))
+        ->assertOk()->assertDontSee('Rama Secreta')->assertDontSee('Hoja Secreta')
+        ->assertSee('data-pantalla="categorias"', false);
+
+    $this->actingAs($usuario)->get(route('categorias.edit', $categoria))
+        ->assertOk()->assertDontSee('Rama Secreta')->assertDontSee('Hoja Secreta')
+        ->assertSee('data-categoria="'.$categoria->id.'"', false);
 });
 
 /*
@@ -76,18 +127,19 @@ test('el parametro q llega al listado y filtra', function () {
     Categoria::factory()->create(['nombre' => 'Discos SSD']);
     Categoria::factory()->create(['nombre' => 'Monitores']);
 
-    $this->actingAs(usuarioCon('categoria.ver'))
-        ->get(route('categorias.index', ['q' => 'ssd']))
-        ->assertViewHas('categorias', fn ($categorias) => $categorias->total() === 1);
+    $this->getJson('/api/v1/categorias?forma=lista&q=ssd', bearer(usuarioCon('categoria.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.nombre', 'Discos SSD');
 });
 
 test('el parametro estado llega al listado y filtra', function () {
     Categoria::factory()->count(2)->create();
     Categoria::factory()->inactiva()->create();
 
-    $this->actingAs(usuarioCon('categoria.ver'))
-        ->get(route('categorias.index', ['estado' => 'inactivas']))
-        ->assertViewHas('categorias', fn ($categorias) => $categorias->total() === 1);
+    $this->getJson('/api/v1/categorias?forma=lista&estado=inactivas', bearer(usuarioCon('categoria.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 1);
 });
 
 test('parent_id raiz muestra solo las categorias principales', function () {
@@ -95,9 +147,9 @@ test('parent_id raiz muestra solo las categorias principales', function () {
     Categoria::factory()->hijaDe($raiz)->create();
     Categoria::factory()->create();
 
-    $this->actingAs(usuarioCon('categoria.ver'))
-        ->get(route('categorias.index', ['parent_id' => 'raiz']))
-        ->assertViewHas('categorias', fn ($categorias) => $categorias->total() === 2);
+    $this->getJson('/api/v1/categorias?forma=lista&parent_id=raiz', bearer(usuarioCon('categoria.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 2);
 });
 
 test('entrar a una categoria muestra sus subcategorias y la ubicacion completa', function () {
@@ -106,32 +158,40 @@ test('entrar a una categoria muestra sus subcategorias y la ubicacion completa',
     Categoria::factory()->hijaDe($almacenamiento)->create(['nombre' => 'Discos SSD']);
     Categoria::factory()->create(['nombre' => 'Periféricos']);
 
-    // Es la navegación del árbol: el enlace de cada fila es este mismo filtro.
-    $this->actingAs(usuarioCon('categoria.ver'))
-        ->get(route('categorias.index', ['parent_id' => $almacenamiento->id]))
+    // Es la navegación del árbol: el enlace de cada fila es este mismo filtro. La miga de pan la
+    // arma la pantalla con la ficha del padre; la ubicación completa viaja en `ruta`.
+    $encabezado = bearer(usuarioCon('categoria.ver'));
+
+    $this->getJson("/api/v1/categorias?forma=lista&parent_id={$almacenamiento->id}", $encabezado)
         ->assertOk()
-        ->assertViewHas('categorias', fn ($categorias) => $categorias->total() === 1
-            && $categorias->first()->nombre === 'Discos SSD')
-        ->assertViewHas('padreFiltrado', fn ($padre) => $padre->is($almacenamiento))
-        ->assertSeeInOrder(['Componentes', 'Almacenamiento', 'Discos SSD']);
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.nombre', 'Discos SSD')
+        ->assertJsonPath('datos.0.ruta', 'Componentes › Almacenamiento › Discos SSD');
+
+    $this->getJson("/api/v1/categorias/{$almacenamiento->id}", $encabezado)
+        ->assertOk()
+        ->assertJsonPath('datos.nombre', 'Almacenamiento')
+        ->assertJsonPath('datos.ancestros', [['id' => $componentes->id, 'nombre' => 'Componentes']]);
 });
 
-test('un filtro que no es valido vuelve al listado limpio con aviso', function () {
-    $this->actingAs(usuarioCon('categoria.ver'))
-        ->get(route('categorias.index', ['parent_id' => 'abc']))
-        ->assertRedirect(route('categorias.index'))
-        ->assertSessionHas('error');
+// En la API, el aviso es el 422: el listado no muestra otra cosa que la pedida.
+test('un filtro que no es valido se rechaza con aviso', function () {
+    $this->getJson('/api/v1/categorias?forma=lista&parent_id=abc', bearer(usuarioCon('categoria.ver')))
+        ->assertUnprocessable()
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonValidationErrors('parent_id', 'errores');
 });
 
 test('el listado pagina de a 15 y los enlaces conservan la ubicacion', function () {
     $raiz = Categoria::factory()->create();
     Categoria::factory()->count(20)->hijaDe($raiz)->create();
 
-    $this->actingAs(usuarioCon('categoria.ver'))
-        ->get(route('categorias.index', ['parent_id' => $raiz->id]))
-        ->assertViewHas('categorias', fn ($categorias) => $categorias->count() === 15
-            && $categorias->total() === 20
-            && str_contains($categorias->nextPageUrl(), "parent_id={$raiz->id}"));
+    // `criterios` es lo que la pantalla repite al pedir la página siguiente: sin él, perdería la ubicación.
+    $this->getJson("/api/v1/categorias?forma=lista&parent_id={$raiz->id}", bearer(usuarioCon('categoria.ver')))
+        ->assertJsonCount(15, 'datos')
+        ->assertJsonPath('total', 20)
+        ->assertJsonPath('ultima_pagina', 2)
+        ->assertJsonPath('criterios.parent_id', (string) $raiz->id);
 });
 
 /*
@@ -158,9 +218,9 @@ test('el indice de la base no protege a las categorias principales', function ()
 test('no se permiten dos categorias principales con el mismo nombre', function () {
     Categoria::factory()->create(['nombre' => 'Componentes']);
 
-    $this->actingAs(usuarioCon('categoria.crear'))
-        ->post(route('categorias.store'), ['nombre' => 'Componentes', 'orden' => 0, 'activo' => 1])
-        ->assertSessionHasErrors(['nombre' => 'Ya existe una categoría con ese nombre en el mismo grupo.']);
+    $this->postJson('/api/v1/categorias', ['nombre' => 'Componentes', 'orden' => 0, 'activo' => true], bearer(usuarioCon('categoria.crear')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.nombre.0', 'Ya existe una categoría con ese nombre en el mismo grupo.');
 
     expect(Categoria::where('nombre', 'Componentes')->count())->toBe(1);
 });
@@ -170,16 +230,15 @@ test('el mismo nombre se permite en otro grupo y se vuelve a ese grupo', functio
     Categoria::factory()->hijaDe($componentes)->create(['nombre' => 'Fuentes', 'slug' => 'fuentes']);
     $almacenamiento = Categoria::factory()->create(['nombre' => 'Almacenamiento']);
 
-    $this->actingAs(usuarioCon('categoria.crear'))
-        ->post(route('categorias.store'), [
-            'nombre'    => 'Fuentes',
-            'parent_id' => $almacenamiento->id,
-            'orden'     => 0,
-            'activo'    => 1,
-        ])
-        ->assertSessionHasNoErrors()
-        // Vuelve al grupo donde el usuario estaba cargando, no a la raíz.
-        ->assertRedirect(route('categorias.index', ['parent_id' => $almacenamiento->id]));
+    $this->postJson('/api/v1/categorias', [
+        'nombre'    => 'Fuentes',
+        'parent_id' => $almacenamiento->id,
+        'orden'     => 0,
+        'activo'    => true,
+    ], bearer(usuarioCon('categoria.crear')))
+        ->assertCreated()
+        // Vuelve al grupo donde el usuario estaba cargando, no a la raíz: la pantalla lo lee de acá.
+        ->assertJsonPath('datos.parent_id', $almacenamiento->id);
 
     expect(Categoria::where('nombre', 'Fuentes')->pluck('slug')->sort()->values()->all())
         ->toBe(['fuentes', 'fuentes-2']);
@@ -188,9 +247,9 @@ test('el mismo nombre se permite en otro grupo y se vuelve a ese grupo', functio
 test('una categoria no puede estar dentro de si misma', function () {
     $categoria = Categoria::factory()->create();
 
-    $this->actingAs(usuarioCon('categoria.editar'))
-        ->put(route('categorias.update', $categoria), [...DATOS_CATEGORIA, 'parent_id' => $categoria->id])
-        ->assertSessionHasErrors(['parent_id' => 'Una categoría no puede estar dentro de sí misma.']);
+    $this->patchJson("/api/v1/categorias/{$categoria->id}", [...DATOS_CATEGORIA, 'parent_id' => $categoria->id], bearer(usuarioCon('categoria.editar')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.parent_id.0', 'Una categoría no puede estar dentro de sí misma.');
 });
 
 test('una subcategoria no puede contener a la categoria que la contiene', function () {
@@ -199,16 +258,14 @@ test('una subcategoria no puede contener a la categoria que la contiene', functi
 
     // El selector no ofrece esta opción. La petición se arma a mano, como la
     // armaría alguien que evita la interfaz.
-    $this->actingAs(usuarioCon('categoria.editar'))
-        ->put(route('categorias.update', $componentes), [
-            'nombre'    => 'Componentes',
-            'parent_id' => $placas->id,
-            'orden'     => 0,
-            'activo'    => 1,
-        ])
-        ->assertSessionHasErrors([
-            'parent_id' => '«Placas de video» es una subcategoría de esta, así que no puede contenerla.',
-        ]);
+    $this->patchJson("/api/v1/categorias/{$componentes->id}", [
+        'nombre'    => 'Componentes',
+        'parent_id' => $placas->id,
+        'orden'     => 0,
+        'activo'    => true,
+    ], bearer(usuarioCon('categoria.editar')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.parent_id.0', '«Placas de video» es una subcategoría de esta, así que no puede contenerla.');
 
     expect($componentes->fresh()->parent_id)->toBeNull();
 });
@@ -218,9 +275,9 @@ test('no se puede crear un cuarto nivel', function () {
     $n2 = Categoria::factory()->hijaDe($n1)->create();
     $n3 = Categoria::factory()->hijaDe($n2)->create();
 
-    $this->actingAs(usuarioCon('categoria.crear'))
-        ->post(route('categorias.store'), [...DATOS_CATEGORIA, 'parent_id' => $n3->id])
-        ->assertSessionHasErrors('parent_id');
+    $this->postJson('/api/v1/categorias', [...DATOS_CATEGORIA, 'parent_id' => $n3->id], bearer(usuarioCon('categoria.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('parent_id', 'errores');
 
     expect($n3->hijas()->count())->toBe(0);
 });
@@ -235,37 +292,35 @@ test('mover una categoria con subcategorias controla el grupo completo', functio
     Categoria::factory()->hijaDe($b2)->create();
 
     // B2 cabría sola debajo de A2 (nivel 3), pero su hija quedaría en el 4.
-    $this->actingAs(usuarioCon('categoria.editar'))
-        ->put(route('categorias.update', $b2), [
-            'nombre'    => $b2->nombre,
-            'parent_id' => $a2->id,
-            'orden'     => 0,
-            'activo'    => 1,
-        ])
-        ->assertSessionHasErrors('parent_id');
+    $respuesta = $this->patchJson("/api/v1/categorias/{$b2->id}", [
+        'nombre'    => $b2->nombre,
+        'parent_id' => $a2->id,
+        'orden'     => 0,
+        'activo'    => true,
+    ], bearer(usuarioCon('categoria.editar')))
+        ->assertUnprocessable();
 
-    expect(session('errors')->first('parent_id'))->toContain('junto con sus subcategorías')
+    expect($respuesta->json('errores.parent_id.0'))->toContain('junto con sus subcategorías')
         ->and($b2->fresh()->parent_id)->toBe($b->id);
 });
 
 test('una categoria inactiva no recibe subcategorias nuevas', function () {
     $inactiva = Categoria::factory()->inactiva()->create(['nombre' => 'Impresión']);
 
-    $this->actingAs(usuarioCon('categoria.crear'))
-        ->post(route('categorias.store'), [...DATOS_CATEGORIA, 'parent_id' => $inactiva->id])
-        ->assertSessionHasErrors(['parent_id' => '«Impresión» está inactiva. Activala primero o elegí otra.']);
+    $this->postJson('/api/v1/categorias', [...DATOS_CATEGORIA, 'parent_id' => $inactiva->id], bearer(usuarioCon('categoria.crear')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.parent_id.0', '«Impresión» está inactiva. Activala primero o elegí otra.');
 });
 
 test('ante un error se conserva la categoria elegida', function () {
     $padre = Categoria::factory()->create();
 
-    // M-31 en la interfaz: equivocarse en un campo no borra lo cargado en otro.
-    $this->actingAs(usuarioCon('categoria.crear'))
-        ->from(route('categorias.create'))
-        ->post(route('categorias.store'), ['nombre' => '', 'parent_id' => (string) $padre->id, 'orden' => 0, 'activo' => 1])
-        ->assertRedirect(route('categorias.create'))
-        ->assertSessionHasErrors('nombre')
-        ->assertSessionHasInput('parent_id', (string) $padre->id);
+    // M-31 en la interfaz: equivocarse en un campo no borra lo cargado en otro. El 422 no recarga
+    // la página, así que el formulario conserva lo elegido; la API sólo marca el campo que falla.
+    $this->postJson('/api/v1/categorias', ['nombre' => '', 'parent_id' => $padre->id, 'orden' => 0, 'activo' => true], bearer(usuarioCon('categoria.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('nombre', 'errores')
+        ->assertJsonMissingPath('errores.parent_id');
 });
 
 /*
@@ -277,10 +332,11 @@ test('ante un error se conserva la categoria elegida', function () {
 test('el alta desde dentro de una categoria la trae elegida', function () {
     $componentes = Categoria::factory()->create();
 
+    // El shell lleva el grupo de la URL; la pantalla lo elige al cargar los padres posibles.
     $this->actingAs(usuarioCon('categoria.crear'))
         ->get(route('categorias.create', ['parent_id' => $componentes->id]))
         ->assertOk()
-        ->assertViewHas('categoria', fn ($categoria) => $categoria->parent_id === $componentes->id);
+        ->assertSee('data-padre-inicial="'.$componentes->id.'"', false);
 });
 
 test('editar una subcategoria de un padre inactivo no la mueve', function () {
@@ -289,20 +345,20 @@ test('editar una subcategoria de un padre inactivo no la mueve', function () {
     $perifericos = Categoria::factory()->inactiva()->create(['nombre' => 'Periféricos']);
     $monitores   = Categoria::factory()->hijaDe($perifericos)->create(['nombre' => 'Monitores']);
 
-    $usuario = usuarioCon('categoria.editar');
+    $padres = $this->getJson("/api/v1/categorias/padres-posibles?categoria={$monitores->id}", bearer(usuarioCon('categoria.ver')))
+        ->assertOk()
+        ->json('datos.*.id');
+    expect($padres)->toContain($perifericos->id);
+    app('auth')->forgetGuards();
 
-    $this->actingAs($usuario)
-        ->get(route('categorias.edit', $monitores))
-        ->assertViewHas('padres', fn ($padres) => $padres->contains($perifericos));
-
-    $this->actingAs($usuario)
-        ->put(route('categorias.update', $monitores), [
-            'nombre'    => 'Monitores gamer',
-            'parent_id' => $perifericos->id,
-            'orden'     => 0,
-            'activo'    => 1,
-        ])
-        ->assertSessionHasNoErrors();
+    $this->patchJson("/api/v1/categorias/{$monitores->id}", [
+        'nombre'    => 'Monitores gamer',
+        'parent_id' => $perifericos->id,
+        'orden'     => 0,
+        'activo'    => true,
+    ], bearer(usuarioCon('categoria.editar')))
+        ->assertOk()
+        ->assertJsonPath('datos.parent_id', $perifericos->id);
 
     expect($monitores->fresh()->parent_id)->toBe($perifericos->id);
 });
@@ -317,10 +373,13 @@ test('una categoria sin dependencias se elimina y se vuelve a su grupo', functio
     $padre     = Categoria::factory()->create();
     $categoria = Categoria::factory()->hijaDe($padre)->create();
 
-    $this->actingAs(usuarioCon('categoria.eliminar'))
-        ->delete(route('categorias.destroy', $categoria))
-        ->assertRedirect(route('categorias.index', ['parent_id' => $padre->id]))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'eliminada'));
+    $respuesta = $this->deleteJson("/api/v1/categorias/{$categoria->id}", [], bearer(usuarioCon('categoria.eliminar')))
+        ->assertOk()
+        ->assertJsonPath('datos.eliminada', true)
+        // El grupo al que vuelve la pantalla.
+        ->assertJsonPath('datos.parent_id', $padre->id);
+
+    expect($respuesta->json('mensaje'))->toContain('eliminada');
 
     $this->assertModelMissing($categoria);
 });
@@ -332,14 +391,72 @@ test('una categoria con subcategorias o productos se desactiva y el mensaje lo d
     $conProductos = Categoria::factory()->create();
     Producto::factory()->create(['categoria_id' => $conProductos->id]);
 
-    $usuario = usuarioCon('categoria.eliminar');
+    $encabezado = bearer(usuarioCon('categoria.eliminar'));
 
     foreach ([$conHijas, $conProductos] as $categoria) {
-        $this->actingAs($usuario)
-            ->delete(route('categorias.destroy', $categoria))
-            ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'se desactivó'));
+        $respuesta = $this->deleteJson("/api/v1/categorias/{$categoria->id}", [], $encabezado)
+            ->assertOk()
+            ->assertJsonPath('datos.eliminada', false);
+        app('auth')->forgetGuards();
+
+        expect($respuesta->json('mensaje'))->toContain('se desactivó');
 
         $this->assertModelExists($categoria);
         expect($categoria->fresh()->activo)->toBeFalse();
     }
+});
+/*
+|--------------------------------------------------------------------------
+| Un recurso, representación por permiso (regla 36, tramo D)
+|--------------------------------------------------------------------------
+|
+| `GET /categorias` es el árbol de la tienda; con `forma=lista`, el listado de la administración.
+|
+*/
+
+test('sin forma=lista es el arbol de la tienda de siempre, y los filtros de gestion no se leen', function () {
+    $activa = Categoria::factory()->create(['nombre' => 'Monitores']);
+    Categoria::factory()->inactiva()->create(['nombre' => 'Discontinuada']);
+
+    $respuesta = $this->getJson('/api/v1/categorias?estado=inactivas&q=disc', bearer(usuarioCon('categoria.ver')))
+        ->assertOk();
+
+    expect($respuesta->json('datos'))->toBe([['id' => $activa->id, 'nombre' => 'Monitores', 'hijas' => []]])
+        ->and($respuesta->json('criterios'))->toBe([]);
+});
+
+test('forma=lista sin categoria.ver es 403, tambien para el visitante y la cuenta de tienda', function () {
+    $this->getJson('/api/v1/categorias?forma=lista')
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
+
+    $tienda = app(\App\Services\UsuarioService::class)->crear(datosDeClienteDeTienda());
+    $this->getJson('/api/v1/categorias?forma=lista', bearer($tienda))
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
+});
+
+test('la lista trae las inactivas, y con_hijas solo las que tienen subcategorias', function () {
+    $padre = Categoria::factory()->inactiva()->create(['nombre' => 'Periféricos']);
+    Categoria::factory()->hijaDe($padre)->create(['nombre' => 'Monitores']);
+    $encabezado = bearer(usuarioCon('categoria.ver'));
+
+    $this->getJson('/api/v1/categorias?forma=lista', $encabezado)
+        ->assertOk()->assertJsonPath('total', 2);
+
+    $this->getJson('/api/v1/categorias?forma=lista&con_hijas=1', $encabezado)
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.nombre', 'Periféricos')
+        ->assertJsonPath('datos.0.activo', false)
+        ->assertJsonPath('datos.0.subcategorias', 1);
+});
+
+test('la ficha dice que contenido activo tiene antes de desactivarla', function () {
+    $categoria = Categoria::factory()->create();
+    Categoria::factory()->hijaDe($categoria)->create();
+    Producto::factory()->count(2)->create(['categoria_id' => $categoria->id]);
+
+    $this->getJson("/api/v1/categorias/{$categoria->id}", bearer(usuarioCon('categoria.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.contenido_activo', ['subcategorias' => 1, 'productos' => 2])
+        ->assertJsonPath('datos.ancestros', []);
 });

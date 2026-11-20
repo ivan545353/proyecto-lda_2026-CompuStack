@@ -1,6 +1,5 @@
 @extends('layouts.app')
 
-@use('App\Http\Requests\BusquedaRequest')
 
 @section('title', 'Movimientos de stock')
 
@@ -105,8 +104,8 @@
             <div class="col-12 col-lg-4">
                 <label for="producto_id" class="form-label">Producto</label>
                 <select class="form-select" id="producto_id" name="producto_id" data-buscable
-                    data-buscable-url="{{ route('busqueda.productos', ['estado' => 'todos']) }}"
-                    data-buscable-minimo="{{ BusquedaRequest::MINIMO }}" data-buscable-detalle="disponible">
+                    data-buscable-url="/productos?forma=gestion"
+                    data-buscable-minimo="2" data-buscable-detalle="disponible">
                     <option value="">Todos</option>
                     @if ($producto)
                         <option value="{{ $producto->id }}" selected data-data="{{ $datosDelProducto }}">

@@ -2,7 +2,6 @@
     Una línea del armador: producto, proveedor, cantidad y costo.
 --}}
 @use('App\Support\Importe')
-@use('App\Http\Requests\BusquedaRequest')
 
 @php
     $idProducto = $linea['producto_id'] ?? null;
@@ -18,8 +17,8 @@
         <label class="visually-hidden" for="pedido_producto_{{ $indice }}">Producto</label>
         <select class="form-select form-select-sm @error("lineas.{$indice}.producto_id") is-invalid @enderror"
             id="pedido_producto_{{ $indice }}" name="lineas[{{ $indice }}][producto_id]" required
-            data-producto data-buscable data-buscable-url="{{ route('busqueda.productos', ['con_proveedor' => 1]) }}"
-            data-buscable-minimo="{{ BusquedaRequest::MINIMO }}" data-buscable-detalle="disponible">
+            data-producto data-buscable data-buscable-url="/productos?forma=gestion&amp;estado=activos&amp;con_proveedor=1"
+            data-buscable-minimo="2" data-buscable-detalle="disponible">
             <option value="">Elegí un producto</option>
             @if ($producto)
                 <option value="{{ $producto->id }}" selected data-data="{{ $datos }}">{{ $rotulo }}

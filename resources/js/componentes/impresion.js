@@ -1,4 +1,21 @@
 import { Modal } from 'bootstrap';
+import { api } from '../api/cliente';
+import { cargando } from '../api/estados';
+
+// Un listado migrado (tramo D) imprime por la API: pide el enlace firmado con la credencial y el
+// navegador lo abre sin ella (D-22). La descarga no cambia de página.
+async function imprimirPorApi(ruta, parametros, boton) {
+    const liberar = cargando(boton);
+
+    try {
+        const { datos } = await api.get(`${ruta}?${parametros}`);
+        window.location.assign(datos.url);
+    } catch {
+        // El módulo central ya lo mostró: una opción mal pedida es 422.
+    } finally {
+        liberar();
+    }
+}
 
 /**
  * El diálogo «Opciones de impresión»: muestra el botón que lo abre y apaga lo que no aplica.
@@ -6,6 +23,15 @@ import { Modal } from 'bootstrap';
 export function iniciarOpcionesDeImpresion(raiz = document) {
     raiz.querySelectorAll('[data-impresion-abre]').forEach((boton) => {
         boton.hidden = false;
+    });
+
+    // El botón de un clic: los filtros de la pantalla, sin la página. El papel no pagina.
+    raiz.querySelectorAll('[data-imprimir-api]:not(form)').forEach((boton) => {
+        boton.addEventListener('click', () => {
+            const parametros = new URLSearchParams(window.location.search);
+            parametros.delete('pagina');
+            imprimirPorApi(boton.dataset.imprimirApi, parametros, boton);
+        });
     });
 
     raiz.querySelectorAll('form[data-impresion]').forEach((formulario) => {
@@ -39,7 +65,13 @@ export function iniciarOpcionesDeImpresion(raiz = document) {
         formulario.addEventListener('change', refrescar);
 
         // La descarga no cambia de página: la ventana se cierra para que la pantalla vuelva a estar a mano.
-        formulario.addEventListener('submit', () => {
+        formulario.addEventListener('submit', (evento) => {
+            if (formulario.dataset.imprimirApi) {
+                evento.preventDefault();
+                // Lo apagado no viaja: FormData deja afuera el papel de una planilla.
+                imprimirPorApi(formulario.dataset.imprimirApi, new URLSearchParams(new FormData(formulario)), enviar);
+            }
+
             if (ventana) Modal.getInstance(ventana)?.hide();
         });
 

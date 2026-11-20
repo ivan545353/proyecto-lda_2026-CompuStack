@@ -1,6 +1,5 @@
 @extends('layouts.app')
 
-@use('App\Http\Requests\BusquedaRequest')
 
 @php
     // El proveedor del borrador: recorta qué productos ofrece el buscador, porque
@@ -104,8 +103,8 @@
                     <div class="col-12 col-lg-7">
                         <label for="buscadorProducto" class="form-label">Agregar un producto</label>
                         <select id="buscadorProducto" class="form-select" data-buscador-producto data-buscable
-                            data-buscable-url="{{ route('busqueda.productos', ['proveedor_id' => $proveedorElegido]) }}"
-                            data-buscable-minimo="{{ BusquedaRequest::MINIMO }}" data-buscable-detalle="disponible"
+                            data-buscable-url="/productos?{{ http_build_query(['forma' => 'gestion', 'estado' => 'activos', 'proveedor_id' => $proveedorElegido]) }}"
+                            data-buscable-minimo="2" data-buscable-detalle="disponible"
                             data-buscable-excluir="{{ $idsCargados }}" aria-describedby="ayudaBuscadorProducto">
                             <option value="">Buscá por código o nombre</option>
                         </select>
@@ -127,7 +126,7 @@
 
                 <div class="table-responsive">
                     <table class="table align-middle mb-0" data-lineas-orden data-proximo-indice="{{ $proximoIndice }}"
-                        data-productos-url="{{ route('busqueda.productos', ['proveedor_id' => '__PROVEEDOR__']) }}"
+                        data-productos-url="/productos?forma=gestion&amp;estado=activos&amp;proveedor_id=__PROVEEDOR__"
                         style="min-width: 40rem;">
                         <caption class="visually-hidden">Productos de la orden de compra</caption>
                         <thead class="table-light">

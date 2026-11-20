@@ -10,26 +10,32 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     $this->seed(RolPermisoSeeder::class);
+
+    // Desde el tramo D se imprime por la API (D-22): el endpoint da el enlace firmado y el
+    // navegador lo abre sin credencial. Esto es pedir el enlace y abrirlo.
+    $this->imprimir = function (array $consulta = [], ?\App\Models\User $usuario = null) {
+        $url = $this->getJson('/api/v1/productos/impresion?'.http_build_query($consulta), bearer($usuario ?? usuarioCon('producto.ver')))
+            ->assertOk()->json('datos.url');
+        app('auth')->forgetGuards();
+
+        return $this->get($url);
+    };
 });
 
 test('imprimir el catalogo pide producto.ver y ningun otro permiso del modulo lo habilita', function () {
     $otros = array_values(array_diff(permisosDelModulo('producto'), ['producto.ver']));
 
-    $this->actingAs(usuarioCon('precio.ver_costo', ...$otros))
-        ->get(route('productos.imprimir'))
-        ->assertForbidden();
+    $this->getJson('/api/v1/productos/impresion', bearer(usuarioCon('precio.ver_costo', ...$otros)))
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
+    app('auth')->forgetGuards();
 
-    $this->actingAs(usuarioCon('producto.ver'))
-        ->get(route('productos.imprimir'))
-        ->assertOk();
+    ($this->imprimir)()->assertOk();
 });
 
 test('sin opciones devuelve un pdf para descargar y no cambia nada', function () {
     $producto = Producto::factory()->conStockYCosto(4, 800)->create();
 
-    $respuesta = $this->actingAs(usuarioCon('producto.ver'))->get(route('productos.imprimir'));
-
-    $respuesta->assertOk();
+    $respuesta = ($this->imprimir)()->assertOk();
     expect($respuesta->headers->get('content-type'))->toContain('application/pdf')
         ->and($respuesta->headers->get('content-disposition'))->toContain('attachment')
         ->toContain('catalogo-')->toContain('.pdf');
@@ -44,10 +50,7 @@ test('el csv sale completo, sin el tope del pdf', function () {
     $marca     = Marca::factory()->create();
     Producto::factory()->count(501)->create(['categoria_id' => $categoria->id, 'marca_id' => $marca->id]);
 
-    $respuesta = $this->actingAs(usuarioCon('producto.ver'))
-        ->get(route('productos.imprimir', ['formato' => 'csv']));
-
-    $respuesta->assertOk();
+    $respuesta = ($this->imprimir)(['formato' => 'csv'])->assertOk();
     expect($respuesta->headers->get('content-type'))->toContain('text/csv')
         ->and($respuesta->headers->get('content-disposition'))->toContain('.csv');
 
@@ -62,37 +65,57 @@ test('el csv imprime lo que el listado filtra, y lo dice', function () {
     Producto::factory()->create(['codigo' => 'A-SI', 'marca_id' => $marca->id]);
     Producto::factory()->create(['codigo' => 'B-NO']);
 
-    $csv = $this->actingAs(usuarioCon('producto.ver'))
-        ->get(route('productos.imprimir', ['formato' => 'csv', 'marca_id' => $marca->id]))
-        ->streamedContent();
+    $csv = ($this->imprimir)(['formato' => 'csv', 'marca_id' => $marca->id])->streamedContent();
 
     expect($csv)->toContain('Alcance: Marca: Logitech')
         ->toContain('A-SI')
         ->not->toContain('B-NO');
 });
 
-test('pedir costos sin precio.ver_costo vuelve al listado con el motivo y no imprime', function () {
+// En la API, el motivo es el 422 de la columna, y no hay enlace: la pantalla sigue donde estaba.
+test('pedir costos sin precio.ver_costo dice el motivo y no da enlace', function () {
     $marca = Marca::factory()->create();
 
-    $this->actingAs(usuarioCon('producto.ver'))
-        ->get(route('productos.imprimir', ['marca_id' => $marca->id, 'columnas' => ['codigo', 'costo']]))
-        ->assertRedirect(route('productos.index', ['marca_id' => $marca->id]))
-        ->assertSessionHas('error', fn (string $mensaje) => str_contains($mensaje, 'pide un permiso que no tenés'));
+    $respuesta = $this->getJson('/api/v1/productos/impresion?'.http_build_query(['marca_id' => $marca->id, 'columnas' => ['codigo', 'costo']]), bearer(usuarioCon('producto.ver')))
+        ->assertUnprocessable()
+        ->assertJsonMissingPath('datos');
+
+    expect($respuesta->json('errores.columnas.0'))->toContain('pide un permiso que no tenés');
 });
 
-test('una opcion que no existe vuelve al listado en lugar de imprimir otra cosa', function () {
-    $this->actingAs(usuarioCon('producto.ver'))
-        ->get(route('productos.imprimir', ['formato' => 'xlsx']))
-        ->assertRedirect(route('productos.index'))
-        ->assertSessionHas('error');
+test('con precio.ver_costo el enlace imprime la columna de costo', function () {
+    Producto::factory()->conStockYCosto(4, 800)->create(['codigo' => 'CON-COSTO']);
+
+    $csv = ($this->imprimir)(['formato' => 'csv', 'columnas' => ['codigo', 'costo']], usuarioCon('producto.ver', 'precio.ver_costo'))
+        ->assertOk()->streamedContent();
+
+    expect($csv)->toContain('Costo (sin IVA)')->toContain('CON-COSTO');
 });
 
-test('el boton de imprimir lleva los filtros puestos y no la pagina', function () {
+test('una opcion que no existe es 422 en lugar de imprimir otra cosa', function () {
+    $this->getJson('/api/v1/productos/impresion?formato=xlsx', bearer(usuarioCon('producto.ver')))
+        ->assertUnprocessable()
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonMissingPath('datos');
+});
+
+test('el enlace de imprimir lleva los filtros puestos y no la pagina', function () {
     $marca = Marca::factory()->create();
 
-    $this->actingAs(usuarioCon('producto.ver'))
-        ->get(route('productos.index', ['marca_id' => $marca->id, 'page' => 2]))
-        ->assertOk()
-        ->assertSee(route('productos.imprimir', ['marca_id' => $marca->id]))
-        ->assertDontSee(route('productos.imprimir', ['marca_id' => $marca->id, 'page' => 2]));
+    $url = $this->getJson("/api/v1/productos/impresion?marca_id={$marca->id}&pagina=2&forma=gestion", bearer(usuarioCon('producto.ver')))
+        ->assertOk()->json('datos.url');
+
+    expect($url)->toContain("marca_id={$marca->id}")->not->toContain('pagina=')->not->toContain('forma=');
+});
+
+test('si quien pidio el enlace pierde el permiso, el enlace ya no imprime', function () {
+    $usuario = usuarioCon('producto.ver');
+    $url     = $this->getJson('/api/v1/productos/impresion', bearer($usuario))->assertOk()->json('datos.url');
+    app('auth')->forgetGuards();
+
+    // Como lo hace RolService al editar el rol: los permisos cambian y su caché se olvida.
+    $usuario->rol->permisos()->detach();
+    \Illuminate\Support\Facades\Cache::forget(\App\Models\User::claveCache($usuario->rol_id));
+
+    $this->get($url)->assertForbidden();
 });

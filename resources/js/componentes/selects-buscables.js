@@ -25,7 +25,7 @@ const opcionJerarquica = (data, escape) => {
         + '</div>';
 };
 
-/** Caracteres mínimos si la vista no los publica (ver BusquedaRequest::MINIMO). */
+/** Caracteres mínimos si la vista no los publica. Es ayuda de interfaz: la API busca con cualquier texto. */
 const MINIMO_POR_OMISION = 2;
 
 /** Lo que se espera antes de preguntarle al servidor, en milisegundos. */
@@ -37,8 +37,27 @@ const pesos = new Intl.NumberFormat('es-AR', {
     minimumFractionDigits: 2,
 });
 
+/**
+ * Una fila de un listado de la API como resultado del buscador (tramo D). El texto lo pone el
+ * servidor (`texto`); de un producto de `forma=gestion` se toman el precio de contado y, sólo si
+ * vino, el costo: sin `precio.ver_costo` la clave no viaja, y la línea no puede afirmar uno.
+ */
+const comoResultado = (fila) => {
+    if (fila.precios === undefined && !('costo_promedio' in fila)) return fila;
+
+    return {
+        ...fila,
+        precio: fila.precios?.contado?.importe ?? null,
+        ...('costo_promedio' in fila ? { costo: fila.costo_promedio } : {}),
+    };
+};
+
 /** Un resultado del servidor, con las claves que Tom Select espera. */
-const aOpcion = (fila) => ({ ...fila, value: String(fila.id), text: fila.texto });
+const aOpcion = (fila) => {
+    const resultado = comoResultado(fila);
+
+    return { ...resultado, value: String(resultado.id), text: resultado.texto };
+};
 
 const exactoPrimero = (resultados, texto) => {
     const buscado = texto.trim().toLowerCase();
@@ -164,6 +183,7 @@ const configuracionRemota = (select) => {
             load(texto, callback) {
                 const buscador = this;
                 const pie = pieDe(buscador);
+                // La URL es una ruta de la API con sus recortes fijos (`/productos?forma=gestion&…`).
                 const destino = new URL(select.dataset.buscableUrl, window.location.origin);
 
                 destino.searchParams.set('q', texto.trim());
@@ -178,15 +198,16 @@ const configuracionRemota = (select) => {
                 enCurso = new AbortController();
 
                 // Por el módulo central: el error ya lo trató y lo mostró él (tramo C).
-                api.get(destino.toString(), { propia: true, senal: enCurso.signal })
+                api.get(`${destino.pathname}${destino.search}`, { senal: enCurso.signal })
                     .then((cuerpo) => {
-                        const resultados = cuerpo.resultados ?? [];
+                        const resultados = cuerpo.datos ?? [];
 
                         fallo = false;
                         buscador.clearOptions();
 
-                        avisar(pie, cuerpo.hay_mas
-                            ? `Hay más de ${resultados.length} coincidencias. Agregá una palabra para afinar la búsqueda.`
+                        // El desplegable muestra la primera página: si hay más, se afina escribiendo.
+                        avisar(pie, cuerpo.ultima_pagina > 1
+                            ? `Hay ${cuerpo.total} coincidencias y se muestran ${resultados.length}. Agregá una palabra para afinar la búsqueda.`
                             : '');
 
                             callback(exactoPrimero(resultados, texto).map(aOpcion));
@@ -228,64 +249,68 @@ const configuracionRemota = (select) => {
     };
 };
 
+// Uno diferido espera sus opciones de la API: lo arranca su pantalla con iniciarSelectBuscable().
 export function iniciarSelectsBuscables(raiz = document) {
-    raiz.querySelectorAll('select[data-buscable]').forEach((select) => {
-        if (select.tomselect) {
-            return;   // ya iniciado
-        }
+    raiz.querySelectorAll('select[data-buscable]:not([data-buscable-diferido])').forEach(iniciarSelectBuscable);
+}
 
-        const jerarquia = select.dataset.buscable === 'jerarquia';
-        const vacia = select.querySelector('option[value=""]');
-        const remoto = select.dataset.buscableUrl ? configuracionRemota(select) : null;
+/** Arranca un selector con búsqueda, con las opciones que tenga en ese momento. */
+export function iniciarSelectBuscable(select) {
+    if (select.tomselect) {
+        return;   // ya iniciado
+    }
 
-        const locales = {
-            plugins: ['dropdown_input'],   // el buscador dentro del desplegable
-            create: false,
-            maxOptions: null,              // todas las opciones, con scroll
+    const jerarquia = select.dataset.buscable === 'jerarquia';
+    const vacia = select.querySelector('option[value=""]');
+    const remoto = select.dataset.buscableUrl ? configuracionRemota(select) : null;
 
-            // En un campo obligatorio, la opción vacía ("Elegí una categoría")
-            // es texto de ayuda, no algo que se pueda elegir. En uno opcional
-            // ("Sin marca", "Todas") sí es una opción válida.
-            allowEmptyOption: !select.required,
-            placeholder: vacia?.textContent.trim() ?? '',
+    const locales = {
+        plugins: ['dropdown_input'],   // el buscador dentro del desplegable
+        create: false,
+        maxOptions: null,              // todas las opciones, con scroll
 
-            searchField: ['text'],
+        // En un campo obligatorio, la opción vacía ("Elegí una categoría")
+        // es texto de ayuda, no algo que se pueda elegir. En uno opcional
+        // ("Sin marca", "Todas") sí es una opción válida.
+        allowEmptyOption: !select.required,
+        placeholder: vacia?.textContent.trim() ?? '',
 
-            render: {
-                ...(jerarquia ? { option: opcionJerarquica } : {}),
-                no_results: (data, escape) =>
-                    `<div class="no-results">No hay coincidencias para «${escape(data.input)}».</div>`,
-            },
+        searchField: ['text'],
 
-            // La clase se usa en el CSS para mostrar la ruta sólo al buscar.
-            onType(texto) {
-                this.wrapper.classList.toggle('ts-buscando', texto !== '');
-            },
-            onDropdownClose() {
-                this.wrapper.classList.remove('ts-buscando');
-            },
-        };
+        render: {
+            ...(jerarquia ? { option: opcionJerarquica } : {}),
+            no_results: (data, escape) =>
+                `<div class="no-results">No hay coincidencias para «${escape(data.input)}».</div>`,
+        },
 
-        const buscador = new TomSelect(select, {
-            ...locales,
-            ...(remoto?.opciones ?? {}),
-            render: {
-                ...locales.render,
-                ...(remoto?.opciones.render ?? {}),
-            },
-        });
+        // La clase se usa en el CSS para mostrar la ruta sólo al buscar.
+        onType(texto) {
+            this.wrapper.classList.toggle('ts-buscando', texto !== '');
+        },
+        onDropdownClose() {
+            this.wrapper.classList.remove('ts-buscando');
+        },
+    };
 
-        // La ayuda y el error del campo están enlazados al <select> nativo,
-        // que queda oculto. Se pasan al elemento que recibe el foco, para que
-        // un lector de pantalla los siga anunciando.
-        const descripcion = select.getAttribute('aria-describedby')?.trim();
-        if (descripcion) {
-            (buscador.focus_node ?? buscador.control_input)?.setAttribute('aria-describedby', descripcion);
-        }
-
-        buscador.control_input?.setAttribute(
-            'placeholder',
-            remoto ? `Escribí al menos ${remoto.minimo} caracteres…` : 'Escribí para buscar…',
-        );
+    const buscador = new TomSelect(select, {
+        ...locales,
+        ...(remoto?.opciones ?? {}),
+        render: {
+            ...locales.render,
+            ...(remoto?.opciones.render ?? {}),
+        },
     });
+
+    // La ayuda y el error del campo están enlazados al <select> nativo,
+    // que queda oculto. Se pasan al elemento que recibe el foco, para que
+    // un lector de pantalla los siga anunciando.
+    const descripcion = select.getAttribute('aria-describedby')?.trim();
+    if (descripcion) {
+        (buscador.focus_node ?? buscador.control_input)?.setAttribute('aria-describedby', descripcion);
+    }
+
+    buscador.control_input?.setAttribute(
+        'placeholder',
+        remoto ? `Escribí al menos ${remoto.minimo} caracteres…` : 'Escribí para buscar…',
+    );
 }

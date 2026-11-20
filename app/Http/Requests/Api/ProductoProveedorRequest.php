@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Support\Importe;
 use Illuminate\Foundation\Http\FormRequest;
@@ -27,9 +27,11 @@ use Illuminate\Validation\Rule;
  * petición que omite el costo blanquearía el que estaba guardado, que es M-31 con
  * otra ropa. Con `present`, omitirlo es un rechazo.
  *
+ * En la API (tramo D) `es_preferido` tiene que venir: la ausencia ya no es «no» (M-31).
+ *
  * Métodos:
  *   authorize()             true; las rutas exigen producto.editar
- *   prepareForValidation()  normaliza el importe, recorta el código, resuelve el checkbox
+ *   prepareForValidation()  normaliza el importe y recorta el código
  *   rules()                 las reglas; el proveedor sólo llega en el alta
  *   messages() / attributes()
  */
@@ -42,11 +44,7 @@ class ProductoProveedorRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $merge = [
-            // El checkbox sin marcar no viaja en el POST. Sin esto no habría forma
-            // de distinguir "no lo quiero preferido" de "no mandé el campo".
-            'es_preferido' => $this->boolean('es_preferido'),
-        ];
+        $merge = [];
 
         if ($this->has('costo_ultimo')) {
             // "25.000,50" → "25000.50". Lo ambiguo llega sin tocar y lo rechaza la
@@ -130,6 +128,7 @@ class ProductoProveedorRequest extends FormRequest
             'codigo_proveedor.max'     => 'El código del proveedor no puede tener más de 40 caracteres.',
 
             'producto_id.prohibited' => 'El vínculo pertenece al producto de esta pantalla.',
+            'es_preferido.required'  => 'Falta indicar si se le pide la reposición a este proveedor.',
         ];
     }
 

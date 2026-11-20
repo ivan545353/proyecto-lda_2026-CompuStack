@@ -30,13 +30,13 @@ test('el alta pedida en json devuelve 201 con la misma fila que traeria una busq
         ->postJson(route('clientes.store'), datosDeCliente())
         ->assertCreated();
 
-    $busqueda = $this->actingAs($usuario)
-        ->getJson(route('busqueda.clientes', ['q' => 'tilos']))
+    // Desde el tramo D la búsqueda es el listado de clientes de la API.
+    $busqueda = $this->getJson('/api/v1/clientes?q=tilos', bearer($usuario))
         ->assertOk();
 
     // Igualdad estricta, claves y tipos: si un camino cambia la fila y el otro no, la
     // venta mostraría dos formatos para el mismo cliente.
-    expect($alta->json())->toBe($busqueda->json('resultados.0'))
+    expect($alta->json())->toBe($busqueda->json('datos.0'))
         ->and($alta->json('texto'))->toBe('Panadería Los Tilos — DNI 41556778');
 });
 

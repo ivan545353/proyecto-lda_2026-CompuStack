@@ -5,16 +5,22 @@ use App\Http\Controllers\Api\V1\CarritoController;
 use App\Http\Controllers\Api\V1\CarritoLineaController;
 use App\Http\Controllers\Api\V1\CategoriaController;
 use App\Http\Controllers\Api\V1\CheckoutController;
+use App\Http\Controllers\Api\V1\ClienteController;
+use App\Http\Controllers\Api\V1\ImpresionController;
+use App\Http\Controllers\Api\V1\MarcaController;
 use App\Http\Controllers\Api\V1\PagoPedidoController;
 use App\Http\Controllers\Api\V1\PedidoController;
 use App\Http\Controllers\Api\V1\PerfilController;
 use App\Http\Controllers\Api\V1\ProductoController;
+use App\Http\Controllers\Api\V1\ProductoProveedorController;
+use App\Http\Controllers\Api\V1\ProveedorController;
 use App\Http\Controllers\Api\V1\RegistroController;
 use App\Http\Controllers\Api\V1\SesionController;
 use App\Http\Controllers\Api\V1\SimuladorController;
 use App\Http\Controllers\Api\V1\TiendaController;
 use App\Http\Controllers\Api\V1\YoController;
 use App\Impresion\ComprobanteVenta;
+use App\Impresion\ImpresionFirmada;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -44,11 +50,14 @@ use Illuminate\Support\Facades\Route;
 */
 Route::prefix('v1')->group(function () {
 
+    // Credencial si sirve: el árbol no depende de quién mira (plan Etapa 2 §6.8); la gestión,
+    // con permiso, pide además sus filtros (tramo D). Una credencial que no sirve no es 401.
+    Route::middleware('api.credencial_si_sirve')->group(function () {
+        Route::get('categorias', [CategoriaController::class, 'index']);
+    });
+
     // Pública.
     Route::group([], function () {
-        // El árbol no depende de quién mira: no lee la credencial (plan §6.8).
-        Route::get('categorias', [CategoriaController::class, 'index']);
-
         // Lo que la tienda ofrece, para el bloque de confianza de Inicio (tramo J, HL-81). Sin precios.
         Route::get('tienda', [TiendaController::class, 'show']);
 
@@ -63,10 +72,16 @@ Route::prefix('v1')->group(function () {
         // autorización (D-22). La pide `GET pedidos/{pedido}/comprobante`; vencida o tocada, 403.
         Route::get('pedidos/{pedido}/comprobante.pdf', [PedidoController::class, 'descargarComprobante'])
             ->whereNumber('pedido')->middleware('signed')->name(ComprobanteVenta::RUTA);
+
+        // Los listados impresos, por el mismo camino (tramo D): la firma cubre quién lo pidió, los
+        // filtros y las opciones; al abrirlo se vuelve a exigir cuenta activa y permiso.
+        Route::get('impresiones/{listado}', [ImpresionController::class, 'descargar'])
+            ->whereIn('listado', array_keys(ImpresionFirmada::LISTADOS))
+            ->middleware('signed')->name(ImpresionFirmada::RUTA);
     });
 
-    // Sesión opcional.
-    Route::middleware('tienda.sesion_opcional')->group(function () {
+    // Sesión opcional, de los dos clientes (HL-108): qué ve cada uno lo decide el permiso.
+    Route::middleware('api.sesion_opcional')->group(function () {
         Route::get('productos', [ProductoController::class, 'index']);
         // Sin binding implícito: el modelo encontraría un producto inactivo.
         Route::get('productos/{producto}', [ProductoController::class, 'show'])->whereNumber('producto');
@@ -77,6 +92,54 @@ Route::prefix('v1')->group(function () {
         // Sin permiso propio: cerrar la sesión y saber quién soy es de toda cuenta.
         Route::delete('sesion', [SesionController::class, 'destroy']);
         Route::get('yo', [YoController::class, 'show']);
+
+        // El catálogo de la administración (tramo D). Un permiso por acción (C-2), en la ruta.
+        Route::middleware('can:marca.ver')->group(function () {
+            Route::get('marcas', [MarcaController::class, 'index']);
+            Route::get('marcas/impresion', [MarcaController::class, 'impresion']);
+            Route::get('marcas/{marca}', [MarcaController::class, 'show'])->whereNumber('marca');
+        });
+        Route::post('marcas', [MarcaController::class, 'store'])->middleware('can:marca.crear');
+        // Con logo, `POST` + `_method=PATCH` en multipart: PHP no lee archivos de un `PATCH` (HL-110).
+        Route::patch('marcas/{marca}', [MarcaController::class, 'update'])->whereNumber('marca')->middleware('can:marca.editar');
+        Route::delete('marcas/{marca}', [MarcaController::class, 'destroy'])->whereNumber('marca')->middleware('can:marca.eliminar');
+
+        // Mínimo para los selectores del catálogo (tramo D); el tramo E suma el resto del módulo.
+        Route::get('proveedores', [ProveedorController::class, 'index'])->middleware('can:proveedor.ver');
+        Route::get('clientes', [ClienteController::class, 'index'])->middleware('can:cliente.ver');
+
+        // El listado y la ficha de gestión son `GET productos?forma=gestion` y `GET productos/{p}?forma=gestion`,
+        // arriba: el mismo recurso que la tienda (regla 36).
+        Route::middleware('can:producto.ver')->group(function () {
+            Route::get('productos/impresion', [ProductoController::class, 'impresion']);
+            Route::get('productos/opciones', [ProductoController::class, 'opciones']);
+        });
+        Route::post('productos', [ProductoController::class, 'store'])->middleware('can:producto.crear');
+        // Con imágenes, `POST` + `_method=PATCH` en multipart (HL-110).
+        Route::patch('productos/{producto}', [ProductoController::class, 'update'])->whereNumber('producto')->middleware('can:producto.editar');
+        Route::delete('productos/{producto}', [ProductoController::class, 'destroy'])->whereNumber('producto')->middleware('can:producto.eliminar');
+        Route::post('productos/{producto}/recalcular', [ProductoController::class, 'recalcular'])->whereNumber('producto')->middleware('can:precio.recalcular');
+
+        // Los proveedores de un producto. El listado decide su permiso en el Form Request, porque depende
+        // de la forma: a quién pedirle (proveedor.ver) o el comparador (producto.editar).
+        Route::get('productos/{producto}/proveedores', [ProductoProveedorController::class, 'index'])->whereNumber('producto');
+        Route::middleware('can:producto.editar')->group(function () {
+            Route::post('productos/{producto}/proveedores', [ProductoProveedorController::class, 'store'])->whereNumber('producto');
+            Route::get('productos/{producto}/proveedores/{proveedor}', [ProductoProveedorController::class, 'show'])->whereNumber(['producto', 'proveedor']);
+            Route::patch('productos/{producto}/proveedores/{proveedor}', [ProductoProveedorController::class, 'update'])->whereNumber(['producto', 'proveedor']);
+            Route::post('productos/{producto}/proveedores/{proveedor}/preferido', [ProductoProveedorController::class, 'preferido'])->whereNumber(['producto', 'proveedor']);
+            Route::delete('productos/{producto}/proveedores/{proveedor}', [ProductoProveedorController::class, 'destroy'])->whereNumber(['producto', 'proveedor']);
+        });
+
+        // El listado de categorías es `GET categorias?forma=lista`, arriba: el mismo recurso (regla 36).
+        Route::middleware('can:categoria.ver')->group(function () {
+            Route::get('categorias/impresion', [CategoriaController::class, 'impresion']);
+            Route::get('categorias/padres-posibles', [CategoriaController::class, 'padresPosibles']);
+            Route::get('categorias/{categoria}', [CategoriaController::class, 'show'])->whereNumber('categoria');
+        });
+        Route::post('categorias', [CategoriaController::class, 'store'])->middleware('can:categoria.crear');
+        Route::patch('categorias/{categoria}', [CategoriaController::class, 'update'])->whereNumber('categoria')->middleware('can:categoria.editar');
+        Route::delete('categorias/{categoria}', [CategoriaController::class, 'destroy'])->whereNumber('categoria')->middleware('can:categoria.eliminar');
     });
 
     // Protegida de la tienda.

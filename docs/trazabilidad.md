@@ -1479,3 +1479,33 @@ todavía no se migraron necesitan saber quién pide hasta el tramo I, y `session
 navegación. Con una sola credencial, todo lo que la invalida corta a la vez la API y las pantallas. Las
 13 llamadas de los tests se migraron conservando la aserción. La de fijación de sesión pasó a
 «cada ingreso emite una credencial nueva, y una que trae el cliente no sirve», con el OK del usuario.
+
+### Tramo D — Catálogo
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| Grupos `api.sesion_opcional` y `api.credencial_si_sirve` (`bootstrap/app.php`) | El catálogo compartido sin la frontera de la tienda (HL-108); el árbol de categorías, donde una credencial que no sirve sigue como visitante | Nuevo |
+| `Middleware/Api/CredencialSiSirve` | Identifica a quien pide si la credencial sirve; si no, visitante y no 401 (regla 40) | Nuevo |
+| `Impresion/ImpresionFirmada`, `ImprimiblePorEnlace`, `Api/V1/ImpresionController`, `config/impresion.php` | La impresión de los listados por URL firmada (D-22): el endpoint valida y firma; la ruta pública `signed` vuelve a exigir cuenta activa y permiso al abrirla | Nuevo |
+| `ListadoMarcas`, `ListadoCategorias`, `ListadoProductos` | Su permiso y su consulta, para que la descarga firmada no dependa del controlador web | Modificado |
+| `Api/V1/MarcaController` + `MarcaRequest`, `MarcaFiltroRequest`, `MarcaResource` | Las marcas: listado, ficha, alta, edición (logo por HL-110), baja que desactiva si hay productos, impresión | Nuevo |
+| `Api/V1/CategoriaController` + `CategoriaRequest`, `CategoriaFiltroRequest`, `PadresPosiblesRequest`, `CategoriaGestionResource`, `CategoriaFichaGestionResource` | `forma=lista` con `categoria.ver` sin tocar el árbol de la tienda; ficha con ancestros y contenido activo; dónde se puede poner una categoría | Modificado |
+| `Api/V1/ProductoController` + `ProductoRequest`, `ProductoFiltroRequest`, `ProductoGestionResource`, `ProductoFichaGestionResource` | `forma=gestion` con representación por permiso (costo, stock, cálculo, historial); alta, edición con imágenes, baja, `recalcular`, `opciones`, impresión; los recortes del buscador (`con_proveedor`, `excluir`) | Modificado |
+| `Api/V1/ProductoProveedorController` + `ProductoProveedorRequest`, `ProveedoresDelProductoRequest`, `VinculoProveedorResource` | Los proveedores de un producto: a quién pedirle, el comparador y los disponibles (tres formas, cada una con su permiso), alta, edición, `preferido` y baja con 409 | Nuevo |
+| `Api/V1/ProveedorController`, `Api/V1/ClienteController` + sus Requests y Resources | Los listados mínimos que el catálogo y la venta necesitan para elegir; los completa el tramo E | Nuevo |
+| `resources/js/pantallas/listado.js` | El molde de los listados por la API: plantilla de fila, filtros por la URL, paginado, baja con confirmación, `todasLasPaginas()` | Nuevo |
+| `pantallas/marcas.js`, `categorias.js`, `productos.js`, `producto-proveedores.js`, `opciones-categoria.js` | Las pantallas del catálogo, cada una sobre el módulo central | Nuevo |
+| `componentes/seleccion.js` | La selección de filas del ajuste de precios, que ahora llegan después de la página | Nuevo |
+| `selects-buscables.js`, `lineas-pedido.js` | Leen el sobre de los listados (`datos`, `ultima_pagina`); los selectores que esperan sus opciones (`data-buscable-diferido`) | Modificado |
+| `gestor-imagenes.js`, `impresion.js`, `x-gestor-imagenes`, `x-imprimir` | El gestor arranca con las imágenes de la API; el diálogo pide la URL firmada | Modificado |
+| Vistas de `marcas`, `categorias`, `productos` (listado, formulario, comparador, vínculo) | Shells: la estructura y los `@can`, sin datos de negocio (regla 37) | Modificado |
+| Controladores web `MarcaController`, `CategoriaController`, `ProductoController`, `ProductoProveedorController` | Sólo devuelven el shell. Se retiran 21 rutas; se borran los Form Requests web y `BusquedaController` | Modificado |
+| `tests/Feature/Api/FronteraCatalogoTest.php`, `ImpresionFirmadaTest.php` | La frontera de los grupos nuevos y la firma de la impresión (vencida, tocada, permiso perdido) | Nuevo |
+
+**La decisión que lo condicionó.** Un recurso, representación por permiso (regla 36): donde la tienda ya tenía
+el recurso, la gestión pide otra forma del mismo (`?forma=gestion`, `?forma=lista`) y sin `forma` la respuesta no
+cambia un byte. Así la app no se enteró del tramo. Las búsquedas no tienen camino propio: son la primera página
+del listado de su entidad. Los mensajes de antes y después (la cascada, el primer proveedor, el que asciende)
+pasaron tal cual del controlador web al de la API, y el servicio no cambió (D-34). Con el usuario se decidieron
+la frontera de categorías, la migración de los tests de impresión sin JS (HL-111), el 405 sobre `PUT` en lugar de
+sobre el `POST` que ahora existe, y el mínimo del buscador en la interfaz (HL-112).

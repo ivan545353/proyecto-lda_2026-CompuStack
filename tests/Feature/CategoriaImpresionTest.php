@@ -21,11 +21,14 @@ beforeEach(function () {
 test('imprimir las categorias pide categoria.ver y ningun otro permiso del modulo lo habilita', function () {
     $otros = array_values(array_diff(permisosDelModulo('categoria'), ['categoria.ver']));
 
-    $this->actingAs(usuarioCon(...$otros))->get(route('categorias.imprimir'))->assertForbidden();
+    $this->getJson('/api/v1/categorias/impresion', bearer(usuarioCon(...$otros)))
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
+    app('auth')->forgetGuards();
 
-    $respuesta = $this->actingAs(usuarioCon('categoria.ver'))->get(route('categorias.imprimir'));
+    $url = $this->getJson('/api/v1/categorias/impresion', bearer(usuarioCon('categoria.ver')))
+        ->assertOk()->json('datos.url');
 
-    $respuesta->assertOk();
+    $respuesta = $this->get($url)->assertOk();
     expect($respuesta->headers->get('content-type'))->toContain('application/pdf')
         ->and($respuesta->headers->get('content-disposition'))->toContain('categorias-');
 });
@@ -37,10 +40,10 @@ test('las subcategorias de una categoria salen con su ubicacion y sus conteos de
     Categoria::factory()->hijaDe($placas)->create(['nombre' => 'Gama alta']);
     Producto::factory()->count(3)->create(['categoria_id' => $placas->id]);
 
-    $filas = ($this->filasDe)($this->actingAs(usuarioCon('categoria.ver'))
-        ->get(route('categorias.imprimir', ['formato' => 'csv', 'parent_id' => $componentes->id]))
-        ->assertOk()
-        ->streamedContent());
+    $url = $this->getJson("/api/v1/categorias/impresion?formato=csv&parent_id={$componentes->id}", bearer(usuarioCon('categoria.ver')))
+        ->assertOk()->json('datos.url');
+
+    $filas = ($this->filasDe)($this->get($url)->assertOk()->streamedContent());
 
     $porNombre = collect(array_slice($filas, 5, 2))->keyBy(0);
 
@@ -54,9 +57,10 @@ test('las subcategorias de una categoria salen con su ubicacion y sus conteos de
 test('una categoria principal no esta dentro de nada, y el filtro lo dice', function () {
     Categoria::factory()->create(['nombre' => 'Periféricos']);
 
-    $filas = ($this->filasDe)($this->actingAs(usuarioCon('categoria.ver'))
-        ->get(route('categorias.imprimir', ['formato' => 'csv', 'parent_id' => 'raiz']))
-        ->streamedContent());
+    $url = $this->getJson('/api/v1/categorias/impresion?formato=csv&parent_id=raiz', bearer(usuarioCon('categoria.ver')))
+        ->assertOk()->json('datos.url');
+
+    $filas = ($this->filasDe)($this->get($url)->streamedContent());
 
     expect($filas[2][0])->toBe('Alcance: Mostrar: Sólo las categorías principales')
         ->and($filas[5])->toBe(['Periféricos', '', 'Activa', '0', '0']);
@@ -88,10 +92,9 @@ test('la ruta de una nieta no hace una consulta por fila', function () {
     expect($muchas)->toBe($pocas);
 });
 
-test('el boton de imprimir de categorias lleva los filtros puestos y no la pagina', function () {
-    $this->actingAs(usuarioCon('categoria.ver'))
-        ->get(route('categorias.index', ['estado' => 'activas', 'page' => 2]))
-        ->assertOk()
-        ->assertSee(route('categorias.imprimir', ['estado' => 'activas']))
-        ->assertDontSee(route('categorias.imprimir', ['estado' => 'activas', 'page' => 2]));
+test('el enlace de imprimir de categorias lleva los filtros puestos y no la pagina', function () {
+    $url = $this->getJson('/api/v1/categorias/impresion?estado=activas&pagina=2', bearer(usuarioCon('categoria.ver')))
+        ->assertOk()->json('datos.url');
+
+    expect($url)->toContain('estado=activas')->not->toContain('pagina=');
 });

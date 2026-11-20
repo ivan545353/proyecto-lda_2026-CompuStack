@@ -3,13 +3,33 @@
 namespace App\Impresion;
 
 use App\Models\Categoria;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * El árbol de categorías en una lista, con cuántas subcategorías y productos cuelgan de cada una.
  */
-final class ListadoCategorias extends Listado
+final class ListadoCategorias extends Listado implements ImprimiblePorEnlace
 {
     private const ESTADOS = ['activas' => 'Activas', 'inactivas' => 'Inactivas'];
+
+    public function permiso(): string
+    {
+        return 'categoria.ver';
+    }
+
+    /** La del listado de la pantalla, la misma para mirar y para imprimir. */
+    public function consulta(array $filtros): Builder
+    {
+        $padre = $filtros['parent_id'] ?? null;
+
+        return Categoria::query()
+            ->buscar($filtros['q'] ?? null)
+            ->dePadre($padre)
+            ->conEstado($filtros['estado'] ?? null)
+            // `orden` sólo tiene sentido entre hermanas: se aplica cuando se ven las hijas de un padre.
+            ->when(filled($padre), fn ($consulta) => $consulta->orderBy('orden'))
+            ->orderBy('nombre');
+    }
 
     public function titulo(): string
     {

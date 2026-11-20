@@ -193,3 +193,49 @@ portada. Devuelve la respuesta del ingreso. Reemplaza a `post(route('login.attem
 
 **El JS no tiene tests**: no hay corredor en `package.json` y no se agregan librerías. Se verificó con
 `npm run build`, y lo que el servidor contesta lo prueban los tests de arriba.
+
+## 8. Tramo D — Catálogo
+
+**Migradas las 62 escrituras del catálogo** (Producto 28, ProductoProveedor 12, Categoría 11, Marca 11),
+las 4 búsquedas (`BusquedaTest`, 23 tests, y una referencia en `ClienteAltaRapidaTest` y otra en
+`PedidoCompraModuloTest`) y los tests de impresión de los tres listados. El inventario (§5) baja a **210
+llamadas en 19 archivos**, y ninguna es del catálogo. La suite pasa de 2.295 a **2.389**: ningún test se
+perdió, y cada endpoint suma su dataset de permisos en las dos direcciones.
+
+**Cómo se migró**:
+- Una escritura `post(route('x.store'))` pasa a `postJson('/api/v1/…', bearer($u))`, y cada
+  `assertSessionHasErrors('campo')` a `assertJsonValidationErrors('campo', 'errores')`. El aviso de la
+  sesión (`assertSessionHas('exito')`) pasa al `mensaje` exacto, que es más estricto.
+- Un `assertViewHas` pasa al JSON del endpoint que trae el dato; un `assertSee` de un dato, también. Un
+  `assertSee` de estructura (un botón con su `@can`, un texto fijo de la plantilla) se queda en el shell, y
+  se afirma **en las dos direcciones**: sin el permiso la plantilla no trae el botón, con el permiso sí.
+- Cada shell tiene su test «no trae datos de negocio» (regla 37): un producto con nombre, código y
+  categoría conocidos, y la página sin ninguno.
+- Las imágenes y el logo, multipart con `post()` y `_method=PATCH` en la edición (HL-110).
+
+| Test | Fijaba | Ahora | Por qué |
+| --- | --- | --- | --- |
+| `Api/CatalogoFiltrosTest` › el 405 de categorías y de productos | `POST /categorias`, `POST /productos` y `DELETE /productos/{id}` daban 405 | El 405 se afirma sobre `PUT`, y un test nuevo: sin credencial 401, con una cuenta de tienda 403 | Esos métodos ahora existen, para la gestión. **Con el OK del usuario** |
+| `ImpresionDialogoTest` › «funciona sin JS» (marcas, categorías, catálogo) | El diálogo era un `form` GET a la ruta web | Apunta a `/<recurso>/impresion`, y la URL firmada abre el archivo sin credencial | HL-111. **Con el OK del usuario** |
+| `ProductoImpresionTest` › la columna de costo sin permiso | La columna no salía | 422 en `columnas.0` («pide un permiso que no tenés») | La validación rechaza, no corrige (M-31) |
+| `GestorImagenesOrdenTest` › «cada imagen guardada lleva su número» | El número en la edición del producto | El componente `x-gestor-imagenes` con tres imágenes, y la ficha de la API en su orden | La edición es un shell. **Con el OK del usuario** |
+| `StockModuloTest` › «el listado ofrece el acceso al stock sólo con permiso» | El enlace con el id del producto | El enlace de la plantilla (`__ID__`), en las dos direcciones | La fila es una plantilla. **Con el OK del usuario** |
+| `BusquedaTest` › «sin texto o de una sola letra se rechaza» | 422 en `/buscar/productos` | Cada buscador publica `data-buscable-minimo="2"`, y la API rechaza más de 100 caracteres | HL-112: el mínimo es de la interfaz. **Con el OK del usuario** |
+| `BusquedaTest` › «sin sesión 401» | 401 en `/buscar/…` | 401 `sin_sesion` en los tres listados, también en `forma=gestion` | Por eso la forma de gestión da 401 al visitante (y no 403) |
+| `BusquedaTest` › `estado=todos` | Incluía las bajas | Sin `estado` | «Todos» es no mandarlo |
+| `ProductoModuloTest` › destacar, quitar el destacado | La casilla en el formulario | La casilla se ofrece con `producto.editar`, y lo que la marca es `datos.destacado` | `destacado` ausente quiere decir sin cambio |
+| `ProductoProveedorModuloTest` › «el comparador ordena por costo» | `assertViewHas('vinculos')` | El orden, `mas_barato`, `es_preferido` y la `diferencia` en el JSON; los textos de las marcas en la plantilla | Misma aserción, más estricta |
+| `ProductoProveedorModuloTest` › «la baja bloqueada vuelve con el motivo» | Redirección con `error` | 409 `regla_de_negocio` | El contrato de la API |
+
+**Tests nuevos**: `Api/FronteraCatalogoTest` (los grupos `api.sesion_opcional` y `api.credencial_si_sirve`),
+`Api/ImpresionFirmadaTest` (la vigencia, la firma que cubre filtros y opciones, el 422 que no firma, el enlace tocado o vencido, el permiso perdido y la cuenta desactivada), y en los de
+módulo: cada clave protegida en las dos direcciones, `activo`, `precio_manual` y `es_preferido` obligatorios,
+las formas del listado de proveedores de un producto con su permiso, y `forma=gestion` sin tocar la tienda.
+
+**Tres trampas**:
+- `EscalaTest` sobre la API daba 9 consultas contra 8 a veces: Sanctum guarda `last_used_at` sólo si cambió
+  el segundo. Se congela el reloj (`freezeTime()`).
+- Un `withHeaders(bearer($a))` seguido de otro con `$b` sigue autenticando a `$a`: el guard lo memoriza. Entre
+  dos usuarios, `app('auth')->forgetGuards()`.
+- Al perder un permiso en medio de un test, la caché del rol lo sigue concediendo: `Cache::forget(User::claveCache($rolId))`,
+  como hace `RolService`.

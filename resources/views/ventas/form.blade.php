@@ -1,7 +1,6 @@
 @extends('layouts.app')
 
 @use('App\Support\Importe')
-@use('App\Http\Requests\BusquedaRequest')
 
 @php
     $esAlta = !$venta->exists;
@@ -87,8 +86,8 @@
                             </div>
                             <select class="form-select @error('cliente_id') is-invalid @enderror" id="cliente_id"
                                 name="cliente_id" aria-describedby="ayudaCliente" data-buscable
-                                data-buscable-url="{{ route('busqueda.clientes') }}"
-                                data-buscable-minimo="{{ BusquedaRequest::MINIMO }}">
+                                data-buscable-url="/clientes"
+                                data-buscable-minimo="2">
                                 <option value="">Sin identificar</option>
                                 @if ($cliente)
                                     <option value="{{ $cliente->id }}" selected
@@ -161,8 +160,8 @@
                         <div class="col-12 col-lg-7">
                             <label for="buscadorProducto" class="form-label">Agregar un producto</label>
                             <select id="buscadorProducto" data-buscador-producto data-buscable
-                                data-buscable-url="{{ route('busqueda.productos') }}"
-                                data-buscable-minimo="{{ BusquedaRequest::MINIMO }}"
+                                data-buscable-url="/productos?forma=gestion&amp;estado=activos"
+                                data-buscable-minimo="2"
                                 data-buscable-detalle="precio,disponible" data-buscable-excluir="{{ $idsCargados }}"
                                 aria-describedby="ayudaBuscadorProducto">
                                 <option value="">Buscá por código o nombre</option>

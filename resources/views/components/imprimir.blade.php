@@ -11,8 +11,10 @@
       ruta     el nombre de la ruta de impresión del módulo
       listado  la definición del módulo, en App\Impresion
       chico    botones btn-sm, como el pie de filtros de casi todos los listados
+      api      el endpoint que da el enlace firmado (tramo D), en lugar de `ruta`: el botón y el
+               diálogo lo piden por el módulo central, que manda la credencial (D-22)
 --}}
-@props(['ruta', 'listado', 'chico' => true])
+@props(['ruta' => null, 'listado', 'chico' => true, 'api' => null])
 
 @use('App\Impresion\Opciones')
 @use('App\Services\ImpresionService')
@@ -23,6 +25,7 @@
     $grupos = $listado->agrupaciones();
     $filtros = request()->except([
         'page',
+        'pagina',
         'formato',
         'columnas',
         'orientacion',
@@ -36,10 +39,17 @@
 
 <div {{ $attributes->merge(['class' => 'btn-group']) }} role="group" aria-label="Imprimir el listado">
     {{-- Lleva los filtros puestos y no la página: el papel no pagina. --}}
-    <a href="{{ route($ruta, request()->except('page')) }}" data-imprimir
-        class="btn {{ $tamano }} btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1">
-        <i class="bi bi-printer" aria-hidden="true"></i> Imprimir
-    </a>
+    @if ($api)
+        <button type="button" data-imprimir data-imprimir-api="{{ $api }}"
+            class="btn {{ $tamano }} btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1">
+            <i class="bi bi-printer" aria-hidden="true"></i> Imprimir
+        </button>
+    @else
+        <a href="{{ route($ruta, request()->except('page')) }}" data-imprimir
+            class="btn {{ $tamano }} btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1">
+            <i class="bi bi-printer" aria-hidden="true"></i> Imprimir
+        </a>
+    @endif
 
     <button type="button" class="btn {{ $tamano }} btn-outline-dark" data-bs-toggle="modal"
         data-bs-target="#opcionesImpresion" data-impresion-abre hidden aria-label="Opciones de impresión">
@@ -51,7 +61,8 @@
     <div class="modal fade" id="opcionesImpresion" tabindex="-1" aria-labelledby="opcionesImpresionTitulo"
         aria-hidden="true">
         <div class="modal-dialog modal-dialog-scrollable">
-            <form method="GET" action="{{ route($ruta) }}" class="modal-content" data-impresion>
+            <form method="GET" @if ($api) data-imprimir-api="{{ $api }}" @else action="{{ route($ruta) }}" @endif
+                class="modal-content" data-impresion>
                 {{-- Los filtros que la pantalla tiene aplicados: el papel imprime lo que el listado muestra. --}}
                 @foreach ($filtros as $clave => $valor)
                     @if (is_scalar($valor) && $valor !== '')

@@ -13,10 +13,10 @@ use App\Support\Like;
     * original, donde la marca era parte del nombre del producto.
     *
     * El modelo tiene relaciones y scopes de consulta, nada más. La validación
-    * vive en MarcaRequest y las reglas de negocio en MarcaService.
+    * vive en Api\MarcaRequest y las reglas de negocio en MarcaService.
     *
     * Scopes (uno por filtro del listado; la correspondencia con el parámetro de
-    * la URL está declarada acá y en MarcaFiltroRequest):
+    * la URL está declarada acá y en Api\MarcaFiltroRequest):
     *   ?q=       → buscar($texto)      nombre contiene
     *   ?estado=  → conEstado($estado)  activas | inactivas | sin filtrar
     *

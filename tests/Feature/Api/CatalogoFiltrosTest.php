@@ -231,10 +231,27 @@ test('sin pagina ni por_pagina usa 1 y el valor de config', function () {
         ->assertJson(['pagina' => 1, 'por_pagina' => 3, 'ultima_pagina' => 2]);
 });
 
+// Desde el tramo D de la Etapa 3, `POST /categorias` es el alta de la administración, con
+// `categoria.crear` (regla 36: un recurso, un camino). Lo que se sigue afirmando es que la tienda
+// no escribe el árbol: sin credencial es 401, y una cuenta de tienda no tiene el permiso. El 405 se
+// afirma con un verbo que el recurso sigue sin tener.
 test('el árbol sólo se lee: otros métodos dan 405 con la forma de error', function () {
-    $this->post('/api/v1/categorias')
+    $this->put('/api/v1/categorias')
         ->assertStatus(405)
         ->assertJsonPath('codigo', 'metodo_no_permitido');
+});
+
+test('la tienda no escribe el árbol: sin credencial 401, y una cuenta de tienda 403', function () {
+    $this->seed(\Database\Seeders\RolPermisoSeeder::class);
+    $tienda = app(\App\Services\UsuarioService::class)->crear(datosDeClienteDeTienda());
+
+    $this->postJson('/api/v1/categorias', ['nombre' => 'Intrusa', 'activo' => true])
+        ->assertStatus(401)->assertJsonPath('codigo', 'sin_sesion');
+
+    $this->postJson('/api/v1/categorias', ['nombre' => 'Intrusa', 'activo' => true], bearer($tienda))
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
+
+    expect(Categoria::count())->toBe(0);
 });
 
 // --- Escala ---------------------------------------------------------------
@@ -377,8 +394,25 @@ test('el mensaje de un orden inválido dice cuáles hay', function () {
         ->assertJsonPath('errores.orden.0', 'Ese orden no existe. Podés usar: nombre, recientes, precio_asc, precio_desc.');
 });
 
+// Desde el tramo D de la Etapa 3, `POST /productos` es el alta de la administración, con
+// `producto.crear` (regla 36). Lo que se sigue afirmando es que la tienda no escribe el catálogo:
+// sin credencial 401, y una cuenta de tienda no tiene el permiso. El 405, con un verbo que no existe.
 test('el catálogo sólo se lee: otros métodos dan 405', function () {
-    $this->post('/api/v1/productos')->assertStatus(405)->assertJsonPath('codigo', 'metodo_no_permitido');
+    $this->put('/api/v1/productos')->assertStatus(405)->assertJsonPath('codigo', 'metodo_no_permitido');
+});
+
+test('la tienda no escribe el catálogo: sin credencial 401, y una cuenta de tienda 403', function () {
+    $this->seed(\Database\Seeders\RolPermisoSeeder::class);
+    $tienda = app(\App\Services\UsuarioService::class)->crear(datosDeClienteDeTienda());
+    $datos  = ['codigo' => 'INTRUSO', 'nombre' => 'Intruso', 'categoria_id' => Categoria::factory()->create()->id];
+
+    $this->postJson('/api/v1/productos', $datos)
+        ->assertStatus(401)->assertJsonPath('codigo', 'sin_sesion');
+
+    $this->postJson('/api/v1/productos', $datos, bearer($tienda))
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
+
+    expect(Producto::count())->toBe(0);
 });
 
 // --- Qué productos se ven ---------------------------------------------------
@@ -867,12 +901,32 @@ test('la ficha, con una credencial inválida, es 401 sesion_invalida', function 
         ->assertJsonPath('codigo', 'sesion_invalida');
 });
 
+// Desde el tramo D, `PATCH` y `DELETE` sobre la ficha son la edición y la baja de la administración.
+// La tienda sigue sin poder tocarla; el 405, con un verbo que el recurso no tiene.
 test('la ficha sólo se lee: otros métodos dan 405', function () {
     $producto = ($this->producto)();
 
-    $this->delete('/api/v1/productos/'.$producto->id)
+    $this->put('/api/v1/productos/'.$producto->id)
         ->assertStatus(405)
         ->assertJsonPath('codigo', 'metodo_no_permitido');
+});
+
+test('la tienda no toca la ficha: sin credencial 401, y una cuenta de tienda 403', function () {
+    $this->seed(\Database\Seeders\RolPermisoSeeder::class);
+    $producto = ($this->producto)(['nombre' => 'Intacto']);
+    $tienda   = app(\App\Services\UsuarioService::class)->crear(datosDeClienteDeTienda());
+
+    $this->deleteJson('/api/v1/productos/'.$producto->id)
+        ->assertStatus(401)->assertJsonPath('codigo', 'sin_sesion');
+
+    $this->deleteJson('/api/v1/productos/'.$producto->id, [], bearer($tienda))
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
+    app('auth')->forgetGuards();
+
+    $this->patchJson('/api/v1/productos/'.$producto->id, ['nombre' => 'Tocado'], bearer($tienda))
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
+
+    expect($producto->fresh())->not->toBeNull()->nombre->toBe('Intacto')->activo->toBeTrue();
 });
 
 test('ninguna clave prohibida aparece en todo el árbol de la ficha', function () {

@@ -78,11 +78,12 @@ test('solo ofrece productos activos que algun proveedor activo provea', function
     $inactivo     = Producto::factory()->inactivo()->conProveedor($proveedor)
         ->create(['nombre' => 'Fuente dada de baja']);
     $soloDeBaja   = productoDe($deBaja, cambios: ['nombre' => 'Fuente de un proveedor de baja']);
-    $respuesta = $this->actingAs(usuarioCon('compra.crear', 'producto.ver'))
-        ->getJson(route('busqueda.productos', ['q' => 'fuente', 'con_proveedor' => 1]))
+    // Desde el tramo D el buscador del armador es el listado de gestión, con sus recortes.
+    $respuesta = $this->getJson('/api/v1/productos?forma=gestion&estado=activos&q=fuente&con_proveedor=1', bearer(usuarioCon('compra.crear', 'producto.ver')))
         ->assertOk();
 
-    expect(array_column($respuesta->json('resultados'), 'id'))->toBe([$pedible->id]);
+    app('auth')->forgetGuards();
+    expect(array_column($respuesta->json('datos'), 'id'))->toBe([$pedible->id]);
 
     $this->actingAs(usuarioCon('compra.crear'))
         ->get(route('compras.pedido'))

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Models\Producto;
 use App\Support\Importe;
@@ -11,12 +11,14 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
 
 /**
- * Validación del formulario de producto. Sirve para el alta y la edición.
+ * Validación del alta y la edición de un producto por la API (tramo D). Es la de la web, con dos
+ * cambios: `activo` y `precio_manual` tienen que venir (la ausencia ya no es «no», M-31), y
+ * `destacado` sin la clave deja el producto como estaba; para quien no puede editar se descarta (C-2).
+ * Con imágenes llega en multipart; la edición, como `POST` + `_method=PATCH` (HL-110).
  *
  * Métodos:
  *   authorize()             true; el permiso lo exige la ruta
- *   prepareForValidation()  precios en formato argentino, alícuota, código y casillas
- *                           (`destacado` sólo lo conserva quien puede editar)
+ *   prepareForValidation()  precios en formato argentino, alícuota y código
  *   rules()                 reglas
  *   referenciaActiva()      exists, y activo sólo si el valor cambia
  *   limiteDeImagenes()      entre las que quedan y las nuevas, no más de 5
@@ -53,11 +55,6 @@ class ProductoRequest extends FormRequest
 
             'stock_minimo'        => $this->input('stock_minimo') ?? 0,
             'cantidad_reposicion' => $this->input('cantidad_reposicion') ?? 0,
-            'activo'              => $this->boolean('activo'),
-            // Destacar es una acción de edición (C-2): quien sólo puede crear no lo logra ni con
-            // un pedido armado a mano, así que la casilla escondida de la vista no es la única defensa.
-            'destacado'           => $this->user()?->can('producto.editar') === true && $this->boolean('destacado'),
-            'precio_manual'       => $this->boolean('precio_manual'),
             // El orden llega como JSON en un solo campo (ver ordenDeImagenes).
             // Si no se puede leer, queda en false y lo rechaza la regla array:
             // nunca se interpreta un JSON roto como "sin orden".
@@ -104,7 +101,9 @@ class ProductoRequest extends FormRequest
             ],
 
             'activo'    => ['required', 'boolean'],
-            'destacado' => ['required', 'boolean'],
+            // Destacar es una acción de edición (C-2): quien sólo puede crear no lo logra ni con un
+            // pedido armado a mano; la clave se descarta y el servicio no la toca.
+            'destacado' => $this->puedeDestacar() ? ['sometimes', 'boolean'] : ['exclude'],
 
             'imagenes'   => ['nullable', 'array', 'max:'.Producto::MAX_IMAGENES, $this->limiteSinOrden(...)],
             'imagenes.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:1024'],
@@ -113,6 +112,11 @@ class ProductoRequest extends FormRequest
             'orden'   => ['nullable', 'array', 'max:'.Producto::MAX_IMAGENES],
             'orden.*' => ['bail', 'string', 'distinct', $this->elementoDeOrden(...)],
         ];
+    }
+
+    private function puedeDestacar(): bool
+    {
+        return $this->user()?->can('producto.editar') === true;
     }
 
     private function referenciaActiva(string $tabla, string $campo): Exists
@@ -252,6 +256,8 @@ class ProductoRequest extends FormRequest
             'orden.array'      => 'No se pudo leer el orden de las imágenes. Recargá la página e intentá de nuevo.',
             'orden.max'        => 'Un producto puede tener hasta :max imágenes.',
             'orden.*.distinct' => 'Una imagen aparece dos veces. Recargá la página e intentá de nuevo.',
+            'activo.required'        => 'Falta indicar si el producto está activo.',
+            'precio_manual.required' => 'Falta indicar si el precio se fija a mano.',
         ];
     }
 

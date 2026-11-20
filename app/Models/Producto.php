@@ -15,7 +15,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
  * Producto del catálogo.
  *
  * Scopes (uno por filtro del listado; la correspondencia con el parámetro de
- * la URL está declarada acá y en ProductoFiltroRequest):
+ * la URL está declarada acá y en Api\ProductoFiltroRequest):
  *   ?q=             → buscar($texto)          código o nombre contiene
  *   ?categoria_id=  → deCategoria($id)        la categoría y todas sus subcategorías
  *   ?marca_id=      → deMarca($id)            marca exacta
@@ -25,7 +25,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
  *
  * Los recortes del ajuste masivo. No son filtros del listado del
  * catálogo: su contrato lo declara AjusteMasivoRequest, y por eso no están en
- * ProductoFiltroRequest. Se encadenan con los de arriba, y de ahí salen los
+ * Api\ProductoFiltroRequest. Se encadenan con los de arriba, y de ahí salen los
  * recortes cruzados sin una línea más:
  *   ?ids[]=            → conIds($ids)                  la selección con casillas
  *   ?costo_desde=      → conCostoDesde($costo)         inclusive

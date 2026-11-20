@@ -6,11 +6,12 @@ use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\Producto;
 use App\Models\Proveedor;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * El catálogo: qué columnas imprime, cuáles piden permiso y cómo nombra sus filtros.
  */
-final class ListadoProductos extends Listado
+final class ListadoProductos extends Listado implements ImprimiblePorEnlace
 {
     private const ESTADOS = ['activos' => 'Activos', 'inactivos' => 'Inactivos'];
 
@@ -20,6 +21,30 @@ final class ListadoProductos extends Listado
         'critico'       => 'Stock bajo o agotado',
         'sin_proveedor' => 'Para reponer y sin proveedor',
     ];
+
+    public function permiso(): string
+    {
+        return 'producto.ver';
+    }
+
+    /** La del listado de la pantalla, la misma para mirar y para imprimir. */
+    public function consulta(array $filtros): Builder
+    {
+        return Producto::query()
+            ->buscar($filtros['q'] ?? null)
+            ->deCategoria($filtros['categoria_id'] ?? null)
+            ->deMarca($filtros['marca_id'] ?? null)
+            ->deProveedor($filtros['proveedor_id'] ?? null)
+            ->conEstado($filtros['estado'] ?? null)
+            ->conStock($filtros['stock'] ?? null)
+            ->sinIds($filtros['excluir'] ?? null)
+            // Alguien activo a quien comprárselo: una orden de compra es un compromiso de plata.
+            ->when($filtros['con_proveedor'] ?? false, fn (Builder $query) => $query->whereHas(
+                'proveedores',
+                fn (Builder $proveedor) => $proveedor->where('proveedores.activo', true),
+            ))
+            ->orderBy('nombre');
+    }
 
     public function titulo(): string
     {

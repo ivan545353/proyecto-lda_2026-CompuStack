@@ -31,13 +31,21 @@ beforeEach(function () {
 |
 */
 
+// Las pantallas, que quedan en la web como shells (regla 37).
 dataset('rutas de marcas', [
     'listado'         => ['get',    'marcas.index',   'marca.ver',      false],
     'formulario alta' => ['get',    'marcas.create',  'marca.crear',    false],
-    'alta'            => ['post',   'marcas.store',   'marca.crear',    false],
     'formulario edic' => ['get',    'marcas.edit',    'marca.editar',   true],
-    'edicion'         => ['put',    'marcas.update',  'marca.editar',   true],
-    'baja'            => ['delete', 'marcas.destroy', 'marca.eliminar', true],
+]);
+
+// Las operaciones, en la API (tramo D de la Etapa 3). `{marca}` se reemplaza por la marca del test.
+dataset('endpoints de marcas', [
+    'listado'   => ['get',    '/api/v1/marcas',           'marca.ver'],
+    'impresion' => ['get',    '/api/v1/marcas/impresion', 'marca.ver'],
+    'ficha'     => ['get',    '/api/v1/marcas/{marca}',   'marca.ver'],
+    'alta'      => ['post',   '/api/v1/marcas',           'marca.crear'],
+    'edicion'   => ['patch',  '/api/v1/marcas/{marca}',   'marca.editar'],
+    'baja'      => ['delete', '/api/v1/marcas/{marca}',   'marca.eliminar'],
 ]);
 
 const PERMISOS_MARCA = ['marca.ver', 'marca.crear', 'marca.editar', 'marca.eliminar'];
@@ -61,6 +69,22 @@ test('el permiso de la ruta alcanza para pasar', function (string $metodo, strin
     expect($respuesta->status())->not->toBe(403);
 })->with('rutas de marcas');
 
+test('en la API, ningun otro permiso del modulo habilita el endpoint', function (string $metodo, string $url, string $permiso) {
+    $marca = Marca::factory()->create();
+    $otros = array_values(array_diff(PERMISOS_MARCA, [$permiso]));
+
+    $this->json($metodo, str_replace('{marca}', $marca->id, $url), ['nombre' => 'Marca de prueba', 'activo' => true], bearer(usuarioCon(...$otros)))
+        ->assertForbidden()
+        ->assertJsonPath('codigo', 'sin_permiso');
+})->with('endpoints de marcas');
+
+test('en la API, el permiso del endpoint alcanza para pasar', function (string $metodo, string $url, string $permiso) {
+    $marca = Marca::factory()->create();
+
+    $respuesta = $this->json($metodo, str_replace('{marca}', $marca->id, $url), ['nombre' => 'Marca de prueba', 'activo' => true], bearer(usuarioCon($permiso)));
+    expect($respuesta->status())->toBeLessThan(300);
+})->with('endpoints de marcas');
+
 test('quien solo puede ver no recibe los botones de alta, edicion ni baja', function () {
     $marca = Marca::factory()->create();
 
@@ -68,11 +92,34 @@ test('quien solo puede ver no recibe los botones de alta, edicion ni baja', func
     // probó arriba. Esto verifica que la interfaz no ofrezca lo que va a
     // rechazar (hallazgo M-33: el frontend original mostraba pantallas que el
     // backend después rechazaba).
+    // Desde el tramo D la fila es una plantilla del shell: lo que se afirma es que la plantilla
+    // no trae el botón. Y en la otra dirección, que sí lo trae para quien tiene el permiso.
     $this->actingAs(usuarioCon('marca.ver'))
         ->get(route('marcas.index'))
         ->assertOk()
         ->assertDontSee(route('marcas.create'))
-        ->assertDontSee(route('marcas.edit', $marca));
+        ->assertDontSee(route('marcas.edit', $marca))
+        ->assertDontSee('data-accion="editar"', false)
+        ->assertDontSee('data-listado-eliminar', false);
+
+    $this->actingAs(usuarioCon('marca.ver', 'marca.crear', 'marca.editar', 'marca.eliminar'))
+        ->get(route('marcas.index'))
+        ->assertSee(route('marcas.create'))
+        ->assertSee('data-accion="editar"', false)
+        ->assertSee('data-listado-eliminar', false);
+});
+
+// Regla 37: la página llega con su estructura, y los datos por la API.
+test('los shells de marcas no traen datos de negocio', function () {
+    $marca   = Marca::factory()->create(['nombre' => 'Marquita Secreta']);
+    $usuario = usuarioCon('marca.ver', 'marca.editar');
+
+    $this->actingAs($usuario)->get(route('marcas.index'))
+        ->assertOk()->assertDontSee('Marquita Secreta')->assertSee('data-pantalla="marcas"', false);
+
+    $this->actingAs($usuario)->get(route('marcas.edit', $marca))
+        ->assertOk()->assertDontSee('Marquita Secreta')
+        ->assertSee('data-marca="'.$marca->id.'"', false);
 });
 
 /*
@@ -90,27 +137,28 @@ test('el parametro q llega al listado y filtra', function () {
     Marca::factory()->create(['nombre' => 'Kingston', 'slug' => 'kingston']);
     Marca::factory()->create(['nombre' => 'Logitech', 'slug' => 'logitech']);
 
-    $this->actingAs(usuarioCon('marca.ver'))
-        ->get(route('marcas.index', ['q' => 'king']))
+    $this->getJson('/api/v1/marcas?q=king', bearer(usuarioCon('marca.ver')))
         ->assertOk()
-        ->assertViewHas('marcas', fn ($marcas) => $marcas->total() === 1
-            && $marcas->first()->nombre === 'Kingston');
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.nombre', 'Kingston')
+        ->assertJsonPath('criterios.q', 'king');
 });
 
 test('el parametro estado llega al listado y filtra', function () {
     Marca::factory()->count(2)->create();
     Marca::factory()->inactiva()->create();
 
-    $this->actingAs(usuarioCon('marca.ver'))
-        ->get(route('marcas.index', ['estado' => 'inactivas']))
-        ->assertViewHas('marcas', fn ($marcas) => $marcas->total() === 1);
+    $this->getJson('/api/v1/marcas?estado=inactivas', bearer(usuarioCon('marca.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 1);
 });
 
-test('un filtro inexistente vuelve al listado limpio con aviso', function () {
-    $this->actingAs(usuarioCon('marca.ver'))
-        ->get(route('marcas.index', ['estado' => 'cualquiera']))
-        ->assertRedirect(route('marcas.index'))
-        ->assertSessionHas('error');
+// En la API, el aviso es el 422: el listado no muestra otra cosa que la pedida.
+test('un filtro inexistente se rechaza con aviso', function () {
+    $this->getJson('/api/v1/marcas?estado=cualquiera', bearer(usuarioCon('marca.ver')))
+        ->assertUnprocessable()
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonValidationErrors('estado', 'errores');
 });
 
 test('el listado pagina de a 15 y los enlaces conservan el filtro', function () {
@@ -118,18 +166,17 @@ test('el listado pagina de a 15 y los enlaces conservan el filtro', function () 
         ->sequence(fn ($s) => ['nombre' => "Marca {$s->index}", 'slug' => "marca-{$s->index}"])
         ->create();
 
-    $usuario = usuarioCon('marca.ver');
+    $encabezado = bearer(usuarioCon('marca.ver'));
 
-    $this->actingAs($usuario)
-        ->get(route('marcas.index', ['q' => 'marca']))
-        ->assertViewHas('marcas', fn ($marcas) => $marcas->count() === 15
-            && $marcas->total() === 20
-            // Sin withQueryString(), la página 2 perdería el filtro.
-            && str_contains($marcas->nextPageUrl(), 'q=marca'));
+    // `criterios` es lo que la pantalla repite al pedir la página siguiente: sin él, perdería el filtro.
+    $this->getJson('/api/v1/marcas?q=marca', $encabezado)
+        ->assertJsonCount(15, 'datos')
+        ->assertJsonPath('total', 20)
+        ->assertJsonPath('ultima_pagina', 2)
+        ->assertJsonPath('criterios.q', 'marca');
 
-    $this->actingAs($usuario)
-        ->get(route('marcas.index', ['q' => 'marca', 'page' => 2]))
-        ->assertViewHas('marcas', fn ($marcas) => $marcas->count() === 5);
+    $this->getJson('/api/v1/marcas?q=marca&pagina=2', $encabezado)
+        ->assertJsonCount(5, 'datos');
 });
 
 /*
@@ -143,21 +190,20 @@ test('el listado pagina de a 15 y los enlaces conservan el filtro', function () 
 |
 */
 
-test('un nombre invalido se rechaza, no se guarda y conserva lo escrito', function () {
-    $this->actingAs(usuarioCon('marca.crear'))
-        ->from(route('marcas.create'))
-        ->post(route('marcas.store'), ['nombre' => 'A', 'activo' => 1])
-        ->assertRedirect(route('marcas.create'))
-        ->assertSessionHasErrors('nombre')
-        ->assertSessionHasInput('nombre', 'A');
+// Lo escrito lo conserva el formulario: el 422 no recarga la página.
+test('un nombre invalido se rechaza y no se guarda', function () {
+    $this->postJson('/api/v1/marcas', ['nombre' => 'A', 'activo' => true], bearer(usuarioCon('marca.crear')))
+        ->assertUnprocessable()
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonValidationErrors('nombre', 'errores');
 
     expect(Marca::count())->toBe(0);
 });
 
 test('un nombre de solo espacios se rechaza en vez de guardarse vacio', function () {
-    $this->actingAs(usuarioCon('marca.crear'))
-        ->post(route('marcas.store'), ['nombre' => '    ', 'activo' => 1])
-        ->assertSessionHasErrors(['nombre' => 'La marca necesita un nombre.']);
+    $this->postJson('/api/v1/marcas', ['nombre' => '    ', 'activo' => true], bearer(usuarioCon('marca.crear')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.nombre.0', 'La marca necesita un nombre.');
 
     expect(Marca::count())->toBe(0);
 });
@@ -165,21 +211,21 @@ test('un nombre de solo espacios se rechaza en vez de guardarse vacio', function
 test('un nombre repetido se rechaza con un mensaje que lo explica', function () {
     Marca::factory()->create(['nombre' => 'ASUS', 'slug' => 'asus']);
 
-    $this->actingAs(usuarioCon('marca.crear'))
-        ->post(route('marcas.store'), ['nombre' => 'ASUS', 'activo' => 1])
-        ->assertSessionHasErrors(['nombre' => 'Ya existe una marca con ese nombre.']);
+    $this->postJson('/api/v1/marcas', ['nombre' => 'ASUS', 'activo' => true], bearer(usuarioCon('marca.crear')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.nombre.0', 'Ya existe una marca con ese nombre.');
 });
 
 test('un logo svg se rechaza', function () {
     // Un SVG puede contener <script>: servido desde el mismo origen sería
     // XSS almacenado sobre la sesión de todos los personal.
-    $this->actingAs(usuarioCon('marca.crear'))
-        ->post(route('marcas.store'), [
-            'nombre' => 'Corsair',
-            'activo' => 1,
-            'logo'   => UploadedFile::fake()->create('logo.svg', 5, 'image/svg+xml'),
-        ])
-        ->assertSessionHasErrors('logo');
+    $this->post('/api/v1/marcas', [
+        'nombre' => 'Corsair',
+        'activo' => 1,
+        'logo'   => UploadedFile::fake()->create('logo.svg', 5, 'image/svg+xml'),
+    ], bearer(usuarioCon('marca.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('logo', 'errores');
 
     expect(Marca::count())->toBe(0);
 });
@@ -191,18 +237,19 @@ test('un logo svg se rechaza', function () {
 */
 
 test('el alta genera el slug y guarda el logo', function () {
-    $this->actingAs(usuarioCon('marca.crear'))
-        ->post(route('marcas.store'), [
-            'nombre' => 'Western Digital',
-            'activo' => 1,
-            'logo'   => UploadedFile::fake()->image('logo.png', 120, 60),
-        ])
-        ->assertRedirect(route('marcas.index'))
-        ->assertSessionHas('exito');
+    $respuesta = $this->post('/api/v1/marcas', [
+        'nombre' => 'Western Digital',
+        'activo' => 1,
+        'logo'   => UploadedFile::fake()->image('logo.png', 120, 60),
+    ], bearer(usuarioCon('marca.crear')))
+        ->assertCreated()
+        ->assertJsonPath('mensaje', 'Marca «Western Digital» creada.')
+        ->assertJsonPath('datos.slug', 'western-digital');
 
     $marca = Marca::firstWhere('nombre', 'Western Digital');
 
-    expect($marca->slug)->toBe('western-digital');
+    expect($marca->slug)->toBe('western-digital')
+        ->and($respuesta->json('datos.logo'))->toEndWith('storage/'.$marca->logo);
     Storage::disk('public')->assertExists($marca->logo);
 });
 
@@ -210,25 +257,29 @@ test('reemplazar el logo borra el archivo anterior', function () {
     $anterior = UploadedFile::fake()->image('viejo.png')->store('marcas', 'public');
     $marca    = Marca::factory()->create(['logo' => $anterior]);
 
-    $this->actingAs(usuarioCon('marca.editar'))
-        ->put(route('marcas.update', $marca), [
-            'nombre' => $marca->nombre,
-            'activo' => 1,
-            'logo'   => UploadedFile::fake()->image('nuevo.png'),
-        ]);
+    // Con archivo, `POST` + `_method=PATCH`: PHP no lee los archivos de un PATCH multipart (HL-110).
+    $this->post("/api/v1/marcas/{$marca->id}", [
+        '_method' => 'PATCH',
+        'nombre'  => $marca->nombre,
+        'activo'  => 1,
+        'logo'    => UploadedFile::fake()->image('nuevo.png'),
+    ], bearer(usuarioCon('marca.editar')))->assertOk();
 
     Storage::disk('public')->assertMissing($anterior);
     Storage::disk('public')->assertExists($marca->fresh()->logo);
 });
 
-test('el checkbox desmarcado desactiva la marca', function () {
-    $marca = Marca::factory()->create();
+// La API no adivina un checkbox ausente (M-31): `activo` viaja siempre, y en falso desactiva.
+test('activo en falso desactiva la marca, y sin activo se rechaza', function () {
+    $marca      = Marca::factory()->create();
+    $encabezado = bearer(usuarioCon('marca.editar'));
 
-    // El checkbox sin marcar no viaja en el POST. Sin la normalización del
-    // Form Request, desactivar una marca sería imposible desde el formulario.
-    $this->actingAs(usuarioCon('marca.editar'))
-        ->put(route('marcas.update', $marca), ['nombre' => $marca->nombre]);
+    $this->patchJson("/api/v1/marcas/{$marca->id}", ['nombre' => $marca->nombre], $encabezado)
+        ->assertUnprocessable()->assertJsonValidationErrors('activo', 'errores');
+    expect($marca->fresh()->activo)->toBeTrue();
 
+    $this->patchJson("/api/v1/marcas/{$marca->id}", ['nombre' => $marca->nombre, 'activo' => false], $encabezado)
+        ->assertOk()->assertJsonPath('datos.activo', false);
     expect($marca->fresh()->activo)->toBeFalse();
 });
 
@@ -245,10 +296,11 @@ test('el checkbox desmarcado desactiva la marca', function () {
 test('una marca sin productos se elimina', function () {
     $marca = Marca::factory()->create();
 
-    $this->actingAs(usuarioCon('marca.eliminar'))
-        ->delete(route('marcas.destroy', $marca))
-        ->assertRedirect(route('marcas.index'))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'eliminada'));
+    $respuesta = $this->deleteJson("/api/v1/marcas/{$marca->id}", [], bearer(usuarioCon('marca.eliminar')))
+        ->assertOk()
+        ->assertJsonPath('datos.eliminada', true);
+
+    expect($respuesta->json('mensaje'))->toContain('eliminada');
 
     $this->assertModelMissing($marca);
 });
@@ -257,9 +309,11 @@ test('una marca con productos se desactiva y el mensaje lo dice', function () {
     $marca = Marca::factory()->create();
     Producto::factory()->create(['marca_id' => $marca->id]);
 
-    $this->actingAs(usuarioCon('marca.eliminar'))
-        ->delete(route('marcas.destroy', $marca))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'se desactivó'));
+    $respuesta = $this->deleteJson("/api/v1/marcas/{$marca->id}", [], bearer(usuarioCon('marca.eliminar')))
+        ->assertOk()
+        ->assertJsonPath('datos.eliminada', false);
+
+    expect($respuesta->json('mensaje'))->toContain('se desactivó');
 
     $this->assertModelExists($marca);
     expect($marca->fresh()->activo)->toBeFalse();
@@ -269,9 +323,10 @@ test('desactivar una marca no desactiva sus productos, y el mensaje lo dice', fu
     $marca    = Marca::factory()->create();
     $producto = Producto::factory()->create(['marca_id' => $marca->id]);
 
-    $this->actingAs(usuarioCon('marca.editar'))
-        ->put(route('marcas.update', $marca), ['nombre' => $marca->nombre])
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'siguen activos'));
+    $respuesta = $this->patchJson("/api/v1/marcas/{$marca->id}", ['nombre' => $marca->nombre, 'activo' => false], bearer(usuarioCon('marca.editar')))
+        ->assertOk();
+
+    expect($respuesta->json('mensaje'))->toContain('siguen activos');
 
     expect($producto->fresh()->activo)->toBeTrue();
 });
@@ -281,12 +336,13 @@ test('con la opcion, desactivar la marca desactiva sus productos', function () {
     $producto = Producto::factory()->create(['marca_id' => $marca->id]);
     $ajeno    = Producto::factory()->create();
 
-    $this->actingAs(usuarioCon('marca.editar'))
-        ->put(route('marcas.update', $marca), [
-            'nombre' => $marca->nombre,
-            'desactivar_productos' => 1,
-        ])
-        ->assertSessionHas('exito');
+    $this->patchJson("/api/v1/marcas/{$marca->id}", [
+        'nombre'               => $marca->nombre,
+        'activo'               => false,
+        'desactivar_productos' => true,
+    ], bearer(usuarioCon('marca.editar')))
+        ->assertOk()
+        ->assertJsonPath('mensaje', "«{$marca->nombre}» se desactivó junto con sus 1 producto(s).");
 
     expect($producto->fresh()->activo)->toBeFalse()
         ->and($ajeno->fresh()->activo)->toBeTrue();

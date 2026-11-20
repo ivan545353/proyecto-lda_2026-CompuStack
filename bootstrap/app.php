@@ -17,9 +17,11 @@ use Illuminate\Http\Request;
 | - withRouting()     archivos de rutas y punto de entrada; `api:` agrega /api con
 |                     el grupo de middlewares `api`
 | - withMiddleware()  web: AutenticarConCredencial y VerificarUsuarioActivo en todo el grupo.
-|                     api: ForzarJson en todo el grupo; y tres grupos con nombre,
-|                     `api.protegida` (los dos clientes), `tienda.sesion_opcional`
-|                     y `tienda.protegida`, que usan routes/api.php y los tests.
+|                     api: ForzarJson en todo el grupo; y grupos con nombre,
+|                     `api.protegida` (los dos clientes), `api.sesion_opcional`
+|                     (el catálogo), `api.credencial_si_sirve` (categorías),
+|                     `tienda.sesion_opcional` y `tienda.protegida`, que usan
+|                     routes/api.php y los tests.
 |                     Alias: 'gestion' (VerificarAmbitoGestion)
 | - withExceptions()  Dos traducciones, y el orden importa:
 |                     1. `api/*`: cualquier excepción vuelve con la forma de error
@@ -57,6 +59,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'tienda.sesion.opcional' => \App\Http\Middleware\Api\SesionOpcional::class,
             'api.cuenta_activa'      => \App\Http\Middleware\Api\VerificarCuentaActiva::class,
             'tienda.cuenta'          => \App\Http\Middleware\Api\VerificarCuentaTienda::class,
+            'api.credencial.si_sirve' => \App\Http\Middleware\Api\CredencialSiSirve::class,
         ]);
 
         // La credencial se lee antes de que `auth` pregunte quién es: sin esto, la prioridad
@@ -80,6 +83,17 @@ return Application::configure(basePath: dirname(__DIR__))
             'auth:sanctum',             // sin credencial o inválida → 401
             'api.cuenta_activa',        // cuenta desactivada → 401
         ]);
+        // El catálogo compartido (HL-108): como la de la tienda, pero entra también la gestión.
+        // Lo que cada uno ve lo decide el permiso, no la frontera (regla 36).
+        $middleware->group('api.sesion_opcional', [
+            'tienda.sesion.opcional',   // credencial inválida → 401; sin credencial, visitante
+            'api.cuenta_activa',
+        ]);
+        // Las rutas que respondían sin leer la credencial: si no sirve, visitante y no 401.
+        $middleware->group('api.credencial_si_sirve', [
+            'api.credencial.si_sirve',
+        ]);
+        // Sin rutas desde el tramo D: queda definido porque CredencialTest fija su contrato.
         $middleware->group('tienda.sesion_opcional', [
             'tienda.sesion.opcional',   // credencial inválida → 401; sin credencial, visitante
             'api.cuenta_activa',

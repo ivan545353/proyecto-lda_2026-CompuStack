@@ -92,6 +92,34 @@ test('el listado no hace mas consultas con mas filas', function (string $url, st
     expect($muchas)->toBe($pocas);
 })->with('listados');
 
+// Los listados migrados a la API (tramo D): la misma medida, sobre el endpoint que trae las filas.
+dataset('listados de la API', [
+    'marcas'     => ['/api/v1/marcas', Marca::class, ['marca.ver', 'marca.crear', 'marca.editar', 'marca.eliminar']],
+    'categorías' => ['/api/v1/categorias?forma=lista', Categoria::class, ['categoria.ver', 'categoria.crear', 'categoria.editar', 'categoria.eliminar']],
+    // Con todos los permisos que suman claves: costo, margen y stock también salen sin consultar por fila.
+    'productos'  => ['/api/v1/productos?forma=gestion', Producto::class, ['producto.ver', 'precio.ver_costo', 'stock.ver']],
+]);
+
+test('el listado de la API no hace mas consultas con mas filas', function (string $url, string $modelo, array $permisos) {
+    // Sanctum guarda `last_used_at` en cada pedido, y es una consulta sólo si cambió el segundo: con
+    // el reloj quieto, las dos mediciones cuentan lo mismo y lo que se compara son las filas.
+    $this->freezeTime();
+    $encabezado = bearer(usuarioCon(...$permisos));
+
+    $modelo::factory()->count(5)->create();
+    $this->getJson($url, $encabezado)->assertOk();
+    app('auth')->forgetGuards();
+
+    $pocas = contarConsultas(fn () => $this->getJson($url, $encabezado)->assertOk());
+    app('auth')->forgetGuards();
+
+    $modelo::factory()->count(45)->create();
+
+    $muchas = contarConsultas(fn () => $this->getJson($url, $encabezado)->assertOk());
+
+    expect($muchas)->toBe($pocas);
+})->with('listados de la API');
+
 test('el kardex no hace mas consultas con mas movimientos', function () {
     $usuario  = usuarioCon('stock.ver', 'stock.ajustar');
     $producto = Producto::factory()->create();

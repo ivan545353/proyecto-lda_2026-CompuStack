@@ -13,13 +13,14 @@ uses(RefreshDatabase::class);
 | El buscador remoto: el contrato del endpoint
 |--------------------------------------------------------------------------
 |
-| Es el único endpoint JSON del sistema y lo van a reusar los tramos F, G, I y J,
-| así que lo que se fija acá no es una pantalla: es el contrato. Tres cosas, en
-| este orden de importancia:
+| Desde el tramo D de la Etapa 3 el buscador no tiene endpoint propio: es el listado
+| de cada entidad en la API (`GET /productos?forma=gestion`, `GET /clientes`,
+| `GET /proveedores`, `GET /productos/{p}/proveedores`), con el mismo token. Lo que
+| se fija sigue siendo el contrato, en el mismo orden de importancia:
 |
 |   1. El permiso, en las dos direcciones de C-2: con todos los del módulo menos
 |      el de la ruta se deniega, y con sólo ése se permite.
-|   2. El recorte: nunca más de MAXIMO resultados, y `hay_mas` dice si recortó.
+|   2. El recorte: una página de veinte, y `ultima_pagina` dice si recortó.
 |   3. El costo: con `precio.ver_costo` viaja, y sin el permiso la clave NO ESTÁ,
 |      que es distinto de estar en null.
 |
@@ -34,9 +35,9 @@ beforeEach(function () {
 
 // url, módulo de permisos y la clave que la ruta exige.
 dataset('endpoints', [
-    'productos'   => ['/buscar/productos?q=zz',   'producto',  'producto.ver'],
-    'clientes'    => ['/buscar/clientes?q=zz',    'cliente',   'cliente.ver'],
-    'proveedores' => ['/buscar/proveedores?q=zz', 'proveedor', 'proveedor.ver'],
+    'productos'   => ['/api/v1/productos?forma=gestion&q=zz', 'producto',  'producto.ver'],
+    'clientes'    => ['/api/v1/clientes?q=zz',                'cliente',   'cliente.ver'],
+    'proveedores' => ['/api/v1/proveedores?q=zz',             'proveedor', 'proveedor.ver'],
 ]);
 
 test('el endpoint exige el permiso de ver su entidad', function (string $url, string $modulo, string $clave) {
@@ -44,33 +45,49 @@ test('el endpoint exige el permiso de ver su entidad', function (string $url, st
     // permiso equivocado del mismo módulo pasaría.
     $otros = array_values(array_diff(permisosDelModulo($modulo), [$clave]));
 
-    $this->actingAs(usuarioCon(...$otros))->getJson($url)->assertForbidden();
-    $this->actingAs(usuarioCon($clave))->getJson($url)->assertOk();
+    $this->getJson($url, bearer(usuarioCon(...$otros)))->assertForbidden();
+    app('auth')->forgetGuards();
+    $this->getJson($url, bearer(usuarioCon($clave)))->assertOk();
 })->with('endpoints');
 
 test('sin sesion el endpoint contesta 401 y no manda al login', function (string $url) {
     // Un 302 a la pantalla de login le daría HTML a un cliente que pidió JSON, y
     // el desplegable mostraría «no hay coincidencias» en lugar de un error.
-    $this->getJson($url)->assertUnauthorized();
+    $this->getJson($url)->assertUnauthorized()->assertJsonPath('codigo', 'sin_sesion');
 })->with([
-    ['/buscar/productos?q=zz'],
-    ['/buscar/clientes?q=zz'],
-    ['/buscar/proveedores?q=zz'],
+    ['/api/v1/productos?forma=gestion&q=zz'],
+    ['/api/v1/clientes?q=zz'],
+    ['/api/v1/proveedores?q=zz'],
 ]);
 
-test('la busqueda sin texto o de una sola letra se rechaza', function (string $query) {
-    Producto::factory()->count(3)->create();
+// Desde el tramo D la búsqueda es el listado de la API, donde `q` es opcional (sin texto, el listado
+// trae todo: es la pantalla del catálogo). El mínimo de dos caracteres pasa a ser de la interfaz,
+// decidido con el usuario: el selector no le pregunta al servidor antes de eso. Lo que se fija es que
+// cada buscador lo publique, y que la API siga rechazando el texto que no puede ser una búsqueda.
+test('la busqueda sin texto o de una sola letra se rechaza', function (string $url) {
+    // Un producto activo que se le puede pedir a alguien: sin eso, la venta y el armador no muestran el buscador.
+    Producto::factory()->conProveedor(Proveedor::factory()->create())->create();
+    $orden = \App\Models\OrdenCompra::factory()->create();
+    $url   = str_replace('{orden}', (string) $orden->id, $url);
 
-    $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos'.$query)
-        ->assertStatus(422)
-        ->assertJsonStructure(['error']);
+    $pagina = $this->actingAs(admin())->get($url)->assertOk()->getContent();
+
+    expect(preg_match_all('/data-buscable-url="[^"]*"[^>]*data-buscable-minimo="2"/', $pagina))->toBeGreaterThan(0)
+        ->and(preg_match_all('/data-buscable-url=/', $pagina))
+        ->toBe(preg_match_all('/data-buscable-url="[^"]*"[^>]*data-buscable-minimo="2"/', $pagina));
 })->with([
-    'sin el parámetro' => [''],
-    'vacío'            => ['?q='],
-    'una letra'        => ['?q=a'],
-    'sólo espacios'    => ['?q=%20%20'],
+    'venta'           => ['/ventas/crear'],
+    'armador'         => ['/compras/pedido'],
+    'kardex'          => ['/stock'],
+    'orden de compra' => ['/compras/{orden}/editar'],
 ]);
+
+test('la API rechaza un texto de busqueda que no puede serlo', function () {
+    $this->getJson('/api/v1/productos?forma=gestion&q='.str_repeat('a', 101), bearer(usuarioCon('producto.ver')))
+        ->assertUnprocessable()
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonValidationErrors('q', 'errores');
+});
 
 test('encuentra por codigo y por nombre, y no trae lo que no coincide', function () {
     Producto::factory()->create(['codigo' => 'TEC-00123', 'nombre' => 'Teclado mecánico']);
@@ -78,45 +95,43 @@ test('encuentra por codigo y por nombre, y no trae lo que no coincide', function
 
     $usuario = usuarioCon('producto.ver');
 
-    $porCodigo = $this->actingAs($usuario)->getJson('/buscar/productos?q=TEC-001')->assertOk();
-    $porNombre = $this->actingAs($usuario)->getJson('/buscar/productos?q=mecánico')->assertOk();
+    $porCodigo = $this->withHeaders(bearer($usuario))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=TEC-001')->assertOk();
+    $porNombre = $this->withHeaders(bearer($usuario))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=mecánico')->assertOk();
 
-    expect($porCodigo->json('resultados'))->toHaveCount(1)
-        ->and($porCodigo->json('resultados.0.codigo'))->toBe('TEC-00123')
-        ->and($porCodigo->json('resultados.0.texto'))->toBe('TEC-00123 — Teclado mecánico')
-        ->and($porNombre->json('resultados'))->toHaveCount(1)
-        ->and($porNombre->json('resultados.0.codigo'))->toBe('TEC-00123');
+    expect($porCodigo->json('datos'))->toHaveCount(1)
+        ->and($porCodigo->json('datos.0.codigo'))->toBe('TEC-00123')
+        ->and($porCodigo->json('datos.0.texto'))->toBe('TEC-00123 — Teclado mecánico')
+        ->and($porNombre->json('datos'))->toHaveCount(1)
+        ->and($porNombre->json('datos.0.codigo'))->toBe('TEC-00123');
 });
 
 test('un producto dado de baja no se ofrece', function () {
     Producto::factory()->inactivo()->create(['nombre' => 'Fuente discontinuada']);
 
-    $respuesta = $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=discontinuada')
+    $respuesta = $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=discontinuada')
         ->assertOk();
 
     // El que ya está en el documento que se edita lo rinde el servidor en su propia
     // opción, así que el buscador no necesita ofrecer bajas.
-    expect($respuesta->json('resultados'))->toBeEmpty();
+    expect($respuesta->json('datos'))->toBeEmpty();
 });
 
 test('se puede pedir que el buscador incluya los dados de baja', function () {
     Producto::factory()->inactivo()->create(['nombre' => 'Fuente discontinuada']);
 
-    $respuesta = $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=discontinuada&estado=todos')->assertOk();
+    $respuesta = $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&q=discontinuada')->assertOk();
 
+    // En la API «todos» es no mandar el estado (tramo D).
     // Lo pide el filtro del kardex: de un producto discontinuado se sigue queriendo
     // mirar la historia, y la pantalla hasta tiene un badge «Producto inactivo» para
     // ese caso. Que por omisión no se ofrezca lo fija el test de arriba.
-    expect($respuesta->json('resultados'))->toHaveCount(1);
+    expect($respuesta->json('datos'))->toHaveCount(1);
 });
 
 test('un estado que no existe se rechaza', function () {
     // Rechaza, no corrige (M-31): ignorar el parámetro devolvería un conjunto
     // distinto del que el que llama pidió, en silencio.
-    $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=cable&estado=cualquiera')
+    $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&q=cable&estado=cualquiera')
         ->assertStatus(422);
 });
 
@@ -125,51 +140,48 @@ test('el precio y el disponible viajan con cada resultado', function () {
         ->conStock(10, 3)
         ->create(['nombre' => 'Disco rígido sata', 'precio_contado' => '12345.67']);
 
-    $respuesta = $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=rígido')
+    $respuesta = $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=rígido')
         ->assertOk();
 
     // Es lo que hace que la isla `preciosDelCatalogo` del formulario de venta deje
     // de existir, que es el pendiente #39.
-    expect($respuesta->json('resultados.0.precio'))->toBe('12345.67')
+    expect($respuesta->json('datos.0.precios.contado.importe'))->toBe('12345.67')
         // stock − stock_reservado, la misma definición de todo el sistema.
-        ->and($respuesta->json('resultados.0.disponible'))->toBe(7);
+        ->and($respuesta->json('datos.0.disponible'))->toBe(7);
 });
 
 test('el costo viaja solo con permiso, y sin permiso la clave no esta', function () {
     Producto::factory()->conStockYCosto(5, 8000)->create(['nombre' => 'Memoria ddr4']);
 
-    $con = $this->actingAs(usuarioCon('producto.ver', 'precio.ver_costo'))
-        ->getJson('/buscar/productos?q=ddr4')->assertOk();
+    $con = $this->withHeaders(bearer(usuarioCon('producto.ver', 'precio.ver_costo')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=ddr4')->assertOk();
+    app('auth')->forgetGuards();
 
-    $sin = $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=ddr4')->assertOk();
+    $sin =$this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=ddr4')->assertOk();
 
-    expect($con->json('resultados.0.costo'))->toBe('8000.00')
+    expect($con->json('datos.0.costo_promedio'))->toBe('8000.00')
         // Ausente, no null: null significaría «no tiene costo cargado», y eso sería
         // afirmar un hecho que el servidor no le contestó.
-        ->and($sin->json('resultados.0'))->not->toHaveKey('costo');
+        ->and($sin->json('datos.0'))->not->toHaveKey('costo_promedio');
 });
 
 test('el desplegable se topea en veinte y avisa que hay mas', function () {
     Producto::factory()->count(25)->create(['nombre' => 'Cable de red']);
 
-    $muchos = $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=cable')->assertOk();
+    $muchos = $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=cable')->assertOk();
 
-    expect($muchos->json('resultados'))->toHaveCount(20)
-        ->and($muchos->json('hay_mas'))->toBeTrue();
+    expect($muchos->json('datos'))->toHaveCount(20)
+        ->and($muchos->json('ultima_pagina'))->toBe(2)
+        ->and($muchos->json('total'))->toBe(25);
 
-    $pocos = $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=zzzz')->assertOk();
+    $pocos = $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=zzzz')->assertOk();
 
-    expect($pocos->json('resultados'))->toBeEmpty()
-        ->and($pocos->json('hay_mas'))->toBeFalse();
+    expect($pocos->json('datos'))->toBeEmpty()
+        ->and($pocos->json('ultima_pagina'))->toBe(1);
 });
 
 test('la cantidad de consultas no crece con la cantidad de resultados', function () {
     $usuario = usuarioCon('producto.ver');
-    $buscar  = fn () => $this->actingAs($usuario)->getJson('/buscar/productos?q=cable')->assertOk();
+    $buscar  = fn () => $this->withHeaders(bearer($usuario))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=cable')->assertOk();
 
     Producto::factory()->count(3)->create(['nombre' => 'Cable de red']);
 
@@ -192,24 +204,21 @@ test('el recorte por proveedor y el de con proveedor filtran', function () {
 
     $usuario = usuarioCon('producto.ver');
 
-    $delProveedor = $this->actingAs($usuario)
-        ->getJson("/buscar/productos?q=switch&proveedor_id={$austral->id}")->assertOk();
+    $delProveedor = $this->withHeaders(bearer($usuario))->getJson("/api/v1/productos?forma=gestion&estado=activos&q=switch&proveedor_id={$austral->id}")->assertOk();
 
-    $conProveedor = $this->actingAs($usuario)
-        ->getJson('/buscar/productos?q=switch&con_proveedor=1')->assertOk();
+    $conProveedor = $this->withHeaders(bearer($usuario))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=switch&con_proveedor=1')->assertOk();
 
-    expect($delProveedor->json('resultados'))->toHaveCount(1)
-        ->and($delProveedor->json('resultados.0.nombre'))->toBe('Switch austral')
+    expect($delProveedor->json('datos'))->toHaveCount(1)
+        ->and($delProveedor->json('datos.0.nombre'))->toBe('Switch austral')
         // El armador no ofrece lo que después va a rechazar por no tener a quién
         // pedírselo: los dos con proveedor sí, el tercero no.
-        ->and($conProveedor->json('resultados'))->toHaveCount(2);
+        ->and($conProveedor->json('datos'))->toHaveCount(2);
 });
 
 test('un proveedor inexistente en el recorte se rechaza', function () {
     // Rechaza, no corrige (M-31): ignorar el recorte devolvería el catálogo entero,
     // que es lo contrario de lo que el usuario pidió.
-    $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=switch&proveedor_id=9999')
+    $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=switch&proveedor_id=9999')
         ->assertStatus(422);
 });
 
@@ -225,15 +234,14 @@ test('los proveedores de un producto salen en el orden en que conviene elegirlos
         ->conProveedor($gamma, null)
         ->create();
 
-    $respuesta = $this->actingAs(usuarioCon('proveedor.ver', 'precio.ver_costo'))
-        ->getJson("/buscar/productos/{$producto->id}/proveedores")->assertOk();
+    $respuesta = $this->withHeaders(bearer(usuarioCon('proveedor.ver', 'precio.ver_costo')))->getJson("/api/v1/productos/{$producto->id}/proveedores")->assertOk();
 
     // El preferido primero aunque sea más caro —a veces el barato entrega en tres
     // semanas—, después por costo, y el que no tiene costo cargado al final.
-    expect(array_column($respuesta->json('resultados'), 'nombre'))
+    expect(array_column($respuesta->json('datos'), 'razon_social'))
         ->toBe(['Beta S.A.', 'Alfa S.A.', 'Gamma S.A.'])
-        ->and($respuesta->json('resultados.0.preferido'))->toBeTrue()
-        ->and($respuesta->json('resultados.2.costo'))->toBeNull();
+        ->and($respuesta->json('datos.0.es_preferido'))->toBeTrue()
+        ->and($respuesta->json('datos.2.costo_ultimo'))->toBeNull();
 });
 
 test('un proveedor dado de baja no se ofrece para pedirle', function () {
@@ -245,27 +253,27 @@ test('un proveedor dado de baja no se ofrece para pedirle', function () {
         ->conProveedor($inactivo, 10)
         ->create();
 
-    $respuesta = $this->actingAs(usuarioCon('proveedor.ver'))
-        ->getJson("/buscar/productos/{$producto->id}/proveedores")->assertOk();
+    $respuesta = $this->withHeaders(bearer(usuarioCon('proveedor.ver')))->getJson("/api/v1/productos/{$producto->id}/proveedores")->assertOk();
 
-    expect($respuesta->json('resultados'))->toHaveCount(1)
-        ->and($respuesta->json('resultados.0.nombre'))->toBe('Activo S.A.');
+    expect($respuesta->json('datos'))->toHaveCount(1)
+        ->and($respuesta->json('datos.0.razon_social'))->toBe('Activo S.A.');
 });
 
 test('los proveedores de un producto exigen proveedor ver y ocultan el costo sin permiso', function () {
     $proveedor = Proveedor::factory()->create();
     $producto  = Producto::factory()->conProveedor($proveedor, 1000)->create();
-    $url       = "/buscar/productos/{$producto->id}/proveedores";
+    $url       = "/api/v1/productos/{$producto->id}/proveedores";
 
     $otros = array_values(array_diff(permisosDelModulo('proveedor'), ['proveedor.ver']));
 
-    $this->actingAs(usuarioCon(...$otros))->getJson($url)->assertForbidden();
+    $this->withHeaders(bearer(usuarioCon(...$otros)))->getJson($url)->assertForbidden();
+    app('auth')->forgetGuards();
 
-    $sinCosto = $this->actingAs(usuarioCon('proveedor.ver'))->getJson($url)->assertOk();
+    $sinCosto = $this->withHeaders(bearer(usuarioCon('proveedor.ver')))->getJson($url)->assertOk();
 
     // Sin el permiso la clave no está, así que la pantalla no puede decir «sin costo
     // cargado» sobre un dato que el servidor no le contestó.
-    expect($sinCosto->json('resultados.0'))->not->toHaveKey('costo');
+    expect($sinCosto->json('datos.0'))->not->toHaveKey('costo_ultimo');
 });
 
 test('encuentra clientes por razon social y por documento', function () {
@@ -274,47 +282,44 @@ test('encuentra clientes por razon social y por documento', function () {
 
     $usuario = usuarioCon('cliente.ver');
 
-    $porNombre = $this->actingAs($usuario)->getJson('/buscar/clientes?q=tilos')->assertOk();
-    $porDoc    = $this->actingAs($usuario)->getJson('/buscar/clientes?q=41556778')->assertOk();
+    $porNombre = $this->withHeaders(bearer($usuario))->getJson('/api/v1/clientes?q=tilos')->assertOk();
+    $porDoc    = $this->withHeaders(bearer($usuario))->getJson('/api/v1/clientes?q=41556778')->assertOk();
 
-    expect($porNombre->json('resultados.0.texto'))->toBe('Panadería Los Tilos — DNI 41556778')
-        ->and($porDoc->json('resultados'))->toHaveCount(1)
-        ->and($porDoc->json('resultados.0.razon_social'))->toBe('Panadería Los Tilos');
+    expect($porNombre->json('datos.0.texto'))->toBe('Panadería Los Tilos — DNI 41556778')
+        ->and($porDoc->json('datos'))->toHaveCount(1)
+        ->and($porDoc->json('datos.0.razon_social'))->toBe('Panadería Los Tilos');
 });
 
 test('un cliente sin documento cargado se nombra solo con su razon social', function () {
     Cliente::factory()->create(['razon_social' => 'Mostrador sin datos', 'nro_doc' => null]);
 
-    $respuesta = $this->actingAs(usuarioCon('cliente.ver'))
-        ->getJson('/buscar/clientes?q=mostrador')->assertOk();
+    $respuesta = $this->withHeaders(bearer(usuarioCon('cliente.ver')))->getJson('/api/v1/clientes?q=mostrador')->assertOk();
 
-    expect($respuesta->json('resultados.0.texto'))->toBe('Mostrador sin datos')
-        ->and($respuesta->json('resultados.0.documento'))->toBeNull();
+    expect($respuesta->json('datos.0.texto'))->toBe('Mostrador sin datos')
+        ->and($respuesta->json('datos.0.documento'))->toBeNull();
 });
 
 test('encuentra proveedores activos por razon social', function () {
     Proveedor::factory()->create(['razon_social' => 'Distribuidora Austral S.A.']);
     Proveedor::factory()->inactivo()->create(['razon_social' => 'Austral Vieja S.A.']);
 
-    $respuesta = $this->actingAs(usuarioCon('proveedor.ver'))
-        ->getJson('/buscar/proveedores?q=austral')->assertOk();
+    $respuesta = $this->withHeaders(bearer(usuarioCon('proveedor.ver')))->getJson('/api/v1/proveedores?q=austral&estado=activos')->assertOk();
 
-    expect($respuesta->json('resultados'))->toHaveCount(1)
-        ->and($respuesta->json('resultados.0.texto'))->toBe('Distribuidora Austral S.A.');
+    expect($respuesta->json('datos'))->toHaveCount(1)
+        ->and($respuesta->json('datos.0.razon_social'))->toBe('Distribuidora Austral S.A.');
 });
 
 test('el buscador no ofrece los productos que ya estan cargados', function () {
     $cargado = Producto::factory()->create(['nombre' => 'Cable de red corto']);
     $libre   = Producto::factory()->create(['nombre' => 'Cable de red largo']);
 
-    $respuesta = $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=cable&excluir[]='.$cargado->id)
+    $respuesta = $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=cable&excluir[]='.$cargado->id)
         ->assertOk();
 
     // El pendiente #30 dejando de existir: no se puede elegir dos veces lo que no se
     // ofrece dos veces.
-    expect($respuesta->json('resultados'))->toHaveCount(1)
-        ->and($respuesta->json('resultados.0.id'))->toBe($libre->id);
+    expect($respuesta->json('datos'))->toHaveCount(1)
+        ->and($respuesta->json('datos.0.id'))->toBe($libre->id);
 });
 
 test('excluir un id que no existe no recorta nada y no se rechaza', function () {
@@ -322,26 +327,23 @@ test('excluir un id que no existe no recorta nada y no se rechaza', function () 
 
     // A diferencia de `proveedor_id`, que sí exige existir: ignorar ese recorte
     // devolvería el catálogo entero, y acá un id que no está ya no se ofrecía.
-    $respuesta = $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=cable&excluir[]=999999')->assertOk();
+    $respuesta = $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=cable&excluir[]=999999')->assertOk();
 
-    expect($respuesta->json('resultados'))->toHaveCount(1);
+    expect($respuesta->json('datos'))->toHaveCount(1);
 });
 
 test('excluir mas productos que los que entran en un documento se rechaza', function () {
     // Cincuenta es el tope de líneas de los dos Form Requests, así que una lista más
     // larga no puede venir de una pantalla.
-    $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=cable&'.http_build_query(['excluir' => range(1, 51)]))
+    $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=cable&'.http_build_query(['excluir' => range(1, 51)]))
         ->assertStatus(422)
-        ->assertJsonStructure(['error']);
+        ->assertJsonPath('codigo', 'validacion');
 });
 
 test('excluir algo que no es un id se rechaza', function (string $query) {
     // Rechaza, no corrige (M-31). El segundo caso es el que el componente tiene
     // prohibido mandar: una lista vacía se omite del todo, no se manda vacía.
-    $this->actingAs(usuarioCon('producto.ver'))
-        ->getJson('/buscar/productos?q=cable'.$query)
+    $this->withHeaders(bearer(usuarioCon('producto.ver')))->getJson('/api/v1/productos?forma=gestion&estado=activos&q=cable'.$query)
         ->assertStatus(422);
 })->with([
     'texto en la lista' => ['&excluir[]=todos'],

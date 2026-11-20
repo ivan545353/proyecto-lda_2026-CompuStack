@@ -11,6 +11,12 @@ import { iniciarAltasRapidas } from './componentes/alta-rapida';
 import { iniciarCobro } from './componentes/cobro';
 import { iniciarOpcionesDeImpresion } from './componentes/impresion';
 import { iniciarIngreso, iniciarSalida } from './pantallas/sesion';
+import { iniciarFormularioDeMarca, iniciarListadoDeMarcas } from './pantallas/marcas';
+import { iniciarFormularioDeCategoria, iniciarListadoDeCategorias } from './pantallas/categorias';
+import { iniciarFormularioDeProducto, iniciarListadoDeProductos } from './pantallas/productos';
+import { iniciarComparadorDeProveedores, iniciarEdicionDeVinculo } from './pantallas/producto-proveedores';
+import { iniciarSelecciones } from './componentes/seleccion';
+import { mostrarAvisoPendiente } from './api/estados';
 
 window.bootstrap = bootstrap;
 
@@ -231,27 +237,6 @@ document.addEventListener('DOMContentLoaded', () => {
     campo.addEventListener('input', refrescar);
 });
 
-// Formulario de producto: el precio de contado sólo se escribe cuando el precio
-// está fijado a mano. Deshabilitado no viaja en el POST, así que un producto que
-// pasa al cálculo automático no manda un precio que el servidor va a rechazar.
-// Mejora progresiva: sin JavaScript el campo queda editable y la validación
-// explica por qué no corresponde.
-document.addEventListener('DOMContentLoaded', () => {
-    const manual = document.getElementById('precio_manual');
-    const precio = document.getElementById('precio_contado');
-
-    // En el alta la casilla va deshabilitada y marcada: no hay nada que alternar.
-    if (!manual || !precio || manual.disabled) return;
-
-    const refrescar = () => {
-        precio.disabled = !manual.checked;
-        precio.required = manual.checked;
-    };
-
-    manual.addEventListener('change', refrescar);
-    refrescar();
-});
-
 // Líneas repetibles de la orden de compra: ver componentes/lineas-orden.js
 document.addEventListener('DOMContentLoaded', () => iniciarLineasDeOrden());
 
@@ -284,6 +269,21 @@ document.addEventListener('DOMContentLoaded', () => iniciarOpcionesDeImpresion()
 document.addEventListener('DOMContentLoaded', () => {
     iniciarIngreso();
     iniciarSalida();
+});
+
+// El aviso que dejó la pantalla anterior (una alta que volvió al listado): ver api/estados.js
+document.addEventListener('DOMContentLoaded', () => mostrarAvisoPendiente());
+
+// Las pantallas migradas a la API (tramo D): ver pantallas/
+document.addEventListener('DOMContentLoaded', () => {
+    iniciarListadoDeMarcas();
+    iniciarFormularioDeMarca();
+    iniciarListadoDeCategorias();
+    iniciarFormularioDeCategoria();
+    iniciarListadoDeProductos();
+    iniciarFormularioDeProducto();
+    iniciarComparadorDeProveedores();
+    iniciarEdicionDeVinculo();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -368,55 +368,5 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('form[data-seleccion]').forEach((formulario) => {
-        const asociadas = formulario.id
-            ? document.querySelectorAll(`input[type="checkbox"][name][form="${formulario.id}"]`)
-            : [];
-
-        const casillas = [...new Set([
-            ...formulario.querySelectorAll('input[type="checkbox"][name]'),
-            ...asociadas,
-        ])];
-
-        if (casillas.length === 0) return;
-
-        const todas = formulario.id
-            ? document.querySelector(`[data-seleccion-todas="${formulario.id}"]`)
-            : null;
-        const boton = formulario.querySelector('button[type="submit"]');
-        const contador = formulario.querySelector('[data-seleccion-contador]');
-        const sinMarcar = contador?.textContent.trim() ?? '';
-        const conMarcadas = contador?.dataset.seleccionMarcadas ?? '';
-
-        const refrescar = () => {
-            const marcadas = casillas.filter((casilla) => casilla.checked).length;
-
-            if (todas) {
-                todas.checked = marcadas > 0 && marcadas === casillas.length;
-                todas.indeterminate = marcadas > 0 && marcadas < casillas.length;
-            }
-
-            // El servidor lo rinde habilitado porque sin JS tiene que poder usarse; que
-            // se apague con la selección vacía es comodidad, no el estado inicial.
-            if (boton) {
-                boton.disabled = marcadas === 0;
-            }
-
-            if (contador) {
-                contador.textContent = marcadas === 0 || conMarcadas === ''
-                    ? sinMarcar
-                    : conMarcadas.replace('{n}', marcadas);
-            }
-        };
-
-        todas?.addEventListener('change', () => {
-            casillas.forEach((casilla) => (casilla.checked = todas.checked));
-            refrescar();
-        });
-
-        casillas.forEach((casilla) => casilla.addEventListener('change', refrescar));
-
-        refrescar();
-    });
-});
+// Selección de filas para un formulario GET (ajuste de precios, sugeridos): ver componentes/seleccion.js
+document.addEventListener('DOMContentLoaded', () => iniciarSelecciones());

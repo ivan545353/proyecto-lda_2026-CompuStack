@@ -18,6 +18,7 @@
       campoQuitar  sólo con max = 1: campo que pide quitar la imagen
       etiquetaAgregar  texto de la tarjeta de agregar
       enTienda     el orden es el de la galería de la tienda, y la ayuda lo dice (HL-87)
+      diferido     las imágenes llegan por la API: lo arranca su pantalla (tramo D)
 --}}
 @props([
     'actuales' => [],
@@ -28,6 +29,7 @@
     'campoQuitar' => null,
     'etiquetaAgregar' => 'Agregar imagen',
     'enTienda' => false,
+    'diferido' => false,
 ])
 
 @php
@@ -43,7 +45,7 @@
         ->merge(collect($errors->get('orden.*'))->flatten());
 @endphp
 
-<div class="js-gestor-imagenes" data-max="{{ $max }}" data-max-kb="{{ $maxKb }}"
+<div class="js-gestor-imagenes" @if ($diferido) data-diferido @endif data-max="{{ $max }}" data-max-kb="{{ $maxKb }}"
     data-tipos="{{ $tipos }}" data-descripcion="{{ $descripcion }}" data-campo="{{ $campo }}"
     data-campo-quitar="{{ $campoQuitar }}" data-etiqueta-agregar="{{ $etiquetaAgregar }}"
     data-actuales="{{ json_encode($datosActuales) }}" data-orden-previo="{{ old($campo . '_orden') }}"

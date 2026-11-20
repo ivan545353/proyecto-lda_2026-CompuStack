@@ -60,7 +60,7 @@
                             </a>
 
                             @if (request()->filled('q'))
-                                <a href="{{ request()->fullUrlWithoutQuery(['q', 'page']) }}"
+                                <a href="{{ request()->fullUrlWithoutQuery(['q', 'pagina']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de búsqueda">
                                     <span class="text-secondary fw-normal">Texto:</span>
@@ -70,7 +70,7 @@
                             @endif
 
                             @if (request()->filled('estado'))
-                                <a href="{{ request()->fullUrlWithoutQuery(['estado', 'page']) }}"
+                                <a href="{{ request()->fullUrlWithoutQuery(['estado', 'pagina']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de estado">
                                     <span class="text-secondary fw-normal">Estado:</span>
@@ -92,7 +92,7 @@
                         </a>
                     @endif
 
-                    <x-imprimir ruta="marcas.imprimir" :listado="new \App\Impresion\ListadoMarcas()" />
+                    <x-imprimir api="/marcas/impresion" :listado="new \App\Impresion\ListadoMarcas()" />
 
                     <button type="submit" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center gap-1">
                         <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
@@ -102,100 +102,69 @@
         </div>
     </form>
 
-    <div class="card border-0 shadow-sm">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <caption class="visually-hidden">Listado de marcas del catálogo</caption>
-                <thead class="table-light">
-                    <tr>
-                        <th scope="col" style="width: 64px;">Logo</th>
-                        <th scope="col">Nombre</th>
-                        <th scope="col">Estado</th>
-                        <th scope="col" class="text-center d-none d-sm-table-cell">Productos</th>
-                        <th scope="col" class="text-end">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($marcas as $marca)
+    {{-- La tabla llega vacía: las filas las pide pantallas/marcas.js a la API (regla 37). --}}
+    <div data-pantalla="marcas">
+        <div class="card border-0 shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <caption class="visually-hidden">Listado de marcas del catálogo</caption>
+                    <thead class="table-light">
                         <tr>
-                            {{-- Logo corporativo o icono de respaldo --}}
-                            <td>
-                                @if ($marca->logo)
-                                    <img src="{{ Storage::url($marca->logo) }}" alt="" height="32"
-                                        class="object-fit-contain">
-                                @else
-                                    <i class="bi bi-tag text-body-secondary fs-5" aria-hidden="true"></i>
-                                @endif
-                            </td>
-
-                            {{-- Nombre y slug único --}}
-                            <td>
-                                <span class="fw-semibold">{{ $marca->nombre }}</span>
-                                <div class="clave-permiso d-inline-block ms-1">{{ $marca->slug }}</div>
-                                <div class="small text-body-secondary d-sm-none">{{ $marca->productos_count }} producto(s)
-                                </div>
-                            </td>
-
-                            {{-- Estado (accesible: comunica con texto y no solo con color) --}}
-                            <td>
-                                <span class="badge {{ $marca->activo ? 'text-bg-dark' : 'text-bg-secondary' }}">
-                                    {{ $marca->activo ? 'Activa' : 'Inactiva' }}
-                                </span>
-                            </td>
-
-                            {{-- Cantidad de productos asociados (withCount) --}}
-                            <td class="text-center d-none d-sm-table-cell">{{ $marca->productos_count }}</td>
-
-                            {{-- Acciones contextuales según permisos --}}
-                            <td class="text-end text-nowrap">
-                                @can('marca.editar')
-                                    <a href="{{ route('marcas.edit', $marca) }}" class="btn btn-sm btn-outline-dark"
-                                        aria-label="Editar {{ $marca->nombre }}">
-                                        <i class="bi bi-pencil" aria-hidden="true"></i>
-                                        <span class="d-none d-sm-inline">Editar</span>
-                                    </a>
-                                @endcan
-
-                                {{-- Baja física o lógica con mensaje preventivo según tenga productos --}}
-                                @can('marca.eliminar')
-                                    <form method="POST" action="{{ route('marcas.destroy', $marca) }}" class="d-inline"
-                                        onsubmit="return confirm(@js($marca->productos_count > 0 ? "«{$marca->nombre}» tiene {$marca->productos_count} producto(s). No se eliminará: se desactivará. ¿Continuar?" : "¿Eliminar la marca «{$marca->nombre}»?"));">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button class="btn btn-sm btn-outline-danger"
-                                            aria-label="Eliminar la marca {{ $marca->nombre }}">
-                                            <i class="bi bi-trash" aria-hidden="true"></i>
-                                        </button>
-                                    </form>
-                                @endcan
-                            </td>
+                            <th scope="col" style="width: 64px;">Logo</th>
+                            <th scope="col">Nombre</th>
+                            <th scope="col">Estado</th>
+                            <th scope="col" class="text-center d-none d-sm-table-cell">Productos</th>
+                            <th scope="col" class="text-end">Acciones</th>
                         </tr>
-                    @empty
-                        {{-- Estado vacío con distinción según si hay filtros aplicados --}}
+                    </thead>
+                    <tbody data-listado-filas data-columnas="5" data-vacio="Todavía no hay marcas cargadas."
+                        data-vacio-filtrado="Ninguna marca coincide con el filtro.">
                         <tr>
-                            <td colspan="5" class="text-center text-body-secondary py-4">
-                                @if (request()->hasAny(['q', 'estado']))
-                                    Ninguna marca coincide con el filtro.
-                                    <a href="{{ route('marcas.index') }}">Ver todas</a>.
-                                @else
-                                    Todavía no hay marcas cargadas.
-                                @endif
-                            </td>
+                            <td colspan="5" class="text-center text-body-secondary py-4">Cargando…</td>
                         </tr>
-                    @endforelse
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {{-- Una fila, con un @can por acción (regla 12). Los textos los pone el JS con textContent. --}}
+        <template data-listado-fila>
+            <tr>
+                <td>
+                    <img data-logo src="" alt="" height="32" class="object-fit-contain" hidden>
+                    <i data-sin-logo class="bi bi-tag text-body-secondary fs-5" aria-hidden="true"></i>
+                </td>
+                <td>
+                    <span class="fw-semibold" data-campo="nombre"></span>
+                    <div class="clave-permiso d-inline-block ms-1" data-campo="slug"></div>
+                    <div class="small text-body-secondary d-sm-none" data-campo="productos-movil"></div>
+                </td>
+                <td><span class="badge" data-campo="estado"></span></td>
+                <td class="text-center d-none d-sm-table-cell" data-campo="productos"></td>
+                <td class="text-end text-nowrap">
+                    @can('marca.editar')
+                        <a href="{{ route('marcas.edit', ['marca' => '__ID__']) }}" data-accion="editar"
+                            class="btn btn-sm btn-outline-dark">
+                            <i class="bi bi-pencil" aria-hidden="true"></i>
+                            <span class="d-none d-sm-inline">Editar</span>
+                        </a>
+                    @endcan
+
+                    {{-- Baja física o lógica: el aviso previo dice cuál va a ser, según tenga productos. --}}
+                    @can('marca.eliminar')
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-listado-eliminar
+                            data-ruta="/marcas/__ID__">
+                            <i class="bi bi-trash" aria-hidden="true"></i>
+                        </button>
+                    @endcan
+                </td>
+            </tr>
+        </template>
+
+        {{-- Resumen de resultados y paginado: los arma el JS con el sobre de la API. --}}
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" data-listado-pie hidden>
+            <p class="text-body-secondary small mb-0" data-listado-resumen></p>
+            <div data-listado-paginas></div>
         </div>
     </div>
-
-    {{-- Resumen de resultados y controles de paginación --}}
-    @if ($marcas->total() > 0)
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
-            <p class="text-body-secondary small mb-0">
-                Mostrando {{ $marcas->firstItem() }}–{{ $marcas->lastItem() }} de {{ $marcas->total() }}.
-            </p>
-
-            {{ $marcas->links() }}
-        </div>
-    @endif
 @endsection

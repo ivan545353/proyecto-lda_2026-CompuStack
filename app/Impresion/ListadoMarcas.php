@@ -3,13 +3,28 @@
 namespace App\Impresion;
 
 use App\Models\Marca;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Las marcas, con cuántos productos tiene cada una.
  */
-final class ListadoMarcas extends Listado
+final class ListadoMarcas extends Listado implements ImprimiblePorEnlace
 {
     private const ESTADOS = ['activas' => 'Activas', 'inactivas' => 'Inactivas'];
+
+    public function permiso(): string
+    {
+        return 'marca.ver';
+    }
+
+    /** La del listado de la pantalla, la misma para mirar y para imprimir. */
+    public function consulta(array $filtros): Builder
+    {
+        return Marca::query()
+            ->buscar($filtros['q'] ?? null)
+            ->conEstado($filtros['estado'] ?? null)
+            ->orderBy('nombre');
+    }
 
     public function titulo(): string
     {

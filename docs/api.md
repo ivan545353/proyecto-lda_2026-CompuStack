@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 14** · tramo B de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
+**Revisión 15** · tramo D de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -16,7 +16,9 @@ mis pedidos, el detalle y el comprobante por enlace firmado. La 10 no cambia nin
 final, con cada endpoint pedido al servidor y sus ejemplos comparados con las respuestas reales (§7, al
 principio). La 11 suma `GET /tienda` (§7.1), lo que la tienda ofrece, para el Inicio del tramo J. La 12, la
 transferencia como tercer medio (§7.7). La 13, con qué entregas vale cada medio (D-28): el efectivo, sólo con retiro. La 14 abre la Etapa 3: la sesión es
-común a la app y a la administración, con `GET /yo`, vigencia por ámbito y `401 sesion_expirada`.
+común a la app y a la administración, con `GET /yo`, vigencia por ámbito y `401 sesion_expirada`. La 15 suma la
+gestión del catálogo (§7.8): marcas, categorías, productos y sus proveedores, por representación según el permiso,
+sin cambiar ninguna forma de la tienda.
 
 ## 1. Reglas generales
 
@@ -115,7 +117,8 @@ entera en el renderer y la excepción queda en el log. Un estado HTTP que no fig
 | Tipo de ruta | Qué exige | Credencial inválida |
 | --- | --- | --- |
 | **Pública** | Nada | No se lee |
-| **Sesión opcional** (catálogo) | Nada; con credencial válida y `tienda.ver_precios`, agrega los precios | **401 `sesion_invalida`**: si no, los precios desaparecerían sin explicación |
+| **Credencial si sirve** (`GET /categorias`, r15) | Nada; con una credencial válida y `categoria.ver`, la gestión pide `forma=lista` | No es error: sigue como visitante. El árbol no depende de quién mira |
+| **Sesión opcional** (catálogo, de los dos clientes desde la r15) | Nada; con credencial válida y `tienda.ver_precios`, agrega los precios; con `producto.ver`, la gestión pide `forma=gestion` | **401 `sesion_invalida`**: si no, los precios desaparecerían sin explicación |
 | **Protegida común** (`api.protegida`, r14) | Credencial válida y cuenta activa, de gestión o de tienda | 401 |
 | **Protegida** (`tienda.protegida`) | Credencial válida, cuenta activa y de tienda, y el permiso de la ruta | 401 |
 
@@ -1256,6 +1259,351 @@ PNG) o un PDF.», «El comprobante puede pesar hasta 5 MB.»), 409 `regla_de_neg
 transferencia, ya se cobró o se canceló: «El pedido V-00042 no se paga por transferencia, así que no hace
 falta un comprobante.»).
 
+### 7.8 Gestión del catálogo (Etapa 3, tramo D, r15)
+
+La administración web deja de escribir el catálogo por sus rutas propias: marcas, categorías, productos y
+proveedores de un producto se leen y se escriben acá, con la misma credencial y los mismos permisos que
+cualquier otro cliente (regla 35). **No hay espacio `/admin`** (regla 36): donde el recurso ya existía para la
+tienda, la gestión pide **otra representación del mismo recurso** con `?forma=` y su permiso; sin `forma`, la
+respuesta es la de siempre, byte a byte.
+
+Reglas comunes a esta sección:
+
+- **Grupo**: protegida común (§4) y un permiso por acción en la ruta (C-2), salvo donde se dice otra cosa.
+  Sin el permiso, **403 `sin_permiso`**, nunca 401: la credencial sirve, lo que falta es poder.
+- **Los listados paginan** (§2, A-25) con los `criterios` aplicados; un filtro inválido es 422, no se ignora.
+- **Las escrituras** devuelven el recurso y un `mensaje` que dice lo que pasó de verdad (el primer proveedor
+  queda elegido, la marca con productos se desactiva en lugar de eliminarse). El alta es **201**.
+- **Una casilla viaja siempre** (`activo`, `precio_manual`, `es_preferido`): la API no adivina que una ausente
+  quiere decir «no» (M-31).
+- **Archivos** (el logo de una marca, las imágenes de un producto): `multipart/form-data`. Para editar con
+  archivos se manda **`POST` con `_method=PATCH`**: PHP no lee los archivos de un `PATCH` multipart (HL-110).
+  Es el mismo endpoint y la misma llamada al servicio.
+- **Impresión** (D-22): `GET /<recurso>/impresion` valida filtros y opciones (422) y devuelve una URL firmada;
+  el navegador la abre sin credencial. La firma cubre quién la pidió, los filtros y las opciones, y al abrirla
+  se vuelve a exigir cuenta activa y el permiso del listado.
+
+```json
+{ "datos": { "url": "https://…/api/v1/impresiones/marcas?expires=…&formato=pdf&pedido_por=1&signature=…", "vence": "2026-11-20T16:05:00Z" } }
+```
+
+Opciones de impresión: `formato` (`pdf` · `csv`), `columnas[]`, `orientacion`, `hoja`, `densidad`, `agrupar`,
+`salto`. Una columna que pide un permiso que no se tiene (el costo sin `precio.ver_costo`) es 422 en
+`columnas.N`, no una columna vacía. La vigencia es `impresion.enlace_minutos` (5).
+
+#### Marcas
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /marcas` | `marca.ver` | Listado. `q` (nombre contiene), `estado` (`activas` · `inactivas`); 15 por página |
+| `GET /marcas/{id}` | `marca.ver` | La ficha, con `productos` (cuántos la usan) |
+| `GET /marcas/impresion` | `marca.ver` | URL firmada del listado, con los mismos filtros |
+| `POST /marcas` | `marca.crear` | Alta: `nombre` (2 a 100, único), `activo`, `logo` (jpg, png o webp, hasta 512 KB; sin SVG) |
+| `PATCH /marcas/{id}` | `marca.editar` | Edición: lo del alta más `quitar_logo` y `desactivar_productos` |
+| `DELETE /marcas/{id}` | `marca.eliminar` | Elimina; con productos, **la desactiva** (regla 2) y lo dice |
+
+```json
+{
+  "datos": [
+    { "id": 1, "nombre": "Logitech", "slug": "logitech", "logo": null, "activo": true, "productos": 1 }
+  ],
+  "pagina": 1, "por_pagina": 15, "ultima_pagina": 1, "total": 1,
+  "criterios": { "q": null, "estado": "activas" }
+}
+```
+
+```json
+{ "datos": { "id": 1, "eliminada": false }, "mensaje": "La marca «Logitech» tiene productos asociados: se desactivó en lugar de eliminarse." }
+```
+
+- `logo`: URL absoluta o `null`. El alta devuelve la ficha sin `productos` (es 0) y el mensaje «Marca «X» creada.».
+- `desactivar_productos` = 1 al desactivar la marca desactiva también sus productos activos. El mensaje dice
+  qué pasó con ellos: ««Logitech» se desactivó junto con sus 3 producto(s).» o «… Sus 3 producto(s) siguen
+  activos y a la venta; la marca ya no se va a ofrecer para productos nuevos.».
+- Errores: 401, 403, 404, 422 `validacion`.
+
+#### Categorías
+
+`GET /categorias` sigue siendo el árbol de la tienda (§7.1). Desde la r15 está en el grupo **credencial si
+sirve**: sin credencial, o con una que no sirve, es el árbol de siempre (antes no se leía la credencial; para la
+app no cambia nada). La gestión pide además:
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /categorias?forma=lista` | `categoria.ver` | Listado plano: `q`, `parent_id` (`raiz` o un id), `estado` (`activas` · `inactivas`), `con_hijas`; 15 por página |
+| `GET /categorias/{id}` | `categoria.ver` | La ficha, con `ancestros` y `contenido_activo` (para avisar antes de desactivar) |
+| `GET /categorias/padres-posibles?categoria=` | `categoria.ver` | Dónde se puede poner: sin sí misma ni sus descendientes, y sin pasar de tres niveles |
+| `GET /categorias/impresion` | `categoria.ver` | URL firmada, con los filtros de `forma=lista` |
+| `POST /categorias` | `categoria.crear` | Alta: `nombre` (único entre hermanas), `parent_id`, `orden`, `activo` |
+| `PATCH /categorias/{id}` | `categoria.editar` | Edición: `parent_id` tiene que venir (`null` es raíz); `desactivar_contenido` |
+| `DELETE /categorias/{id}` | `categoria.eliminar` | Elimina; con subcategorías o productos, la desactiva y lo dice |
+
+`forma=lista` **sin** `categoria.ver` es 403; sin credencial, 403 también (no hay sesión que pedir: el árbol
+público no la necesita).
+
+```json
+{
+  "datos": [
+    {
+      "id": 2, "nombre": "Teclados", "slug": "teclados", "parent_id": 1,
+      "ruta": "Periféricos › Teclados", "dentro_de": "Periféricos", "nivel": 2, "orden": 14,
+      "activo": true, "subcategorias": 0, "productos": 1
+    }
+  ],
+  "pagina": 1, "por_pagina": 15, "ultima_pagina": 1, "total": 1,
+  "criterios": { "forma": "lista", "q": null, "parent_id": "1", "estado": null, "con_hijas": false }
+}
+```
+
+La ficha suma:
+
+```json
+"ancestros": [ { "id": 1, "nombre": "Periféricos" } ],
+"contenido_activo": { "subcategorias": 0, "productos": 1 }
+```
+
+- `padres-posibles` devuelve la forma de la fila, sin `subcategorias` ni `productos`, paginada (20).
+- La baja devuelve `{ "id", "eliminada", "parent_id" }`: la pantalla vuelve al grupo de donde salió.
+- Errores: 401, 403, 404, 422 (nombre repetido entre hermanas, padre que formaría un ciclo o un cuarto nivel).
+
+#### Productos
+
+`GET /productos` y `GET /productos/{id}` siguen siendo el catálogo de la tienda (§7.1). Desde la r15 están en
+el grupo **sesión opcional de los dos clientes** (HL-108): una credencial de gestión ya no es 401, y sin
+`forma` la respuesta es la de la tienda aunque quien pregunte tenga `producto.ver`.
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /productos?forma=gestion` | `producto.ver` | Listado de gestión: también inactivos; 20 por página |
+| `GET /productos/{id}?forma=gestion` | `producto.ver` | La ficha de gestión, de cualquier producto |
+| `GET /productos/opciones?producto=` | `producto.ver` | Las alícuotas de IVA vigentes, más la del producto aunque se haya dado de baja |
+| `GET /productos/impresion` | `producto.ver` | URL firmada, con los filtros de `forma=gestion` |
+| `POST /productos` | `producto.crear` | Alta (201). Multipart si lleva `imagenes[]` |
+| `PATCH /productos/{id}` | `producto.editar` | Edición. Con imágenes, `POST` + `_method=PATCH` |
+| `DELETE /productos/{id}` | `producto.eliminar` | Elimina; con stock o movimientos, lo desactiva y lo dice |
+| `POST /productos/{id}/recalcular` | `precio.recalcular` | Recalcula el precio desde el costo y la ganancia |
+
+`forma=gestion` sin sesión es **401 `sin_sesion`** (lo que falta es ingresar); con una cuenta sin
+`producto.ver` (la de tienda), **403 `sin_permiso`**.
+
+Filtros de `forma=gestion`:
+
+| Parámetro | Notas |
+| --- | --- |
+| `q` | Código o nombre contiene, hasta 100 |
+| `categoria_id` | La categoría y sus subcategorías |
+| `marca_id` | |
+| `proveedor_id` | Los que se le compran a ese proveedor. Tiene que existir: uno que no está es 422, no el catálogo entero |
+| `estado` | `activos` · `inactivos`; sin él, todos |
+| `stock` | `disponible` · `agotado` · `critico` · `sin_proveedor` |
+| `con_proveedor` | 1: sólo los que se le pueden pedir a un proveedor activo (el buscador de compras) |
+| `excluir[]` | Ids que ya están en la pantalla, hasta 50 (el buscador de compras). Un id inexistente no recorta nada |
+
+```json
+{
+  "datos": [
+    {
+      "id": 1,
+      "codigo": "TEC-G505",
+      "nombre": "Teclado mecánico G505",
+      "texto": "TEC-G505 — Teclado mecánico G505",
+      "imagen": null,
+      "categoria": { "id": 2, "nombre": "Teclados", "ruta": "Periféricos › Teclados", "activo": true },
+      "marca": { "id": 1, "nombre": "Logitech", "activo": true },
+      "activo": true,
+      "destacado": false,
+      "precio_manual": false,
+      "precios": {
+        "contado": { "importe": "78650.00", "texto": "Efectivo o transferencia" },
+        "lista":   { "importe": "87400.00", "texto": "Mercado Pago" }
+      },
+      "disponible": 12,
+      "stock_minimo": 4,
+      "cantidad_reposicion": 10,
+      "sin_proveedor": false,
+      "costo_promedio": "52000.00",
+      "margen": "20.00",
+      "stock": 12,
+      "stock_reservado": 0
+    }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1,
+  "criterios": {
+    "forma": "gestion", "q": "g505", "categoria_id": null, "marca_id": null, "proveedor_id": null,
+    "estado": null, "stock": null, "con_proveedor": false, "excluir": []
+  }
+}
+```
+
+**Qué viaja con qué permiso** (regla 36; cada clave tiene su test en las dos direcciones):
+
+| Claves | Permiso |
+| --- | --- |
+| Todo lo de arriba salvo lo que sigue; `precios`, `disponible` y `stock_minimo` incluidos | `producto.ver` |
+| `costo_promedio`, `margen` | `precio.ver_costo` |
+| `stock`, `stock_reservado` | `stock.ver` |
+| En la ficha: `ganancia`, `ganancia_aplicada`, `historial` | `producto.editar` |
+| En la ficha: `calculo` | `precio.ver_costo` |
+
+- `texto` es cómo se nombra al elegirlo, el mismo rótulo de todo el sistema: lo usan los buscadores.
+- `imagen`: la primera, URL absoluta, o `null` (la gestión no usa la imagen por omisión de la tienda).
+- `sin_proveedor`: se repone (`stock_minimo` > 0) pero no se le puede comprar a nadie activo.
+
+La ficha suma `descripcion`, `alicuota_iva`, `imagenes` (`[{ "ruta", "url" }]`, en orden: la primera es la
+principal; `ruta` es lo que se manda en `imagenes_orden` para reordenar o quitar) y, con sus permisos:
+
+```json
+"ganancia": null,
+"ganancia_aplicada": "1.000",
+"calculo": {
+  "costo_neto": "52000.00", "ganancia": "1.000", "margen": "0.00", "factores": [],
+  "contado": { "neto": "52000.00", "final": "62920.00",
+    "impuestos": [ { "nombre": "IVA 21 %", "alicuota": "21.00", "comprobante": "iva", "importe": "10920.00" } ] },
+  "lista": { "neto": "52000.00", "final": "62920.00", "impuestos": [ "…" ] }
+},
+"historial": [
+  { "fecha": "2026-11-20T16:00:00Z", "contado_anterior": "95000.00", "contado_nuevo": "99000.00",
+    "motivo": "manual", "motivo_texto": "Precio cargado a mano", "usuario": "Bruno" }
+]
+```
+
+`ganancia` es la propia del producto (`null`: hereda la de su categoría); `ganancia_aplicada`, la que se usa.
+`historial` son los últimos cinco cambios de precio.
+
+**Alta y edición.** Cuerpo: `codigo` (se pasa a mayúsculas, único), `nombre`, `descripcion`, `categoria_id`,
+`marca_id`, `alicuota_iva` (una de `opciones`), `activo` y `precio_manual` (**obligatorios**), `precio_contado`
+y `precio_lista` (con `precio_manual`; aceptan «25.000,50»), `ganancia`, `stock_minimo`, `cantidad_reposicion`,
+`imagenes[]` (jpg, png o webp, hasta 1 MB cada una; 5 en total) e `imagenes_orden`: la lista final, en JSON, con
+`"actual:<ruta>"` para cada imagen que se queda y `"nueva:<n>"` para el archivo n de `imagenes[]`
+(`["nueva:0","actual:productos/a.webp"]`). Sin `imagenes_orden`, las guardadas no se tocan. `destacado` sólo con `producto.editar`, y es opcional:
+**ausente quiere decir sin cambio** (el alta de quien no puede destacar no apaga nada). Devuelven la ficha de
+gestión y «Producto «X» creado.» / «… actualizado.».
+
+`opciones`:
+
+```json
+{ "datos": { "alicuotas": [ { "valor": "21.00", "texto": "IVA 21 %" }, { "valor": "10.50", "texto": "IVA 10,5 %" },
+  { "valor": "27.00", "texto": "IVA 27 %" }, { "valor": "0.00", "texto": "Exento" } ] } }
+```
+
+`recalcular` devuelve qué pasó, con el texto de `PrecioService`:
+
+```json
+{ "datos": { "id": 1, "resultado": "aplicado", "aplicado": true }, "mensaje": "«Teclado mecánico G505»: Precio actualizado." }
+```
+
+`resultado` es `aplicado`, `sin_cambio`, `manual` o `sin_costo`; con los tres últimos, `aplicado: false`: el
+precio no cambió y el mensaje dice por qué («Tiene el precio fijado a mano: quedó como estaba.»). La baja: `{ "id", "eliminado" }` y el mensaje.
+
+Errores: 401, 403, 404, 422 `validacion`.
+
+#### Proveedores de un producto
+
+Recurso anidado: **el producto lo da la URL**, nunca el cuerpo (`producto_id` en el cuerpo es 422). Un
+proveedor que no provee ese producto es 404.
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /productos/{id}/proveedores` | `proveedor.ver` | A quién se le puede pedir, en el orden en que conviene (compras) |
+| `GET /productos/{id}/proveedores?forma=comparador` | `producto.editar` | El comparador: los vínculos, por costo |
+| `GET /productos/{id}/proveedores?forma=disponibles` | `producto.editar` | Los proveedores activos que todavía no lo proveen, para el alta |
+| `POST /productos/{id}/proveedores` | `producto.editar` | Agrega un proveedor (201) |
+| `GET /productos/{id}/proveedores/{proveedor}` | `producto.editar` | Un vínculo, para editarlo |
+| `PATCH /productos/{id}/proveedores/{proveedor}` | `producto.editar` | Cambia costo, código y preferencia |
+| `POST /productos/{id}/proveedores/{proveedor}/preferido` | `producto.editar` | Elige a quién pedirle, sin tocar lo demás |
+| `DELETE /productos/{id}/proveedores/{proveedor}` | `producto.editar` | Quita el vínculo |
+
+El permiso del listado depende de la forma, así que lo decide el Form Request y no la ruta.
+
+**A quién pedirle**: sólo activos; el elegido primero, después por costo, y sin costo cargado al final.
+`costo_ultimo` viaja sólo con `precio.ver_costo`.
+
+```json
+{
+  "datos": [
+    { "id": 1, "razon_social": "Distribuidora Austral S.A.", "es_preferido": true,  "costo_ultimo": "52000.00" },
+    { "id": 2, "razon_social": "Mayorista Sur S.R.L.",       "es_preferido": false, "costo_ultimo": "57200.00" }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 2, "criterios": { "forma": null }
+}
+```
+
+**El comparador**: por costo, sin costo al final (el criterio de la reposición automática), con el más barato,
+cuánto más caro es cada uno (`diferencia`, en %) y el pedido de compra vivo que impide quitarlo:
+
+```json
+{
+  "datos": [
+    {
+      "proveedor": { "id": 1, "razon_social": "Distribuidora Austral S.A.", "activo": true, "plazo_entrega_dias": 3 },
+      "costo_ultimo": "52000.00", "codigo_proveedor": "AUS-G505", "es_preferido": true,
+      "mas_barato": true, "diferencia": null, "pedido_en_curso": null
+    },
+    {
+      "proveedor": { "id": 2, "razon_social": "Mayorista Sur S.R.L.", "activo": true, "plazo_entrega_dias": 8 },
+      "costo_ultimo": "57200.00", "codigo_proveedor": null, "es_preferido": false,
+      "mas_barato": false, "diferencia": 10, "pedido_en_curso": null
+    }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 2, "criterios": { "forma": "comparador" }
+}
+```
+
+Con un pedido vivo: `"pedido_en_curso": { "id": 1, "numero": "OC-00001", "estado_texto": "Borrador" }`.
+
+**Disponibles**: `[{ "id", "razon_social" }]`, por razón social.
+
+**Alta y edición.** Cuerpo: `proveedor_id` (sólo en el alta; activo y que no esté ya), `costo_ultimo` y
+`codigo_proveedor` (**tienen que venir**: vacío es «no lo sé», ausente es 422, para que omitirlos no blanquee
+lo guardado), `es_preferido` (obligatorio). Devuelven el vínculo con su producto:
+
+```json
+{
+  "datos": {
+    "proveedor": { "id": 3, "razon_social": "Insumos del Valle S.A.", "activo": true, "plazo_entrega_dias": 14 },
+    "costo_ultimo": "54900.00", "codigo_proveedor": "IV-505", "es_preferido": false,
+    "mas_barato": false, "diferencia": null, "pedido_en_curso": null,
+    "producto": { "id": 1, "nombre": "Teclado mecánico G505", "codigo": "TEC-G505" }
+  },
+  "mensaje": "Se agregó Insumos del Valle S.A.."
+}
+```
+
+- El primer proveedor queda elegido aunque no se marque: «Se agregó X, y es a quien se le va a pedir la
+  reposición.». Destildar al elegido no lo cambia, y el mensaje lo dice («Sigue siendo el elegido: para
+  cambiarlo, marcá otro.»). En el vínculo suelto, `mas_barato` y `diferencia` no se calculan: son del comparador.
+- La baja devuelve `{ "producto_id", "proveedor_id", "quitado": true }`. Si era el elegido, asciende el más
+  antiguo de los que quedan, y el mensaje lo dice. Con un pedido de compra vivo es **409 `regla_de_negocio`**:
+  «No se puede quitar a Distribuidora Austral S.A. de «Teclado mecánico G505»: la orden OC-00001 está
+  «Borrador» y le pide ese producto a ese proveedor. Recibila o cancelala primero.».
+- Errores: 401, 403, 404, 409, 422.
+
+#### Proveedores y clientes (mínimos)
+
+Lo que el catálogo y la venta necesitan elegir; los tramos de esos módulos los completan.
+
+| Método y ruta | Permiso | Parámetros | Fila |
+| --- | --- | --- | --- |
+| `GET /proveedores` | `proveedor.ver` | `q`, `estado` (`activos` · `inactivos`) | `{ "id", "razon_social", "activo" }` |
+| `GET /clientes` | `cliente.ver` | `q` (razón social, documento, correo o teléfono) | `{ "id", "texto", "razon_social", "documento" }` |
+
+```json
+{
+  "datos": [ { "id": 1, "texto": "Panadería Los Tilos — DNI 41556778", "razon_social": "Panadería Los Tilos", "documento": "DNI 41556778" } ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1, "criterios": { "q": "tilos" }
+}
+```
+
+La fila del cliente tiene las claves de la que devuelve el alta rápida de la venta, y en el mismo orden. Ordenados
+por razón social; 20 por página.
+
+#### Los buscadores de la administración
+
+Ya no tienen endpoint propio (las rutas `/buscar/…` de la web se retiraron): el selector con búsqueda pide la
+primera página del listado de su entidad, con `q`, y si `ultima_pagina` > 1 pide que se afine. Los de venta y
+compra mandan `estado=activos`; el del kardex, ninguno. El mínimo de dos caracteres antes de buscar es de la
+interfaz: la API busca con cualquier texto de hasta 100.
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -1274,3 +1622,4 @@ falta un comprobante.»).
 | 12 | L | `medio_pago` = `transferencia` en `POST /pedidos` (precio de contado); los `medios` del checkout pasan a tres y su `texto` dice cómo se paga («Efectivo en el local», «Transferencia bancaria», «Mercado Pago»), igual que `medio_pago_texto`; `GET /pedidos/{id}` suma `transferencia`; §7.7: `POST /pedidos/{id}/comprobante-transferencia` (multipart; 201 con el aviso), la situación `falta_comprobante` → `pendiente` y `en_revision`; permiso `tienda.cargar_comprobante`. Las rutas pasan a 26 (24 con el simulador apagado) |
 | 13 | L | D-28: cada elemento de `medios` del checkout suma `modos_entrega`, las entregas con que vale (`contado` → `["retiro"]`; `transferencia` y `pasarela` → `["retiro", "envio"]`, o sólo `retiro` con el envío apagado). `POST /pedidos` con `contado` y `envio`: 422 en `medio_pago` («El pago en efectivo es sólo para retirar en el local.»). El ejemplo de `POST /pedidos` pasa a retiro, con `medio_pago_texto` «Efectivo en el local» (lo es desde la r12). Las rutas no cambian |
 | 14 | B (Etapa 3) | Sesión común (HL-98): `POST /sesion` emite también a cuentas de gestión, con la misma forma y 8 horas de vigencia (D-31); la de tienda sigue en 7 días. `GET /yo` nuevo (nombre, apellido, email, `rol` con `ambito`, `permisos`). Grupo «protegida común»: `DELETE /sesion` y `GET /yo`. `401 sesion_expirada` para la credencial vencida, que hasta la r13 era `sesion_invalida`. Ninguna forma anterior cambia; las rutas pasan a 27 (25 con el simulador apagado) |
+| 15 | D (Etapa 3) | §7.8, la gestión del catálogo, con la misma credencial (regla 35) y sin espacio `/admin` (regla 36): `forma=lista` en `GET /categorias` y `forma=gestion` en `GET /productos` y `GET /productos/{id}`, cada una con su permiso; altas, ediciones y bajas de marcas, categorías y productos; `recalcular`, `opciones` y `padres-posibles`; los proveedores de un producto (tres formas del listado, alta, edición, `preferido`, baja con 409 si hay un pedido vivo); `GET /proveedores` y `GET /clientes` mínimos; la impresión de los tres listados por URL firmada (`GET /<recurso>/impresion`, D-22). Con archivos, `POST` + `_method=PATCH` (HL-110). `GET /categorias` pasa al grupo «credencial si sirve» y `GET /productos` a la sesión opcional de los dos clientes (HL-108): para la app no cambia ninguna respuesta. Sin sesión, `forma=gestion` es 401 `sin_sesion`. Ninguna forma anterior cambia; las rutas pasan a 52 (50 con el simulador apagado) |

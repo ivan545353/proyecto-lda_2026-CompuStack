@@ -202,3 +202,33 @@ export function esperarReintento(mensaje) {
 export function pedirIngreso(motivo) {
     window.location.assign(`/login?sesion=${encodeURIComponent(motivo)}`);
 }
+
+const PENDIENTE = 'aviso-pendiente';
+
+/**
+ * Completado, pero en la pantalla siguiente: una alta que vuelve al listado. Si el navegador no
+ * deja guardar (ventana privada), el aviso se pierde; la operación ya se hizo igual.
+ */
+export function completadoAlVolver(mensaje, destino) {
+    try {
+        if (mensaje) window.sessionStorage.setItem(PENDIENTE, mensaje);
+    } catch {
+        // Sin almacenamiento: se navega igual.
+    }
+
+    window.location.assign(destino);
+}
+
+/** Muestra el aviso que dejó la pantalla anterior, una sola vez. */
+export function mostrarAvisoPendiente() {
+    let mensaje = null;
+
+    try {
+        mensaje = window.sessionStorage.getItem(PENDIENTE);
+        window.sessionStorage.removeItem(PENDIENTE);
+    } catch {
+        return;
+    }
+
+    completado(mensaje);
+}
