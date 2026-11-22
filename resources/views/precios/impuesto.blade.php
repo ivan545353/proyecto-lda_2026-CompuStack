@@ -1,9 +1,9 @@
 @extends('layouts.app')
 
 @use('App\Models\Impuesto')
-@use('App\Support\Importe')
 
-@php($esEdicion = $impuesto->exists)
+{{-- Shell (regla 37): en la edición sólo llega el id; el impuesto lo trae pantallas/precios.js. --}}
+@php($esEdicion = isset($impuestoId))
 
 @section('title', $esEdicion ? 'Editar impuesto' : 'Nuevo impuesto')
 
@@ -13,21 +13,16 @@
     </a>
 
     <div class="mb-4">
-        <h1 class="h3 mb-1">{{ $esEdicion ? "Editar «{$impuesto->nombre}»" : 'Nuevo impuesto' }}</h1>
+        <h1 class="h3 mb-1" data-titulo-impuesto>{{ $esEdicion ? 'Editar impuesto' : 'Nuevo impuesto' }}</h1>
         <p class="text-body-secondary small mb-0">
             Los campos con <span class="text-danger" aria-hidden="true">*</span> son obligatorios.
         </p>
     </div>
 
-    @include('partials.errores')
-
-    <form method="POST" novalidate
-        action="{{ $esEdicion ? route('precios.impuestos.update', $impuesto) : route('precios.impuestos.store') }}"
-        class="card card-body border-0 shadow-sm">
-        @csrf
-        @if ($esEdicion)
-            @method('PUT')
-        @endif
+    {{-- Envía por la API: los errores de validación los marca el módulo central en cada campo. --}}
+    <form method="POST" novalidate data-formulario-impuesto data-impuesto="{{ $impuestoId ?? '' }}"
+        data-volver="{{ route('precios.index') }}" class="card card-body border-0 shadow-sm">
+        <p class="alert alert-danger" data-errores-formulario hidden></p>
 
         <div class="row g-3">
             <div class="col-12 col-md-6">
@@ -35,17 +30,12 @@
                     Nombre <span class="text-danger" aria-hidden="true">*</span>
                 </label>
 
-                <input type="text" class="form-control @error('nombre') is-invalid @enderror" id="nombre"
-                    name="nombre" value="{{ old('nombre', $impuesto->nombre) }}" required maxlength="60" autofocus
-                    aria-describedby="ayudaNombre @error('nombre') errorNombre @enderror">
+                <input type="text" class="form-control" id="nombre" name="nombre" required maxlength="60" autofocus
+                    aria-describedby="ayudaNombre">
 
                 <div id="ayudaNombre" class="form-text">
                     Es el texto que va a aparecer en el desglose del comprobante.
                 </div>
-
-                @error('nombre')
-                    <div id="errorNombre" class="invalid-feedback">{{ $message }}</div>
-                @enderror
             </div>
 
             <div class="col-12 col-md-6">
@@ -53,16 +43,10 @@
                     Alícuota <span class="text-danger" aria-hidden="true">*</span>
                 </label>
 
-                <div class="input-group">
-                    <input type="text" inputmode="decimal" class="form-control @error('alicuota') is-invalid @enderror"
-                        id="alicuota" name="alicuota"
-                        value="{{ old('alicuota', Importe::numero($impuesto->alicuota, 2)) }}" required
-                        aria-describedby="ayudaAlicuota @error('alicuota') errorAlicuota @enderror">
+                <div class="input-group has-validation">
+                    <input type="text" inputmode="decimal" class="form-control" id="alicuota" name="alicuota" required
+                        aria-describedby="ayudaAlicuota">
                     <span class="input-group-text">%</span>
-
-                    @error('alicuota')
-                        <div id="errorAlicuota" class="invalid-feedback">{{ $message }}</div>
-                    @enderror
                 </div>
 
                 <div id="ayudaAlicuota" class="form-text">Puede ser cero: un producto exento igual declara su IVA en cero.
@@ -85,19 +69,14 @@
                     @endif
                 </div>
 
-                <select class="form-select @error('alcance') is-invalid @enderror" id="alcance" name="alcance" required
-                    @disabled($esEdicion) aria-describedby="ayudaAlcance @error('alcance') errorAlcance @enderror">
+                {{-- Deshabilitado en la edición: el JS manda el valor que trajo la ficha, y el servidor lo
+                     vuelve a validar. La pantalla no es la que decide. --}}
+                <select class="form-select" id="alcance" name="alcance" required @disabled($esEdicion)
+                    aria-describedby="ayudaAlcance">
                     @foreach (Impuesto::ALCANCES as $valor => $texto)
-                        <option value="{{ $valor }}" @selected(old('alcance', $impuesto->alcance) === $valor)>{{ $texto }}</option>
+                        <option value="{{ $valor }}" @selected($valor === 'general')>{{ $texto }}</option>
                     @endforeach
                 </select>
-
-                {{-- Un select deshabilitado no se envía, así que el valor viaja
-                     igual en un campo oculto y el servidor lo vuelve a validar:
-                     la pantalla no es la que decide. --}}
-                @if ($esEdicion)
-                    <input type="hidden" name="alcance" value="{{ $impuesto->alcance }}">
-                @endif
 
                 <div id="ayudaAlcance" class="form-text">
                     @if ($esEdicion)
@@ -106,10 +85,6 @@
                         «Por producto» para alícuotas de IVA; «Todo el catálogo» aplica a todos los productos.
                     @endif
                 </div>
-
-                @error('alcance')
-                    <div id="errorAlcance" class="invalid-feedback">{{ $message }}</div>
-                @enderror
             </div>
 
             <div class="col-12 col-md-6">
@@ -125,48 +100,36 @@
                     </button>
                 </div>
 
-                <select class="form-select @error('comprobante') is-invalid @enderror" id="comprobante" name="comprobante"
-                    required aria-describedby="ayudaComprobante @error('comprobante') errorComprobante @enderror">
+                <select class="form-select" id="comprobante" name="comprobante" required aria-describedby="ayudaComprobante">
                     @foreach (Impuesto::COMPROBANTES as $valor => $texto)
-                        <option value="{{ $valor }}" @selected(old('comprobante', $impuesto->comprobante) === $valor)>{{ $texto }}</option>
+                        <option value="{{ $valor }}" @selected($valor === 'otros_nacionales')>{{ $texto }}</option>
                     @endforeach
                 </select>
 
                 <div id="ayudaComprobante" class="form-text">
                     Discriminación legal según la normativa de facturación.
                 </div>
-
-                @error('comprobante')
-                    <div id="errorComprobante" class="invalid-feedback">{{ $message }}</div>
-                @enderror
             </div>
 
             <div class="col-12 col-md-6">
                 <label for="orden" class="form-label">Orden</label>
 
-                <input type="text" inputmode="numeric" class="form-control @error('orden') is-invalid @enderror"
-                    id="orden" name="orden" value="{{ old('orden', $impuesto->orden) }}"
-                    aria-describedby="ayudaOrden @error('orden') errorOrden @enderror">
+                <input type="text" inputmode="numeric" class="form-control" id="orden" name="orden" value="0"
+                    aria-describedby="ayudaOrden">
 
                 <div id="ayudaOrden" class="form-text">En qué lugar del desglose aparece. De menor a mayor.</div>
-
-                @error('orden')
-                    <div id="errorOrden" class="invalid-feedback">{{ $message }}</div>
-                @enderror
             </div>
 
             <div class="col-12">
                 <div class="form-check">
-                    <input class="form-check-input" type="checkbox" value="1" id="activo" name="activo"
-                        @checked(old('activo', $impuesto->activo ?? true))>
+                    <input class="form-check-input" type="checkbox" value="1" id="activo" name="activo" checked>
                     <label class="form-check-label" for="activo">Impuesto activo</label>
                     <div class="form-text">
-                        @if ($enUso)
+                        <span data-ayuda-en-uso hidden>
                             Hay productos con esta alícuota. Desactivarla la saca del selector de
                             los productos nuevos; los que ya la tienen la conservan.
-                        @else
-                            Un impuesto inactivo no entra en ningún cálculo.
-                        @endif
+                        </span>
+                        <span data-ayuda-sin-uso>Un impuesto inactivo no entra en ningún cálculo.</span>
                     </div>
                 </div>
             </div>

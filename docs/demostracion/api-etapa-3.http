@@ -370,3 +370,117 @@ Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
 GET {{base}}/proveedores/impresion?formato=pdf
 Accept: application/json
 Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+### ── Tramo F — Precios y stock ──────────────────────────────────────────────
+
+# Cambiar cinco mil precios es del Administrador (tramo D). Su contraseña no es la de demostración:
+# es la de `ADMIN_PASSWORD` en tu `.env`. Ponela acá sólo en tu copia local, nunca en el repositorio.
+@claveAdministrador = la-de-tu-env
+
+# @name sesionAdministrador
+POST {{base}}/sesion
+Accept: application/json
+Content-Type: application/json
+
+{ "email": "admin@sistema.local", "password": "{{claveAdministrador}}" }
+
+###
+
+# La parametrización: la política vigente, los impuestos (cada alícuota cuenta los productos que la
+# usan, lo cuenta la base) y los factores de costo.
+GET {{base}}/precios/politica
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+GET {{base}}/impuestos
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Qué precio daría un costo, sin escribir nada. Sin `ganancia`, la global; el `calculo` es el mismo de
+# la ficha de gestión de un producto.
+GET {{base}}/precios/simulacion?costo=20000&alicuota_iva=21.00
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# La validación rechaza, no corrige (M-31): la política sin redondeo es 422.
+PATCH {{base}}/precios/politica
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+{ "ganancia_global": "2,5", "recargo_lista": "0" }
+
+###
+
+# El ajuste masivo, primero mirado: los conteos del conjunto entero y una página de «precio actual →
+# nuevo». No escribe nada. Sin precio.ver_costo, las claves `costo` y `costo_nuevo` no viajan.
+GET {{base}}/precios/ajustes/vista-previa?operacion=precio&porcentaje=5&alcance=todos&incluir_manuales=0
+Accept: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+###
+
+# Y después aplicado: 201 con el lote y su criterio congelado como texto.
+# Si no alcanza a ningún producto, 409 regla_de_negocio: no se escribió nada (HL-122).
+# @name ajusteMasivo
+POST {{base}}/precios/ajustes
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+{ "operacion": "precio", "porcentaje": "5", "alcance": "todos", "incluir_manuales": false }
+
+###
+
+# El historial dice cuál es el único lote que se puede deshacer (`reversible`, en el sobre y en su fila).
+GET {{base}}/precios/lotes
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Deshacer escribe un lote nuevo que devuelve los precios (M-16). El administrativo no puede: 403.
+POST {{base}}/precios/lotes/{{ajusteMasivo.response.body.datos.id}}/deshacer
+Accept: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+###
+
+# El kardex, del más nuevo al más viejo y de a 20. Un rango de fechas al revés es 422 (HL-120).
+GET {{base}}/stock/movimientos?tipo=compra
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# El stock de un producto y dónde está lo reservado: pedidos de la tienda sin cobrar y compras que se
+# están confirmando (D-25). Es la referencia que el ajuste manda en `stock_esperado`.
+GET {{base}}/productos/1/stock
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# El ajuste por conteo: se carga lo contado, no la diferencia. Si `stock_esperado` ya no es el de la
+# base, alguien movió el stock mientras se contaba: 409, sin pisar ese movimiento.
+POST {{base}}/productos/1/ajustes-stock
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{ "stock_contado": 8, "stock_esperado": 10, "motivo": "Dos unidades con la caja rota" }
+
+###
+
+# La impresión del kardex, por URL firmada (D-22), con los filtros puestos y sin la página.
+GET {{base}}/stock/movimientos/impresion?formato=csv&tipo=ajuste
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}

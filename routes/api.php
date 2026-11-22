@@ -1,23 +1,28 @@
 <?php
 
 use App\Http\Controllers\Api\V1\ComprobanteTransferenciaController;
+use App\Http\Controllers\Api\V1\AjusteMasivoController;
 use App\Http\Controllers\Api\V1\CarritoController;
 use App\Http\Controllers\Api\V1\CarritoLineaController;
 use App\Http\Controllers\Api\V1\CategoriaController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClienteController;
 use App\Http\Controllers\Api\V1\DireccionController;
+use App\Http\Controllers\Api\V1\FactorCostoController;
 use App\Http\Controllers\Api\V1\ImpresionController;
+use App\Http\Controllers\Api\V1\ImpuestoController;
 use App\Http\Controllers\Api\V1\MarcaController;
 use App\Http\Controllers\Api\V1\PagoPedidoController;
 use App\Http\Controllers\Api\V1\PedidoController;
 use App\Http\Controllers\Api\V1\PerfilController;
+use App\Http\Controllers\Api\V1\PoliticaPreciosController;
 use App\Http\Controllers\Api\V1\ProductoController;
 use App\Http\Controllers\Api\V1\ProductoProveedorController;
 use App\Http\Controllers\Api\V1\ProveedorController;
 use App\Http\Controllers\Api\V1\RegistroController;
 use App\Http\Controllers\Api\V1\SesionController;
 use App\Http\Controllers\Api\V1\SimuladorController;
+use App\Http\Controllers\Api\V1\StockController;
 use App\Http\Controllers\Api\V1\TiendaController;
 use App\Http\Controllers\Api\V1\YoController;
 use App\Impresion\ComprobanteVenta;
@@ -156,6 +161,15 @@ Route::prefix('v1')->group(function () {
             Route::delete('productos/{producto}/proveedores/{proveedor}', [ProductoProveedorController::class, 'destroy'])->whereNumber(['producto', 'proveedor']);
         });
 
+        // El kardex y el ajuste por conteo (tramo F). Ver el kardex y ajustar son permisos distintos.
+        Route::middleware('can:stock.ver')->group(function () {
+            Route::get('stock/movimientos', [StockController::class, 'movimientos']);
+            Route::get('stock/movimientos/impresion', [StockController::class, 'impresion']);
+            Route::get('stock/usuarios', [StockController::class, 'usuarios']);
+            Route::get('productos/{producto}/stock', [StockController::class, 'producto'])->whereNumber('producto');
+        });
+        Route::post('productos/{producto}/ajustes-stock', [StockController::class, 'ajustar'])->whereNumber('producto')->middleware('can:stock.ajustar');
+
         // El listado de categorías es `GET categorias?forma=lista`, arriba: el mismo recurso (regla 36).
         Route::middleware('can:categoria.ver')->group(function () {
             Route::get('categorias/impresion', [CategoriaController::class, 'impresion']);
@@ -165,6 +179,34 @@ Route::prefix('v1')->group(function () {
         Route::post('categorias', [CategoriaController::class, 'store'])->middleware('can:categoria.crear');
         Route::patch('categorias/{categoria}', [CategoriaController::class, 'update'])->whereNumber('categoria')->middleware('can:categoria.editar');
         Route::delete('categorias/{categoria}', [CategoriaController::class, 'destroy'])->whereNumber('categoria')->middleware('can:categoria.eliminar');
+
+        // Los impuestos y los factores de costo (tramo F). Leer pide `precio.ver`; escribir, `precio.editar`.
+        Route::middleware('can:precio.ver')->group(function () {
+            Route::get('impuestos', [ImpuestoController::class, 'index']);
+            Route::get('impuestos/{impuesto}', [ImpuestoController::class, 'show'])->whereNumber('impuesto');
+            Route::get('factores-costo', [FactorCostoController::class, 'index']);
+            Route::get('factores-costo/{factor}', [FactorCostoController::class, 'show'])->whereNumber('factor');
+            Route::get('precios/politica', [PoliticaPreciosController::class, 'show']);
+            Route::get('precios/simulacion', [PoliticaPreciosController::class, 'simulacion']);
+        });
+        Route::middleware('can:precio.editar')->group(function () {
+            Route::post('impuestos', [ImpuestoController::class, 'store']);
+            Route::patch('impuestos/{impuesto}', [ImpuestoController::class, 'update'])->whereNumber('impuesto');
+            Route::delete('impuestos/{impuesto}', [ImpuestoController::class, 'destroy'])->whereNumber('impuesto');
+            Route::post('factores-costo', [FactorCostoController::class, 'store']);
+            Route::patch('factores-costo/{factor}', [FactorCostoController::class, 'update'])->whereNumber('factor');
+            Route::delete('factores-costo/{factor}', [FactorCostoController::class, 'destroy'])->whereNumber('factor');
+            Route::patch('precios/politica', [PoliticaPreciosController::class, 'update']);
+        });
+
+        // El ajuste masivo (tramo F): la vista previa y el ajuste comparten el Form Request, para que no
+        // puedan mostrar un conjunto y escribir otro. El historial se lee con `precio.ver`.
+        Route::middleware('can:precio.ajustar_masivo')->group(function () {
+            Route::get('precios/ajustes/vista-previa', [AjusteMasivoController::class, 'vistaPrevia']);
+            Route::post('precios/ajustes', [AjusteMasivoController::class, 'store']);
+        });
+        Route::get('precios/lotes', [AjusteMasivoController::class, 'lotes'])->middleware('can:precio.ver');
+        Route::post('precios/lotes/{lote}/deshacer', [AjusteMasivoController::class, 'deshacer'])->whereNumber('lote')->middleware('can:precio.deshacer_ajuste');
     });
 
     // Protegida de la tienda.

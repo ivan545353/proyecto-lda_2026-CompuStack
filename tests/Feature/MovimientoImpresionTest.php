@@ -18,6 +18,15 @@ beforeEach(function () {
         explode("\r\n", rtrim(substr($csv, 3), "\r\n")),
     );
 
+    // El CSV o el PDF del kardex por la API (tramo F): se pide el enlace firmado y se abre sin credencial.
+    $this->descargar = function (array $consulta = []) {
+        app('auth')->forgetGuards();
+        $url = $this->getJson('/api/v1/stock/movimientos/impresion?'.http_build_query($consulta), bearer(usuarioCon('stock.ver')))
+            ->assertOk()->json('datos.url');
+
+        return $this->get($url)->assertOk();
+    };
+
     // Un ajuste por StockService: un movimiento no se escribe por otra puerta.
     $this->ajuste = fn (Producto $producto, int $contado, $quien) => app(StockService::class)
         ->ajustar($producto, $contado, 'Conteo de inventario', $quien, $producto->fresh()->stock);
@@ -26,11 +35,11 @@ beforeEach(function () {
 test('imprimir el kardex pide stock.ver y ningun otro permiso del modulo lo habilita', function () {
     $otros = array_values(array_diff(permisosDelModulo('stock'), ['stock.ver']));
 
-    $this->actingAs(usuarioCon(...$otros))->get(route('stock.imprimir'))->assertForbidden();
+    $this->getJson('/api/v1/stock/movimientos/impresion', bearer(usuarioCon(...$otros)))
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
 
-    $respuesta = $this->actingAs(usuarioCon('stock.ver'))->get(route('stock.imprimir'));
+    $respuesta = ($this->descargar)();
 
-    $respuesta->assertOk();
     expect($respuesta->headers->get('content-type'))->toContain('application/pdf')
         ->and($respuesta->headers->get('content-disposition'))->toContain('movimientos-');
 });
@@ -41,10 +50,7 @@ test('el kardex impreso dice lo que habia antes, lo que quedo y quien lo registr
     ($this->ajuste)($producto, 15, $quien);
     ($this->ajuste)(Producto::factory()->conStock(4)->create(), 1, $quien);
 
-    $filas = ($this->filasDe)($this->actingAs(usuarioCon('stock.ver'))
-        ->get(route('stock.imprimir', ['formato' => 'csv', 'producto_id' => $producto->id]))
-        ->assertOk()
-        ->streamedContent());
+    $filas = ($this->filasDe)(($this->descargar)(['formato' => 'csv', 'producto_id' => $producto->id])->streamedContent());
 
     expect($filas[2][0])->toBe('Alcance: Producto: SSD-1TB — Disco SSD')
         ->and($filas[4])->toBe([
@@ -61,9 +67,7 @@ test('un movimiento que baja el stock sale con su signo y la planilla lo lee com
     $producto = Producto::factory()->conStock(10)->create();
     ($this->ajuste)($producto, 7, admin());
 
-    $filas = ($this->filasDe)($this->actingAs(usuarioCon('stock.ver'))
-        ->get(route('stock.imprimir', ['formato' => 'csv', 'columnas' => ['cantidad', 'anterior', 'resultante']]))
-        ->streamedContent());
+    $filas = ($this->filasDe)(($this->descargar)(['formato' => 'csv', 'columnas' => ['cantidad', 'anterior', 'resultante']])->streamedContent());
 
     expect($filas[5])->toBe(['-3', '10', '7']);
 });
@@ -90,10 +94,15 @@ test('las consultas del kardex impreso no crecen con los movimientos', function 
     expect($muchas)->toBe($pocas);
 });
 
-test('el boton de imprimir del kardex lleva los filtros puestos y no la pagina', function () {
-    $this->actingAs(usuarioCon('stock.ver'))
-        ->get(route('stock.index', ['tipo' => 'ajuste', 'page' => 2]))
-        ->assertOk()
-        ->assertSee(route('stock.imprimir', ['tipo' => 'ajuste']))
-        ->assertDontSee(route('stock.imprimir', ['tipo' => 'ajuste', 'page' => 2]));
+test('el enlace de imprimir del kardex lleva los filtros puestos y no la pagina', function () {
+    $url = $this->getJson('/api/v1/stock/movimientos/impresion?tipo=ajuste&pagina=2', bearer(usuarioCon('stock.ver')))
+        ->assertOk()->json('datos.url');
+
+    expect($url)->toContain('tipo=ajuste')->not->toContain('pagina=');
+});
+
+test('un filtro invalido del kardex impreso se rechaza en lugar de imprimir otra cosa', function () {
+    $this->getJson('/api/v1/stock/movimientos/impresion?tipo=telepatia', bearer(usuarioCon('stock.ver')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('tipo', 'errores');
 });

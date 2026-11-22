@@ -145,15 +145,22 @@ test('el kardex no hace mas consultas con mas movimientos', function () {
         }
     };
 
+    // Desde el tramo F el kardex lo lista la API: se mide el endpoint, con el reloj quieto por Sanctum.
+    $this->freezeTime();
+    $encabezado = bearer($usuario);
+    $kardex     = fn () => $this->getJson('/api/v1/stock/movimientos', $encabezado)->assertOk();
+
     $asentar(5);
 
-    $this->actingAs($usuario)->get('/stock')->assertOk();
+    $kardex();
+    app('auth')->forgetGuards();
 
-    $pocas = contarConsultas(fn () => $this->actingAs($usuario)->get('/stock')->assertOk());
+    $pocas = contarConsultas($kardex);
+    app('auth')->forgetGuards();
 
     $asentar(45);
 
-    $muchas = contarConsultas(fn () => $this->actingAs($usuario)->get('/stock')->assertOk());
+    $muchas = contarConsultas($kardex);
 
     expect($muchas)->toBe($pocas);
 });

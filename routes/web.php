@@ -180,18 +180,12 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/proveedores/{proveedor}/editar', [ProveedorController::class, 'edit'])
         ->middleware('can:proveedor.editar')->name('proveedores.edit');
 
-    // Compras — Stock y kardex
+    // Compras — Stock y kardex: las pantallas. El kardex, su impresión y el ajuste están en la API (tramo F).
     Route::get('/stock', [StockController::class, 'index'])
         ->middleware('can:stock.ver')->name('stock.index');
 
-    Route::get('/stock/imprimir', [StockController::class, 'imprimir'])
-        ->middleware('can:stock.ver')->name('stock.imprimir');
-
     Route::get('/stock/{producto}/ajuste', [StockController::class, 'crearAjuste'])
         ->middleware('can:stock.ajustar')->name('stock.ajuste.create');
-
-    Route::post('/stock/{producto}/ajuste', [StockController::class, 'guardarAjuste'])
-        ->middleware('can:stock.ajustar')->name('stock.ajuste.store');
 
     // Compras
     Route::get('/compras', [CompraController::class, 'index'])
@@ -345,52 +339,26 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/precios/simulador', [PrecioController::class, 'simulador'])
         ->middleware('can:precio.ver')->name('precios.simulador');
 
-    // Precios — ajuste masivo. 
+    // Precios — ajuste masivo: las pantallas; aplicar y deshacer están en la API (tramo F).
     Route::get('/precios/ajuste', [AjusteMasivoController::class, 'index'])
         ->middleware('can:precio.ajustar_masivo')->name('precios.ajuste');
-
-    Route::post('/precios/ajuste', [AjusteMasivoController::class, 'aplicar'])
-        ->middleware('can:precio.ajustar_masivo')->name('precios.ajuste.aplicar');
 
     Route::get('/precios/lotes', [AjusteMasivoController::class, 'lotes'])
         ->middleware('can:precio.ver')->name('precios.lotes');
 
-    Route::post('/precios/lotes/{lote}/deshacer', [AjusteMasivoController::class, 'deshacer'])
-        ->middleware('can:precio.deshacer_ajuste')->name('precios.lotes.deshacer');
-
+    // Las pantallas de edición; las operaciones están en la API (tramo F).
     Route::middleware('can:precio.editar')->group(function () {
-            Route::put('/precios/politica', [PrecioController::class, 'actualizarPolitica'])
-                ->name('precios.politica.update');
-
             Route::get('/precios/impuestos/crear', [PrecioController::class, 'crearImpuesto'])
                 ->name('precios.impuestos.create');
-
-            Route::post('/precios/impuestos', [PrecioController::class, 'guardarImpuesto'])
-                ->name('precios.impuestos.store');
 
             Route::get('/precios/impuestos/{impuesto}/editar', [PrecioController::class, 'editarImpuesto'])
                 ->name('precios.impuestos.edit');
 
-            Route::put('/precios/impuestos/{impuesto}', [PrecioController::class, 'actualizarImpuesto'])
-                ->name('precios.impuestos.update');
-
-            Route::delete('/precios/impuestos/{impuesto}', [PrecioController::class, 'eliminarImpuesto'])
-                ->name('precios.impuestos.destroy');
-
             Route::get('/precios/factores/crear', [PrecioController::class, 'crearFactor'])
                 ->name('precios.factores.create');
 
-            Route::post('/precios/factores', [PrecioController::class, 'guardarFactor'])
-                ->name('precios.factores.store');
-
             Route::get('/precios/factores/{factor}/editar', [PrecioController::class, 'editarFactor'])
                 ->name('precios.factores.edit');
-
-            Route::put('/precios/factores/{factor}', [PrecioController::class, 'actualizarFactor'])
-                ->name('precios.factores.update');
-
-            Route::delete('/precios/factores/{factor}', [PrecioController::class, 'eliminarFactor'])
-                ->name('precios.factores.destroy');
         });
 
     Route::middleware('can:rol.editar')->group(function () {

@@ -16,8 +16,12 @@ beforeEach(function () {
     $this->seed(RolPermisoSeeder::class);
 
     // Los números del comercio, para que el motor dé 60.500 con un costo de 20.000.
-    // `servicioConPolitica()` vive en PrecioServiceTest.
     servicioConPolitica();
+
+    // Los códigos de una vista previa, como los ve la pantalla. Closure y no función global (tests.md).
+    $this->codigosDe = fn (string $url, User $usuario) => collect(
+        $this->getJson($url, bearer($usuario))->assertOk()->json('datos'),
+    )->pluck('codigo')->all();
 });
 
 /*
@@ -27,41 +31,49 @@ beforeEach(function () {
 |
 | `AjusteMasivoServiceTest` prueba que el servicio hace lo que dice;
 | `AjusteMasivoFiltrosTest`, que cada scope filtra. Lo que falta es el cableado:
-| que el parámetro de la URL llegue al scope, que cada ruta exija su permiso, que
-| la validación rechace y que la pantalla no ofrezca lo que el servidor va a negar.
+| que el parámetro llegue al scope, que cada endpoint exija su permiso, que la
+| validación rechace y que la pantalla no ofrezca lo que el servidor va a negar.
 |
 | A-24 pasó once commits sin detectarse porque el scope funcionaba y el cableado no.
 | Acá el riesgo es el mismo con siete recortes en lugar de uno.
 |
+| Desde el tramo F de la Etapa 3 la vista previa, el ajuste, el historial y deshacer
+| son endpoints: los tests migraron conservando cada aserción.
+|
 */
 
-/** Un cuerpo válido que sirve para cualquiera de las rutas; lo que sobra se ignora. */
+/** Un cuerpo válido que sirve para cualquiera de los endpoints; lo que sobra se ignora. */
 function cuerpoDeAjuste(array $cambios = []): array
 {
     return array_merge([
-        'operacion'  => 'precio',
-        'porcentaje' => '15',
-        'alcance'    => 'todos',
+        'operacion'        => 'precio',
+        'porcentaje'       => '15',
+        'alcance'          => 'todos',
+        'incluir_manuales' => false,
     ], $cambios);
 }
 
-/** La URL de la ruta, con el lote que necesite. `loteDePrueba()` vive en PrecioServiceTest. */
+/** La URL de una pantalla del ajuste. Desde el tramo F las dos que quedan son GET sin parámetros. */
 function urlDelAjuste(string $ruta, ?string $parametro): string
 {
-    return $parametro === 'lote'
-        ? route($ruta, loteDePrueba())
-        : route($ruta);
+    return route($ruta);
 }
 
-/** La previsualización de un ajuste, como la pide la pantalla: por GET. */
+/** La vista previa de un ajuste por la API: un GET, como la pide la pantalla. */
 function previsualizacion(array $parametros = []): string
 {
-    return route('precios.ajuste', array_merge([
-        'previsualizar' => 1,
-        'operacion'     => 'precio',
-        'porcentaje'    => '15',
-        'alcance'       => 'recorte',
+    return '/api/v1/precios/ajustes/vista-previa?'.http_build_query(array_merge([
+        'operacion'        => 'precio',
+        'porcentaje'       => '15',
+        'alcance'          => 'recorte',
+        'incluir_manuales' => 0,
     ], $parametros));
+}
+
+/** Aplica un ajuste por la API. */
+function aplicarAjuste($test, User $usuario, array $cambios = [])
+{
+    return $test->postJson('/api/v1/precios/ajustes', cuerpoDeAjuste($cambios), bearer($usuario));
 }
 
 /*
@@ -73,15 +85,21 @@ function previsualizacion(array $parametros = []): string
 | deniega, y con SÓLO el de la ruta se permite. Si una ruta quedara protegida por el
 | permiso equivocado, falla una de las dos.
 |
-| `PERMISOS_PRECIO` es la lista completa del módulo y vive en PrecioModuloTest.
-|
 */
 
+// Las pantallas. Aplicar y deshacer salieron de la web en el tramo F: sus filas son las del dataset
+// de endpoints, con el mismo permiso.
 dataset('rutas del ajuste masivo', [
-    'pantalla del ajuste' => ['get',  'precios.ajuste',         'precio.ajustar_masivo',  null],
-    'aplicar el ajuste'   => ['post', 'precios.ajuste.aplicar', 'precio.ajustar_masivo',  null],
-    'historial de lotes'  => ['get',  'precios.lotes',          'precio.ver',             null],
-    'deshacer un ajuste'  => ['post', 'precios.lotes.deshacer', 'precio.deshacer_ajuste', 'lote'],
+    'pantalla del ajuste' => ['get', 'precios.ajuste', 'precio.ajustar_masivo', null],
+    'historial de lotes'  => ['get', 'precios.lotes',  'precio.ver',            null],
+]);
+
+// Las operaciones, en la API (tramo F de la Etapa 3). `{lote}` se reemplaza por un lote de prueba.
+dataset('endpoints del ajuste masivo', [
+    'vista previa'       => ['get',  '/api/v1/precios/ajustes/vista-previa?operacion=precio&porcentaje=15&alcance=todos&incluir_manuales=0', 'precio.ajustar_masivo'],
+    'aplicar el ajuste'  => ['post', '/api/v1/precios/ajustes',             'precio.ajustar_masivo'],
+    'historial de lotes' => ['get',  '/api/v1/precios/lotes',               'precio.ver'],
+    'deshacer un ajuste' => ['post', '/api/v1/precios/lotes/{lote}/deshacer', 'precio.deshacer_ajuste'],
 ]);
 
 test('ningun otro permiso del modulo habilita la ruta del ajuste', function (string $metodo, string $ruta, string $permiso, ?string $parametro) {
@@ -106,6 +124,59 @@ test('el permiso de la ruta del ajuste alcanza para pasar', function (string $me
     expect($respuesta->status())->not->toBe(403);
 })->with('rutas del ajuste masivo');
 
+test('en la API, ningun otro permiso del modulo habilita el endpoint del ajuste', function (string $metodo, string $url, string $permiso) {
+    $otros = array_values(array_diff(permisosDelModulo('precio'), [$permiso]));
+
+    $this->json($metodo, str_replace('{lote}', (string) loteDePrueba()->id, $url), cuerpoDeAjuste(), bearer(usuarioCon(...$otros)))
+        ->assertForbidden()
+        ->assertJsonPath('codigo', 'sin_permiso');
+})->with('endpoints del ajuste masivo');
+
+test('en la API, el permiso del endpoint del ajuste alcanza para pasar', function (string $metodo, string $url, string $permiso) {
+    // Con un producto que el ajuste alcanza: si no, aplicar y deshacer responderían 409, que no es
+    // un problema de permisos pero tampoco prueba que el permiso alcance.
+    productoConPrecioCalculado(20000);
+    $usuario = usuarioCon($permiso);
+
+    if (str_contains($url, '{lote}')) {
+        aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'))->assertCreated();
+        app('auth')->forgetGuards();
+    }
+
+    $respuesta = $this->json($metodo, str_replace('{lote}', (string) LoteAjuste::query()->latest('id')->value('id'), $url), cuerpoDeAjuste(), bearer($usuario));
+
+    expect($respuesta->status())->toBeLessThan(300);
+})->with('endpoints del ajuste masivo');
+
+test('las rutas web de escritura del ajuste ya no existen', function () {
+    // Aplicar y deshacer son de la API (tramo F): la web sólo entrega las pantallas.
+    $usuario = usuarioCon(...permisosDelModulo('precio'));
+
+    expect($this->actingAs($usuario)->post('/precios/ajuste', cuerpoDeAjuste())->status())->toBeIn([404, 405])
+        ->and($this->actingAs($usuario)->post('/precios/lotes/'.loteDePrueba()->id.'/deshacer')->status())->toBeIn([404, 405]);
+});
+
+test('las pantallas del ajuste no llevan datos de negocio', function () {
+    // Regla 37: el shell trae la estructura; los productos, las marcas y los lotes los pide el JS.
+    $marca = Marca::factory()->create(['nombre' => 'MarcaDelShell']);
+    productoConPrecioCalculado(20000, ['codigo' => 'CODSHELL', 'marca_id' => $marca->id]);
+    $usuario = usuarioCon(...[...permisosDelModulo('precio'), 'marca.ver']);
+
+    aplicarAjuste($this, $usuario)->assertCreated();
+    app('auth')->forgetGuards();
+
+    $this->actingAs($usuario)->get(route('precios.ajuste', ['previsualizar' => 1, 'operacion' => 'precio', 'porcentaje' => '15', 'alcance' => 'todos']))
+        ->assertOk()
+        ->assertSee('data-pantalla="ajuste-masivo"', false)
+        ->assertDontSee('CODSHELL')
+        ->assertDontSee('MarcaDelShell');
+
+    $this->actingAs($usuario)->get(route('precios.lotes'))
+        ->assertOk()
+        ->assertSee('data-pantalla="lotes"', false)
+        ->assertDontSee('Todos los productos');
+});
+
 test('el administrativo ve el historial y no puede ajustar ni deshacer', function () {
     // El reparto que fijó el tramo D: cambiar cinco mil precios es del Administrador.
     // El Administrativo conserva recalcular un producto, y puede leer qué pasó.
@@ -113,8 +184,12 @@ test('el administrativo ve el historial y no puede ajustar ni deshacer', functio
 
     $this->actingAs($usuario)->get(route('precios.lotes'))->assertOk();
     $this->actingAs($usuario)->get(route('precios.ajuste'))->assertForbidden();
-    $this->actingAs($usuario)
-        ->post(route('precios.lotes.deshacer', loteDePrueba()), [])
+
+    app('auth')->forgetGuards();
+
+    $this->getJson('/api/v1/precios/lotes', bearer($usuario))->assertOk();
+    aplicarAjuste($this, $usuario)->assertForbidden();
+    $this->postJson('/api/v1/precios/lotes/'.loteDePrueba()->id.'/deshacer', [], bearer($usuario))
         ->assertForbidden();
 });
 
@@ -142,11 +217,9 @@ test('el recorte por categoria llega al scope e incluye las subcategorias', func
     productoConPrecioCalculado(20000, ['codigo' => 'ADENTRO', 'categoria_id' => $memorias->id]);
     productoConPrecioCalculado(20000, ['codigo' => 'AFUERA', 'categoria_id' => $otra->id]);
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo', 'precio.ver_costo'))
-        ->get(previsualizacion(['categoria_id' => $componentes->id]))
-        ->assertOk()
-        ->assertSee('ADENTRO')
-        ->assertDontSee('AFUERA');
+    expect(($this->codigosDe)(previsualizacion(['categoria_id' => $componentes->id]), usuarioCon('precio.ajustar_masivo', 'precio.ver_costo')))
+        ->toContain('ADENTRO')
+        ->not->toContain('AFUERA');
 });
 
 test('el recorte por marca llega al scope', function () {
@@ -155,11 +228,9 @@ test('el recorte por marca llega al scope', function () {
     productoConPrecioCalculado(20000, ['codigo' => 'ADENTRO', 'marca_id' => $marca->id]);
     productoConPrecioCalculado(20000, ['codigo' => 'AFUERA', 'marca_id' => Marca::factory()->create()->id]);
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->get(previsualizacion(['marca_id' => $marca->id]))
-        ->assertOk()
-        ->assertSee('ADENTRO')
-        ->assertDontSee('AFUERA');
+    expect(($this->codigosDe)(previsualizacion(['marca_id' => $marca->id]), usuarioCon('precio.ajustar_masivo')))
+        ->toContain('ADENTRO')
+        ->not->toContain('AFUERA');
 });
 
 test('el recorte por proveedor llega al scope', function () {
@@ -171,22 +242,18 @@ test('el recorte por proveedor llega al scope', function () {
 
     productoConPrecioCalculado(20000, ['codigo' => 'AFUERA']);
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->get(previsualizacion(['proveedor_id' => $mayorista->id]))
-        ->assertOk()
-        ->assertSee('ADENTRO')
-        ->assertDontSee('AFUERA');
+    expect(($this->codigosDe)(previsualizacion(['proveedor_id' => $mayorista->id]), usuarioCon('precio.ajustar_masivo')))
+        ->toContain('ADENTRO')
+        ->not->toContain('AFUERA');
 });
 
 test('la seleccion manual del catalogo llega al scope', function () {
     $elegido = productoConPrecioCalculado(20000, ['codigo' => 'ADENTRO']);
     productoConPrecioCalculado(20000, ['codigo' => 'AFUERA']);
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->get(previsualizacion(['ids' => [$elegido->id]]))
-        ->assertOk()
-        ->assertSee('ADENTRO')
-        ->assertDontSee('AFUERA');
+    expect(($this->codigosDe)(previsualizacion(['ids' => [$elegido->id]]), usuarioCon('precio.ajustar_masivo')))
+        ->toContain('ADENTRO')
+        ->not->toContain('AFUERA');
 });
 
 test('la seleccion llega del catalogo sin previsualizar, y la pantalla la conserva', function () {
@@ -205,22 +272,18 @@ test('el recorte por rango de costo llega al scope', function () {
     productoConPrecioCalculado(5000, ['codigo' => 'BARATO']);
     productoConPrecioCalculado(90000, ['codigo' => 'CARO']);
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->get(previsualizacion(['costo_hasta' => '10000']))
-        ->assertOk()
-        ->assertSee('BARATO')
-        ->assertDontSee('CARO');
+    expect(($this->codigosDe)(previsualizacion(['costo_hasta' => '10000']), usuarioCon('precio.ajustar_masivo')))
+        ->toContain('BARATO')
+        ->not->toContain('CARO');
 });
 
 test('el recorte por rango de precio mira el precio de contado', function () {
     productoConPrecioCalculado(5000, ['codigo' => 'BARATO']);     // 15.125
     productoConPrecioCalculado(90000, ['codigo' => 'CARO']);      // 272.250
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->get(previsualizacion(['precio_hasta' => '20000']))
-        ->assertOk()
-        ->assertSee('BARATO')
-        ->assertDontSee('CARO');
+    expect(($this->codigosDe)(previsualizacion(['precio_hasta' => '20000']), usuarioCon('precio.ajustar_masivo')))
+        ->toContain('BARATO')
+        ->not->toContain('CARO');
 });
 
 test('el recorte cruzado por URL no deja pasar lo que cumple una sola condicion', function () {
@@ -239,12 +302,10 @@ test('el recorte cruzado por URL no deja pasar lo que cumple una sola condicion'
 
     productoConPrecioCalculado(20000, ['codigo' => 'OTRACAT']);
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->get(previsualizacion(['categoria_id' => $categoria->id, 'proveedor_id' => $mayorista->id]))
-        ->assertOk()
-        ->assertSee('ADENTRO')
-        ->assertDontSee('OTROPROV')
-        ->assertDontSee('OTRACAT');
+    expect(($this->codigosDe)(previsualizacion(['categoria_id' => $categoria->id, 'proveedor_id' => $mayorista->id]), usuarioCon('precio.ajustar_masivo')))
+        ->toContain('ADENTRO')
+        ->not->toContain('OTROPROV')
+        ->not->toContain('OTRACAT');
 });
 
 test('la casilla de precio manual cambia a quien alcanza el ajuste', function () {
@@ -252,15 +313,31 @@ test('la casilla de precio manual cambia a quien alcanza el ajuste', function ()
 
     $usuario = usuarioCon('precio.ajustar_masivo');
 
-    $this->actingAs($usuario)
-        ->get(previsualizacion(['alcance' => 'todos']))
-        ->assertOk()
-        ->assertDontSee('AMANO');
+    expect(($this->codigosDe)(previsualizacion(['alcance' => 'todos']), $usuario))->not->toContain('AMANO')
+        ->and(($this->codigosDe)(previsualizacion(['alcance' => 'todos', 'incluir_manuales' => 1]), $usuario))->toContain('AMANO');
+});
 
-    $this->actingAs($usuario)
-        ->get(previsualizacion(['alcance' => 'todos', 'incluir_manuales' => 1]))
+test('la vista previa trae los conteos y el criterio escrito', function () {
+    $categoria = Categoria::factory()->create(['nombre' => 'Memorias']);
+    productoConPrecioCalculado(20000, ['categoria_id' => $categoria->id]);
+
+    $this->getJson(previsualizacion(['categoria_id' => $categoria->id]), bearer(usuarioCon('precio.ajustar_masivo')))
         ->assertOk()
-        ->assertSee('AMANO');
+        ->assertJsonPath('conteos.total', 1)
+        ->assertJsonPath('conteos.alcanzados', 1)
+        ->assertJsonPath('criterio_texto', 'Categoría Memorias y sus subcategorías')
+        ->assertJsonPath('datos.0.precio_contado', '60500.00')
+        ->assertJsonPath('datos.0.nuevo_contado', '69575.00')
+        ->assertJsonPath('datos.0.resultado_texto', 'Cambia precio');
+});
+
+test('la API rechaza una vista previa sin la casilla de precio manual en lugar de suponerla', function () {
+    // Rechaza, no corrige (M-31): la casilla ausente era «no incluir» en la web.
+    $url = '/api/v1/precios/ajustes/vista-previa?operacion=precio&porcentaje=15&alcance=todos';
+
+    $this->getJson($url, bearer(usuarioCon('precio.ajustar_masivo')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('incluir_manuales', 'errores');
 });
 
 /*
@@ -273,8 +350,7 @@ test('previsualizar no escribe ningun precio ni ningun lote', function () {
     $producto = productoConPrecioCalculado(20000);
     $asientos = HistorialPrecio::count();
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->get(previsualizacion(['alcance' => 'todos']))
+    $this->getJson(previsualizacion(['alcance' => 'todos']), bearer(usuarioCon('precio.ajustar_masivo')))
         ->assertOk();
 
     expect($producto->fresh()->precio_contado)->toBe('60500.00')
@@ -292,26 +368,31 @@ test('la previsualizacion avisa cuando hay productos afuera por precio manual', 
 
     $usuario = usuarioCon('precio.ajustar_masivo');
 
-    $this->actingAs($usuario)
-        ->get(previsualizacion(['alcance' => 'todos']))
+    $this->getJson(previsualizacion(['alcance' => 'todos']), bearer($usuario))
         ->assertOk()
-        ->assertSee('avisoManualesAfuera');
+        ->assertJsonPath('conteos.manuales_afuera', 1);
 
-    $this->actingAs($usuario)
-        ->get(previsualizacion(['alcance' => 'todos', 'incluir_manuales' => 1]))
+    $this->getJson(previsualizacion(['alcance' => 'todos', 'incluir_manuales' => 1]), bearer($usuario))
         ->assertOk()
-        ->assertDontSee('avisoManualesAfuera');
+        ->assertJsonPath('conteos.manuales_afuera', 0);
 });
 
 test('sin ver_costo la previsualizacion no muestra la columna de costo', function () {
     // `precio.ver_costo` gobierna el costo en la ficha, en los listados y en los PDF.
-    // La previsualización es el cuarto lugar donde aparece.
+    // La previsualización es el cuarto lugar donde aparece. Lo que no se puede ver no viaja.
     productoConPrecioCalculado(12345.67);
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->get(previsualizacion(['alcance' => 'todos']))
+    $sin = $this->getJson(previsualizacion(['alcance' => 'todos']), bearer(usuarioCon('precio.ajustar_masivo')))->assertOk();
+
+    expect($sin->json('datos.0'))->not->toHaveKeys(['costo', 'costo_nuevo'])
+        ->and($sin->getContent())->not->toContain('12345.67');
+
+    app('auth')->forgetGuards();
+
+    // La otra dirección: con el permiso, la clave está.
+    $this->getJson(previsualizacion(['alcance' => 'todos']), bearer(usuarioCon('precio.ajustar_masivo', 'precio.ver_costo')))
         ->assertOk()
-        ->assertDontSee('12.345,67');
+        ->assertJsonPath('datos.0.costo', '12345.67');
 });
 
 /*
@@ -323,9 +404,9 @@ test('sin ver_costo la previsualizacion no muestra la columna de costo', functio
 test('un recorte sin ningun criterio se rechaza', function () {
     // Sin esta regla, «un recorte» sin nada elegido aplicaría el ajuste al catálogo
     // entero creyendo que lo limita.
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste(['alcance' => 'recorte']))
-        ->assertSessionHasErrors('alcance');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), ['alcance' => 'recorte'])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('alcance', 'errores');
 
     expect(LoteAjuste::count())->toBe(0);
 });
@@ -334,20 +415,20 @@ test('pedir todos los productos y ademas un recorte se rechaza', function () {
     // La otra dirección, y es la peligrosa: el usuario creería que filtró.
     $categoria = Categoria::factory()->create();
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste([
-            'alcance'      => 'todos',
-            'categoria_id' => $categoria->id,
-        ]))
-        ->assertSessionHasErrors('alcance');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), [
+        'alcance'      => 'todos',
+        'categoria_id' => $categoria->id,
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('alcance', 'errores');
 
     expect(LoteAjuste::count())->toBe(0);
 });
 
 test('variar el precio sin porcentaje se rechaza', function () {
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste(['porcentaje' => null]))
-        ->assertSessionHasErrors('porcentaje');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), ['porcentaje' => null])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('porcentaje', 'errores');
 });
 
 test('un porcentaje negativo en formato argentino se acepta', function () {
@@ -356,79 +437,78 @@ test('un porcentaje negativo en formato argentino se acepta', function () {
     // normaliza el número y lo vuelve a pegar.
     $producto = productoConPrecioCalculado(20000);
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste(['porcentaje' => '-7,5']))
-        ->assertSessionHasNoErrors();
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), ['porcentaje' => '-7,5'])
+        ->assertCreated();
 
     // 60.500 − 7,5 % = 55.962,50
     expect($producto->fresh()->precio_contado)->toBe('55962.50');
 });
 
 test('un ajuste de cero por ciento se rechaza en lugar de correr sin efecto', function () {
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste(['porcentaje' => '0']))
-        ->assertSessionHasErrors('porcentaje');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), ['porcentaje' => '0'])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('porcentaje', 'errores');
 });
 
 test('una baja del cien por ciento se rechaza', function () {
     // Dejaría el precio en cero, que es regalar el producto.
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste(['porcentaje' => '-100']))
-        ->assertSessionHasErrors('porcentaje');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), ['porcentaje' => '-100'])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('porcentaje', 'errores');
 });
 
 test('un multiplicador de ganancia menor que uno se rechaza', function () {
     // Vendería por debajo del costo, y acá sobre todo el conjunto a la vez.
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste([
-            'operacion'  => 'ganancia',
-            'porcentaje' => null,
-            'ganancia'   => '0,5',
-        ]))
-        ->assertSessionHasErrors('ganancia');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), [
+        'operacion'  => 'ganancia',
+        'porcentaje' => null,
+        'ganancia'   => '0,5',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('ganancia', 'errores');
 });
 
 test('fijar la ganancia sin multiplicador se rechaza', function () {
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste([
-            'operacion'  => 'ganancia',
-            'porcentaje' => null,
-        ]))
-        ->assertSessionHasErrors('ganancia');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), [
+        'operacion'  => 'ganancia',
+        'porcentaje' => null,
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('ganancia', 'errores');
 });
 
 test('redondear sin multiplo se rechaza', function () {
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste([
-            'operacion'  => 'redondeo',
-            'porcentaje' => null,
-        ]))
-        ->assertSessionHasErrors('redondeo_multiplo');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), [
+        'operacion'  => 'redondeo',
+        'porcentaje' => null,
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('redondeo_multiplo', 'errores');
 });
 
 test('un rango al reves se rechaza', function () {
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste([
-            'alcance'     => 'recorte',
-            'costo_desde' => '50000',
-            'costo_hasta' => '10000',
-        ]))
-        ->assertSessionHasErrors('costo_hasta');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), [
+        'alcance'     => 'recorte',
+        'costo_desde' => '50000',
+        'costo_hasta' => '10000',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('costo_hasta', 'errores');
 });
 
 test('una operacion que no existe se rechaza', function () {
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste(['operacion' => 'borrar_todo']))
-        ->assertSessionHasErrors('operacion');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), ['operacion' => 'borrar_todo'])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('operacion', 'errores');
 });
 
 test('un producto que no existe en la seleccion se rechaza', function () {
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste([
-            'alcance' => 'recorte',
-            'ids'     => [99999],
-        ]))
-        ->assertSessionHasErrors('ids.0');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'), [
+        'alcance' => 'recorte',
+        'ids'     => [99999],
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('ids.0', 'errores');
 });
 
 /*
@@ -440,10 +520,10 @@ test('un producto que no existe en la seleccion se rechaza', function () {
 test('aplicar escribe el lote y deja en el historial', function () {
     $producto = productoConPrecioCalculado(20000);
 
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste())
-        ->assertRedirect(route('precios.lotes'))
-        ->assertSessionHas('exito');
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'))
+        ->assertCreated()
+        ->assertJsonPath('datos.alcanzados', 1)
+        ->assertJsonPath('mensaje', 'Ajuste aplicado a 1 producto(s). Se puede deshacer.');
 
     expect($producto->fresh()->precio_contado)->toBe('69575.00')
         ->and(LoteAjuste::sole()->alcanzados)->toBe(1);
@@ -453,17 +533,17 @@ test('el lote queda con el usuario que lo aplico', function () {
     $usuario = usuarioCon('precio.ajustar_masivo');
     productoConPrecioCalculado(20000);
 
-    $this->actingAs($usuario)->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste());
+    aplicarAjuste($this, $usuario)->assertCreated();
 
     expect(LoteAjuste::sole()->usuario_id)->toBe($usuario->id);
 });
 
 test('un ajuste que no alcanza a nadie avisa y no escribe lote', function () {
-    // `aviso` y no `exito`: la operación corrió y no hizo falta hacer nada.
-    $this->actingAs(usuarioCon('precio.ajustar_masivo'))
-        ->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste())
-        ->assertRedirect(route('precios.ajuste'))
-        ->assertSessionHas('aviso');
+    // No es un 201: la operación corrió y no hizo falta hacer nada, y un «creado» diría
+    // que pasó algo que no pasó (HL-122).
+    aplicarAjuste($this, usuarioCon('precio.ajustar_masivo'))
+        ->assertStatus(409)
+        ->assertJsonPath('codigo', 'regla_de_negocio');
 
     expect(LoteAjuste::count())->toBe(0);
 });
@@ -472,14 +552,14 @@ test('deshacer el ultimo ajuste devuelve los precios', function () {
     $producto = productoConPrecioCalculado(20000);
     $usuario  = usuarioCon('precio.ajustar_masivo', 'precio.deshacer_ajuste', 'precio.ver');
 
-    $this->actingAs($usuario)->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste());
+    aplicarAjuste($this, $usuario)->assertCreated();
 
     $lote = LoteAjuste::sole();
 
-    $this->actingAs($usuario)
-        ->post(route('precios.lotes.deshacer', $lote))
-        ->assertRedirect(route('precios.lotes'))
-        ->assertSessionHas('exito');
+    $this->postJson("/api/v1/precios/lotes/{$lote->id}/deshacer", [], bearer($usuario))
+        ->assertCreated()
+        ->assertJsonPath('datos.operacion', 'deshacer')
+        ->assertJsonPath('datos.revierte_a.id', $lote->id);
 
     expect($producto->fresh()->precio_contado)->toBe('60500.00')
         ->and($lote->fresh()->reversion)->not->toBeNull();
@@ -491,16 +571,30 @@ test('deshacer un ajuste que no es el ultimo se rechaza con su mensaje', functio
     productoConPrecioCalculado(20000);
     $usuario = usuarioCon('precio.ajustar_masivo', 'precio.deshacer_ajuste', 'precio.ver');
 
-    $this->actingAs($usuario)->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste());
+    aplicarAjuste($this, $usuario)->assertCreated();
     $primero = LoteAjuste::sole();
 
-    $this->actingAs($usuario)->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste(['porcentaje' => '5']));
+    aplicarAjuste($this, $usuario, ['porcentaje' => '5'])->assertCreated();
 
-    $this->actingAs($usuario)
-        ->post(route('precios.lotes.deshacer', $primero))
-        ->assertSessionHas('error');
+    $this->postJson("/api/v1/precios/lotes/{$primero->id}/deshacer", [], bearer($usuario))
+        ->assertStatus(409)
+        ->assertJsonPath('codigo', 'regla_de_negocio')
+        ->assertJsonPath('mensaje', 'Sólo se puede deshacer el último ajuste. Los precios anteriores que guarda el historial valen mientras no haya pasado nada después.');
 
     expect($primero->fresh()->reversion)->toBeNull();
+});
+
+test('el historial dice cual es el unico lote que se puede deshacer', function () {
+    // La pantalla ofrece el botón en esa fila y en ninguna otra: lo decide el servidor.
+    productoConPrecioCalculado(20000);
+    $usuario = usuarioCon('precio.ajustar_masivo', 'precio.ver');
+
+    aplicarAjuste($this, $usuario)->assertCreated();
+    aplicarAjuste($this, $usuario, ['porcentaje' => '5'])->assertCreated();
+
+    $lotes = $this->getJson('/api/v1/precios/lotes', bearer($usuario))->assertOk()->json('datos');
+
+    expect(array_column($lotes, 'reversible'))->toBe([true, false]);
 });
 
 /*
@@ -515,12 +609,18 @@ test('quien no puede deshacer no recibe el boton de deshacer', function () {
     productoConPrecioCalculado(20000);
     $usuario = usuarioCon('precio.ajustar_masivo', 'precio.ver');
 
-    $this->actingAs($usuario)->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste());
+    aplicarAjuste($this, $usuario)->assertCreated();
 
     $this->actingAs($usuario)
         ->get(route('precios.lotes'))
         ->assertOk()
-        ->assertDontSee(route('precios.lotes.deshacer', LoteAjuste::sole()));
+        ->assertDontSee('data-deshacer', false);
+
+    // La otra dirección: con el permiso, el botón está en el shell.
+    $this->actingAs(usuarioCon('precio.ver', 'precio.deshacer_ajuste'))
+        ->get(route('precios.lotes'))
+        ->assertOk()
+        ->assertSee('data-deshacer', false);
 });
 
 test('el historial muestra el criterio congelado del ajuste', function () {
@@ -529,17 +629,16 @@ test('el historial muestra el criterio congelado del ajuste', function () {
 
     $usuario = usuarioCon('precio.ajustar_masivo', 'precio.ver');
 
-    $this->actingAs($usuario)->post(route('precios.ajuste.aplicar'), cuerpoDeAjuste([
+    aplicarAjuste($this, $usuario, [
         'alcance'      => 'recorte',
         'categoria_id' => $categoria->id,
-    ]));
+    ])->assertCreated();
 
     $categoria->update(['nombre' => 'Memorias RAM']);
 
-    $this->actingAs($usuario)
-        ->get(route('precios.lotes'))
+    $this->getJson('/api/v1/precios/lotes', bearer($usuario))
         ->assertOk()
-        ->assertSee('Categoría Memorias y sus subcategorías');
+        ->assertJsonPath('datos.0.criterio_texto', 'Categoría Memorias y sus subcategorías');
 });
 
 test('el historial vacio dice que todavia no se hizo ningun ajuste', function () {

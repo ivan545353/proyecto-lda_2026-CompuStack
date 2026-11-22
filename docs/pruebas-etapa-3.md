@@ -277,3 +277,45 @@ dos direcciones de cada endpoint (`endpoints de clientes`, con las tres de direc
 
 **Hueco**: el JS de las pantallas (`clientes.js`, `direcciones.js`, `proveedores.js`, `alta-rapida.js`) no tiene
 test automático: lo cubre el recorrido manual del usuario, como en el tramo D.
+
+## 10. Tramo F — Precios y stock
+
+**Migradas las escrituras de los tres módulos** (precios, ajuste masivo, stock), más las lecturas del kardex y sus
+tests de impresión. El inventario (§5) baja de 164 a **128 llamadas en 16 archivos**. Las 3 que el script todavía
+marca en archivos del tramo son URLs literales de los tests nuevos «las rutas web de escritura … ya no existen», que
+esperan 404 o 405: es a propósito. Ningún test se perdió: `PrecioModuloTest` pasa de 16 a 24, `AjusteMasivoModuloTest`
+de 36 a 43, `StockModuloTest` de 16 a 21, `MovimientoImpresionTest` de 5 a 6, y el resto conserva su número.
+
+**Cómo se migró**: igual que en los tramos D y E (§8, §9), y con el OK del usuario para las lecturas del kardex: lo que
+el `assertSee` buscaba en el HTML se busca en el JSON que pinta la pantalla (`assertJsonPath` sobre el mismo texto).
+
+| Test | Fijaba | Ahora | Por qué |
+| --- | --- | --- | --- |
+| `AjusteMasivoModuloTest` › los siete recortes | `assertSee` / `assertDontSee` del código en la vista previa | Los `codigo` de `datos` de `GET /precios/ajustes/vista-previa` (closure `codigosDe`) | La tabla es una plantilla |
+| `AjusteMasivoModuloTest` › «avisa cuando hay productos afuera por precio manual» | `id="avisoManualesAfuera"` con y sin la casilla | `conteos.manuales_afuera` = 1 sin la casilla y 0 con ella | El aviso lo decide el número |
+| `AjusteMasivoModuloTest` › «sin ver_costo no muestra la columna de costo» | `assertDontSee('12.345,67')` | Las claves `costo` y `costo_nuevo` **no están**; con el permiso, sí | Reglas 21 y 36, en las dos direcciones |
+| `AjusteMasivoModuloTest` › las diez validaciones | `assertSessionHasErrors` | `assertJsonValidationErrors(…, 'errores')` | — |
+| `AjusteMasivoModuloTest` › «un ajuste que no alcanza a nadie avisa…», «deshacer uno que no es el último…» | `with('aviso')`, `with('error')` | 409 `regla_de_negocio` con su mensaje, y ningún lote escrito | HL-122 |
+| `AjusteMasivoModuloTest` › «el historial muestra el criterio congelado» | `assertSee` en la pantalla | `datos.0.criterio_texto` de `GET /precios/lotes` | — |
+| `AjusteMasivoModuloTest` › «quien no puede deshacer no recibe el botón» | `assertDontSee(route('precios.lotes.deshacer', …))` | `data-deshacer` ausente sin el permiso, presente con él | La ruta ya no existe |
+| `PrecioModuloTest` › impuestos, factores, política, simulador | Escrituras web y `assertSee` del cálculo | Los endpoints; `datos.calculo.contado.final` = `60500.00`; la casilla ausente es 422 | M-31 |
+| `StockModuloTest` › los filtros | `assertViewHas('movimientos', total)` | `total` de `GET /stock/movimientos`; el panel, `datos.id` y `datos.stock` de `GET /productos/{id}/stock` | — |
+| `StockModuloTest` › «un filtro inválido vuelve al kardex limpio con aviso» | Redirección con `error` | 422 con el error en `tipo` o en `hasta` | HL-120 |
+| `StockModuloTest` › «el kardex pagina de a 15» | 15 de 20, el más nuevo primero | 20 de 25, el más nuevo primero | HL-119 |
+| `StockModuloTest` › «el ajuste sin motivo…», «un stock que cambió…» | `assertSessionHasInput`, `with('error')` | 422 en `motivo`; 409 `regla_de_negocio`. Lo escrito no se pierde porque la pantalla no navega (HL-118) | — |
+| `KardexCanalTest` › canal, cobro sin cajero, reservas | `assertSee` del número de venta, de «Tienda online (cobro automático)» y del párrafo `data-reservas` | `origen_texto`, `registrado_por`, `criterios.canal` y `reservas.pedidos` del JSON | Lecturas, con el OK del usuario |
+| `KardexCanalTest`, `MovimientoImpresionTest` › impresión | `GET stock/imprimir` | El enlace de `GET /stock/movimientos/impresion` y su descarga firmada; 422 si el filtro no existe | D-22 |
+| `MovimientoImpresionTest` › «el botón de imprimir lleva los filtros y no la página» | Los `href` de la vista | La URL firmada contiene `tipo=ajuste` y no `pagina=` | — |
+| `RemitoProveedorModuloTest` › «el kardex muestra el remito» | `assertSee` en `/stock` | `datos.0.remito_texto` | — |
+| `ImpresionDialogoTest` › `kardex` | Dataset de «ruta web» | Dataset de «listado migrado por la API» | HL-116 |
+| `EscalaTest` › «el kardex no hace más consultas con más movimientos» | `GET /stock` | `GET /api/v1/stock/movimientos`, con `freezeTime()` | — |
+
+**Tests nuevos**: los datasets `endpoints de precios`, `endpoints del ajuste masivo` y `endpoints de stock` con el
+permiso en las dos direcciones; los shells sin datos de negocio (regla 37); las rutas retiradas; el conteo de uso de una
+alícuota; la ganancia global por omisión del simulador; los conteos y el criterio de la vista previa; el rechazo sin
+`incluir_manuales`; cuál es el único lote reversible; «Lo registró» ofrece sólo a quienes tienen movimientos.
+
+**Huecos**:
+- El JS de las pantallas (`precios.js`, `ajuste-masivo.js`, `stock.js`) no tiene test automático: lo cubre el recorrido
+  manual del usuario, como en los tramos D y E.
+- Impuestos, factores y lotes no tienen fila en «listados de la API» de `EscalaTest`: no tienen factory (HL-123).

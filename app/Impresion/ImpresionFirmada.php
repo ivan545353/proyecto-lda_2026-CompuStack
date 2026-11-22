@@ -31,6 +31,7 @@ final class ImpresionFirmada
         'productos'   => ListadoProductos::class,
         'clientes'    => ListadoClientes::class,
         'proveedores' => ListadoProveedores::class,
+        'movimientos' => ListadoMovimientos::class,
     ];
 
     /** Las claves del diálogo de impresión; el resto de la consulta son filtros. */

@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * Validación del ajuste de inventario.
+ * Validación del ajuste de inventario (tramo F: la de la web, movida a la API sin cambiar ninguna regla).
  *
  * Pide el **conteo físico**, no la diferencia: el operario que está en el depósito
  * sabe cuántas unidades hay, no cuántas faltan, y pedirle la diferencia lo obliga

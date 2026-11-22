@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 15** · tramo D de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
+**Revisión 17** · tramo F de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -18,7 +18,7 @@ principio). La 11 suma `GET /tienda` (§7.1), lo que la tienda ofrece, para el I
 transferencia como tercer medio (§7.7). La 13, con qué entregas vale cada medio (D-28): el efectivo, sólo con retiro. La 14 abre la Etapa 3: la sesión es
 común a la app y a la administración, con `GET /yo`, vigencia por ámbito y `401 sesion_expirada`. La 15 suma la
 gestión del catálogo (§7.8): marcas, categorías, productos y sus proveedores, por representación según el permiso,
-sin cambiar ninguna forma de la tienda.
+sin cambiar ninguna forma de la tienda. La 16, los terceros (§7.9): clientes, direcciones y proveedores. La 17, precios y stock (§7.10): la parametrización, el ajuste masivo con su historial, el kardex y el ajuste por conteo.
 
 ## 1. Reglas generales
 
@@ -1729,6 +1729,203 @@ dirección: la lista viaja en `GET /clientes/{id}` (`direcciones`).
   mensaje dice cuántos productos se desactivaron con él; sin eso, que siguen activos y a la venta.
 - Errores de la sección: 401, 403, 404, 409 `regla_de_negocio`, 422 `validacion`.
 
+### 7.10 Precios y stock (Etapa 3, tramo F, r17)
+
+La parametrización de precios, el ajuste masivo con su historial, el kardex y el ajuste por conteo pasan a escribirse
+por acá, con la misma credencial y los mismos permisos que cualquier otro cliente (regla 35). **Todo es nuevo**: ninguna
+forma anterior cambia (regla 40). Valen las reglas comunes de §7.8: un permiso por acción en la ruta, 403 `sin_permiso`
+sin él, listados paginados de a 20 (también el kardex, que en la web iba de a 15: HL-119), un filtro inválido es 422, el
+alta es **201** y las casillas (`activo`, `incluir_manuales`) **viajan siempre** (M-31). Los importes van como cadena; los
+multiplicadores y porcentajes, con tres decimales (`"2.500"`, `"15.000"`).
+
+#### Impuestos y factores de costo
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /impuestos` | `precio.ver` | Listado, por `orden`. Los de alcance `producto` suman `productos`: cuántos tienen esa alícuota (lo cuenta la base) |
+| `GET /impuestos/{id}` | `precio.ver` | Uno, con el mismo conteo |
+| `POST /impuestos` | `precio.editar` | Alta: `nombre`, `alicuota`, `alcance`, `comprobante`, `orden`, `activo` |
+| `PATCH /impuestos/{id}` | `precio.editar` | Edición, con los mismos campos; el `alcance` no cambia (422) |
+| `DELETE /impuestos/{id}` | `precio.editar` | Elimina; si es la alícuota de algún producto, **lo desactiva** (regla 2) y lo dice |
+| `GET /factores-costo` | `precio.ver` | Listado, por `orden` |
+| `GET /factores-costo/{id}` | `precio.ver` | Uno |
+| `POST /factores-costo` | `precio.editar` | Alta: `nombre`, `modo`, `porcentaje`, `orden`, `activo` |
+| `PATCH /factores-costo/{id}` | `precio.editar` | Edición |
+| `DELETE /factores-costo/{id}` | `precio.editar` | Elimina; los precios que ya lo tienen adentro no cambian hasta recalcularlos |
+
+```json
+{
+  "datos": [
+    {
+      "id": 1, "nombre": "IVA 21 %", "alicuota": "21.00",
+      "alcance": "producto", "alcance_texto": "Alícuota de IVA: cada producto elige una",
+      "comprobante": "iva", "comprobante_texto": "IVA contenido",
+      "orden": 10, "activo": true, "productos": 1
+    }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 4, "criterios": []
+}
+```
+
+- Un factor: `{ "id", "nombre", "modo", "modo_texto", "porcentaje", "orden", "activo" }`.
+- La baja devuelve `{ "id": 1, "eliminado": true }`, o `false` y «… es la alícuota de productos del catálogo: se desactivó en
+  lugar de eliminarse.». Una alícuota repetida o un `orden` ausente son 422.
+
+#### Política y simulación
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /precios/politica` | `precio.ver` | La política vigente |
+| `PATCH /precios/politica` | `precio.editar` | `ganancia_global`, `recargo_lista`, `redondeo_multiplo`, `redondeo_modo` |
+| `GET /precios/simulacion` | `precio.ver` | Qué precio daría un costo, sin escribir nada: `costo` y `alicuota_iva` obligatorios, `ganancia` opcional |
+
+```json
+{
+  "datos": {
+    "ganancia_global": "2.500", "margen_global": "60.00", "recargo_lista": "0.000",
+    "redondeo_multiplo": "0.01", "redondeo_modo": "cercano", "redondeo_modo_texto": "Al múltiplo más cercano"
+  }
+}
+```
+
+`GET /precios/simulacion?costo=20000&alicuota_iva=21.00`:
+
+```json
+{
+  "datos": {
+    "costo": "20000.00",
+    "ganancia_es_global": true,
+    "alicuota_iva": "21.00",
+    "calculo": {
+      "costo_neto": "20000.00", "ganancia": "2.500", "margen": "60.00", "factores": [],
+      "contado": {
+        "neto": "50000.00", "final": "60500.00",
+        "impuestos": [{ "nombre": "IVA 21 %", "alicuota": "21.00", "comprobante": "iva", "importe": "10500.00" }]
+      },
+      "lista": {
+        "neto": "50000.00", "final": "60500.00",
+        "impuestos": [{ "nombre": "IVA 21 %", "alicuota": "21.00", "comprobante": "iva", "importe": "10500.00" }]
+      }
+    }
+  }
+}
+```
+
+- `calculo` tiene la **misma forma** que el de la ficha de gestión de un producto (§7.8): las dos salen de
+  `App\Support\Api\Desglose`. Sin `ganancia`, se usa la global y `ganancia_es_global` lo dice.
+- `alicuota_iva` tiene que ser la de un impuesto de alcance `producto`; si no, 422.
+
+#### Ajuste masivo y su historial
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /precios/ajustes/vista-previa` | `precio.ajustar_masivo` | Los conteos del conjunto entero y una página de «precio actual → nuevo». **No escribe** |
+| `POST /precios/ajustes` | `precio.ajustar_masivo` | Aplica el ajuste y devuelve el lote (201) |
+| `GET /precios/lotes` | `precio.ver` | El historial, del más nuevo al más viejo, sin filtros |
+| `POST /precios/lotes/{id}/deshacer` | `precio.deshacer_ajuste` | Escribe el lote que devuelve los precios (201); sólo el último que se puede deshacer |
+
+Los dos primeros reciben lo mismo, en la consulta o en el cuerpo: `operacion` (`precio` · `costo` · `ganancia` · `redondeo`
+· `recalculo`), su parámetro (`porcentaje`, `ganancia` o `redondeo_multiplo`), `alcance` (`todos` · `recorte`), el recorte
+(`categoria_id`, que incluye sus subcategorías; `marca_id`, `proveedor_id`, `ids[]`, `costo_desde`/`_hasta`,
+`precio_desde`/`_hasta`) e `incluir_manuales`. Un recorte vacío, «todos» con un recorte puesto, un rango al revés, un
+porcentaje de 0 o de −100, o una ganancia menor que 1 son 422.
+
+```json
+{
+  "datos": [
+    {
+      "id": 1, "codigo": "MEM-DDR4-16", "nombre": "Memoria DDR4 16 GB",
+      "precio_contado": "60500.00", "precio_lista": "60500.00",
+      "nuevo_contado": "69575.00", "nuevo_lista": "69575.00", "variacion": "15.00",
+      "resultado": "aplicado", "resultado_texto": "Cambia precio", "bajo_costo": false,
+      "costo": "20000.00", "costo_nuevo": null
+    }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1, "criterios": [],
+  "conteos": { "total": 1, "alcanzados": 1, "sin_cambio": 0, "sin_costo": 0, "manuales_afuera": 0, "bajo_costo": 0 },
+  "criterio_texto": "Categoría Memorias y sus subcategorías"
+}
+```
+
+- `costo` y `costo_nuevo` son de `precio.ver_costo`: sin el permiso, **las claves no están** (reglas 21 y 36).
+  `costo_nuevo` es null si la operación no toca el costo; `variacion`, si el producto hoy no tiene precio.
+- `resultado`: `aplicado` · `sin_costo` · `sin_cambio` · `manual`, con su texto.
+
+`POST /precios/ajustes` y `POST /precios/lotes/{id}/deshacer` devuelven el lote:
+
+```json
+{
+  "datos": {
+    "id": 2, "operacion": "deshacer", "operacion_texto": "Deshacer un ajuste anterior",
+    "porcentaje": null, "ganancia": null, "redondeo_multiplo": null, "parametro_texto": null,
+    "criterio_texto": "Deshace el ajuste del 21/11/2026 10:30: Categoría Memorias y sus subcategorías",
+    "alcanzados": 1, "omitidos": 0, "usuario": "Vallejo, Ximena", "fecha": "2026-11-21T13:30:00Z",
+    "revierte_a": { "id": 1, "fecha": "2026-11-21T13:30:00Z" }, "deshecho_el": null
+  },
+  "mensaje": "Se devolvieron los precios de 1 producto(s)."
+}
+```
+
+- El criterio queda **congelado como texto**: sigue diciendo «Memorias» aunque la categoría se renombre.
+- En el historial cada lote suma `reversible`, y el sobre suma `reversible` (el lote entero, o null): el **único** que se
+  puede deshacer, esté en la página que esté. Lo decide el servidor, para que ninguna pantalla ofrezca lo que va a rechazar.
+- «No hizo falta hacer nada» es **409 `regla_de_negocio`** con el aviso, no un 201: un ajuste que no alcanza a ningún
+  producto, o un deshacer cuyos productos cambiaron todos de precio después (HL-122). Deshacer uno que no es el último
+  también es 409, con «Sólo se puede deshacer el último ajuste…».
+
+#### Kardex y ajuste de inventario
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /stock/movimientos` | `stock.ver` | El kardex. `producto_id`, `tipo`, `usuario_id`, `canal` (`mostrador` · `online`), `desde`, `hasta` (días completos) |
+| `GET /stock/movimientos/impresion` | `stock.ver` | URL firmada del kardex, con los mismos filtros (D-22, §7.8) |
+| `GET /stock/usuarios` | `stock.ver` | Quiénes registraron algún movimiento: las opciones del filtro `usuario_id` |
+| `GET /productos/{id}/stock` | `stock.ver` | El stock de un producto y dónde está lo reservado |
+| `POST /productos/{id}/ajustes-stock` | `stock.ajustar` | El ajuste por conteo físico: `stock_contado`, `stock_esperado`, `motivo` (201) |
+
+```json
+{
+  "datos": [
+    {
+      "id": 1, "fecha": "2026-11-21T13:30:00Z",
+      "producto": { "id": 1, "codigo": "MEM-DDR4-16", "nombre": "Memoria DDR4 16 GB" },
+      "tipo": "ajuste", "tipo_texto": "Ajuste de inventario",
+      "cantidad": -2, "stock_anterior": 10, "stock_resultante": 8,
+      "motivo": "Dos unidades con la caja rota", "origen_texto": null, "remito_texto": null,
+      "registrado_por": "Ximena Vallejo"
+    }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1,
+  "criterios": { "producto_id": null, "tipo": null, "usuario_id": null, "canal": null, "desde": null, "hasta": null }
+}
+```
+
+- Del más nuevo al más viejo. `origen_texto` dice de dónde salió en palabras del negocio («Venta V-00042 · tienda
+  online», «Orden de compra OC-00007», «Documento interno»), nunca una clase. Un cobro de la tienda sin cajero lo registró
+  «Tienda online (cobro automático)».
+- Un rango al revés es 422 en `hasta` («… no puede ser anterior a «desde»: no devolvería nada.»); en la web volvía al
+  kardex limpio con un aviso (HL-120).
+
+`GET /productos/{id}/stock`:
+
+```json
+{
+  "datos": {
+    "id": 1, "codigo": "MEM-DDR4-16", "nombre": "Memoria DDR4 16 GB", "texto": "MEM-DDR4-16 — Memoria DDR4 16 GB",
+    "activo": true, "stock": 10, "stock_reservado": 0, "disponible": 10, "stock_minimo": 2,
+    "reservas": { "pedidos": 0, "carritos": 0 }
+  }
+}
+```
+
+- `reservas`: cuánto de lo reservado está en pedidos de la tienda sin cobrar y cuánto en compras que se están confirmando
+  (D-25). Lo reservado no tiene asiento en el kardex: sale del depósito al cobrar (regla 5).
+- El ajuste pide el **conteo**, no la diferencia, y devuelve el movimiento con «El stock de «Memoria DDR4 16 GB» bajó de 10 a 8
+  (-2).». `stock_esperado` es el stock que la pantalla mostraba: si al guardar es otro, alguien movió el stock mientras se
+  contaba y es **409 `regla_de_negocio`**, sin pisar ese movimiento. Un conteo igual al registrado también es 409.
+  `producto_id` o `tipo` en el cuerpo son 422 (el producto es el de la ruta; el tipo lo pone el sistema).
+- Errores de la sección: 401, 403, 404, 409 `regla_de_negocio`, 422 `validacion`.
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -1749,3 +1946,4 @@ dirección: la lista viaja en `GET /clientes/{id}` (`direcciones`).
 | 14 | B (Etapa 3) | Sesión común (HL-98): `POST /sesion` emite también a cuentas de gestión, con la misma forma y 8 horas de vigencia (D-31); la de tienda sigue en 7 días. `GET /yo` nuevo (nombre, apellido, email, `rol` con `ambito`, `permisos`). Grupo «protegida común»: `DELETE /sesion` y `GET /yo`. `401 sesion_expirada` para la credencial vencida, que hasta la r13 era `sesion_invalida`. Ninguna forma anterior cambia; las rutas pasan a 27 (25 con el simulador apagado) |
 | 15 | D (Etapa 3) | §7.8, la gestión del catálogo, con la misma credencial (regla 35) y sin espacio `/admin` (regla 36): `forma=lista` en `GET /categorias` y `forma=gestion` en `GET /productos` y `GET /productos/{id}`, cada una con su permiso; altas, ediciones y bajas de marcas, categorías y productos; `recalcular`, `opciones` y `padres-posibles`; los proveedores de un producto (tres formas del listado, alta, edición, `preferido`, baja con 409 si hay un pedido vivo); `GET /proveedores` y `GET /clientes` mínimos; la impresión de los tres listados por URL firmada (`GET /<recurso>/impresion`, D-22). Con archivos, `POST` + `_method=PATCH` (HL-110). `GET /categorias` pasa al grupo «credencial si sirve» y `GET /productos` a la sesión opcional de los dos clientes (HL-108): para la app no cambia ninguna respuesta. Sin sesión, `forma=gestion` es 401 `sin_sesion`. Ninguna forma anterior cambia; las rutas pasan a 52 (50 con el simulador apagado) |
 | 16 | E (Etapa 3) | §7.9, los terceros con la misma credencial (regla 35): clientes (listado con `condicion_iva` y `cuenta`, ficha con `direcciones`, alta, edición, baja, impresión por URL firmada y `acceso-tienda`, que devuelve el enlace de un solo uso, sin caché), direcciones de un cliente (alta, edición, baja; 404 si es ajena) y proveedores (listado con `canal` y conteos, ficha con `productos_activos`, alta, edición con cascada, baja que desactiva si hay productos u órdenes, impresión). Las claves nuevas van al final de `ClienteResource` y `ProveedorResource`: ninguna forma anterior cambia, y la fila del alta rápida sigue igual a la del listado. Las rutas pasan a 66 (64 con el simulador apagado) |
+| 17 | F (Etapa 3) | §7.10, precios y stock con la misma credencial (regla 35): impuestos y factores de costo (listado, uno, alta, edición, baja que desactiva la alícuota en uso; `productos` cuenta los que la usan), la política (`GET` y `PATCH /precios/politica`) y la simulación (`GET /precios/simulacion`, con el `calculo` de la ficha de gestión), el ajuste masivo (`vista-previa` con `conteos` y `criterio_texto`, aplicar, el historial con `reversible` y deshacer; «nada que hacer» es 409, HL-122), el kardex (`GET /stock/movimientos` de a 20, HL-119; filtro inválido 422, HL-120; impresión por URL firmada), `GET /stock/usuarios`, `GET /productos/{id}/stock` con `reservas` y `POST /productos/{id}/ajustes-stock`. `costo` y `costo_nuevo` de la vista previa, sólo con `precio.ver_costo`. Ninguna forma anterior cambia; las rutas pasan a 88 (86 con el simulador apagado) |

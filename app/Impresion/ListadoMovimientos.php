@@ -6,13 +6,34 @@ use App\Models\MovimientoStock;
 use App\Models\Producto;
 use App\Models\User;
 use App\Models\Venta;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 
 /**
- * El kardex: cada entrada y salida de stock, con lo que había antes y lo que quedó.
+ * El kardex: cada entrada y salida de stock, con lo que había antes y lo que quedó. Desde el tramo F
+ * se imprime por enlace firmado (D-22), con la misma consulta que lista la API.
  */
-final class ListadoMovimientos extends Listado
+final class ListadoMovimientos extends Listado implements ImprimiblePorEnlace
 {
+    public function permiso(): string
+    {
+        return 'stock.ver';
+    }
+
+    /** La del kardex de la pantalla: del más nuevo al más viejo, con el id para desempatar. */
+    public function consulta(array $filtros): Builder
+    {
+        return MovimientoStock::query()
+            ->deProducto($filtros['producto_id'] ?? null)
+            ->deTipo($filtros['tipo'] ?? null)
+            ->deUsuario($filtros['usuario_id'] ?? null)
+            ->deCanal($filtros['canal'] ?? null)
+            ->desde($filtros['desde'] ?? null)
+            ->hasta($filtros['hasta'] ?? null)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
+    }
+
     public function titulo(): string
     {
         return 'Movimientos de stock';

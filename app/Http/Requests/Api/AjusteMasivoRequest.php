@@ -1,49 +1,43 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Models\LoteAjuste;
 use App\Support\Importe;
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 /**
- * Validación del ajuste masivo de precios: la operación, su parámetro y el recorte.
+ * El ajuste masivo de precios (tramo F): la operación, su parámetro y el recorte.
  *
- * **Uno solo para la previsualización y para el ajuste**, aunque una viaje por GET y
- * el otro por POST. Si tuvieran reglas distintas, la pantalla podría previsualizar un
- * conjunto y el ajuste escribir otro, que es el peor defecto que esta pantalla puede
- * tener: la previsualización obligatoria dejaría de ser una salvaguarda y pasaría a
- * ser una decoración.
+ * **Uno solo para la vista previa (`GET`) y para el ajuste (`POST`)**, como en la web: con reglas
+ * distintas, la pantalla podría previsualizar un conjunto y el ajuste escribir otro, y la vista previa
+ * dejaría de ser una salvaguarda. En la web, el campo oculto `previsualizar` distinguía «abrir la
+ * pantalla» de «previsualizar»; en la API pedir la vista previa ya es previsualizar. La casilla
+ * `incluir_manuales` viaja siempre (la API rechaza, no corrige).
  *
- * Contrato:
- *   operacion          costo | precio | ganancia | recalculo | redondeo
- *   porcentaje         con costo y con precio; admite negativo, que es una baja
- *   ganancia           con ganancia; el multiplicador del conjunto
- *   redondeo_multiplo  con redondeo
- *   alcance            todos | recorte
- *   categoria_id       la categoría y sus subcategorías
- *   marca_id           marca exacta
- *   proveedor_id       los que se le compran a ese proveedor
- *   ids[]              la selección con casillas del listado
- *   costo_desde/hasta  rango de costo, inclusive
- *   precio_desde/hasta rango de precio de contado, inclusive
- *   incluir_manuales   la casilla de la tercera salvaguarda
- *   page               la paginación de la tabla de previsualización
+ * Contrato: operacion (costo | precio | ganancia | recalculo | redondeo), porcentaje (con signo),
+ * ganancia, redondeo_multiplo, alcance (todos | recorte), categoria_id, marca_id, proveedor_id, ids[],
+ * costo_desde/hasta, precio_desde/hasta, incluir_manuales; y pagina / por_pagina en la vista previa.
  *
  * Métodos:
- *   prepareForValidation()  los números en formato argentino
+ *   prepareForValidation()  los números en formato argentino, con el signo del porcentaje
  *   rules()                 reglas
  *   withValidator()         las tres coherencias que una regla sola no puede ver
- *   messages() / attributes()
+ *   messages() / attributes()  en español y acá (la API no depende de APP_LOCALE)
  */
-class AjusteMasivoRequest extends FormRequest
+class AjusteMasivoRequest extends PaginadoRequest
 {
     /** Los recortes, para preguntar si vino alguno. */
     private const RECORTES = [
         'categoria_id', 'marca_id', 'proveedor_id', 'ids',
         'costo_desde', 'costo_hasta', 'precio_desde', 'precio_hasta',
+    ];
+
+    /** Los campos que el servicio lee: el paginado no es parte del ajuste ni del criterio del lote. */
+    public const CAMPOS = [
+        'operacion', 'porcentaje', 'ganancia', 'redondeo_multiplo', 'alcance', 'incluir_manuales',
+        ...self::RECORTES,
     ];
 
     public function authorize(): bool
@@ -57,14 +51,14 @@ class AjusteMasivoRequest extends FormRequest
             $this->merge(['porcentaje' => $this->conSigno($this->input('porcentaje'))]);
         }
 
-        foreach (['ganancia', 'redondeo_multiplo',
-            'costo_desde', 'costo_hasta', 'precio_desde', 'precio_hasta'] as $campo) {
+        foreach (['ganancia', 'redondeo_multiplo', 'costo_desde', 'costo_hasta', 'precio_desde', 'precio_hasta'] as $campo) {
             if ($this->has($campo)) {
                 $this->merge([$campo => Importe::normalizar($this->input($campo))]);
             }
         }
     }
 
+    // `Importe::normalizar()` no conoce el signo: se saca, se normaliza el número y se vuelve a pegar.
     private function conSigno(mixed $valor): mixed
     {
         if (! is_string($valor) || ! str_starts_with(trim($valor), '-')) {
@@ -76,14 +70,11 @@ class AjusteMasivoRequest extends FormRequest
 
     public function rules(): array
     {
-        if ($this->isMethod('get') && ! $this->boolean('previsualizar')) {
-            return [
-                'ids'   => ['nullable', 'array', 'max:500'],
-                'ids.*' => ['integer', Rule::exists('productos', 'id')],
-            ];
-        }
         return [
+            ...parent::rules(),
+
             'operacion' => ['required', Rule::in(LoteAjuste::ELEGIBLES)],
+
             'porcentaje' => [
                 'required_if:operacion,costo,precio', 'nullable',
                 'numeric', 'decimal:0,3', 'min:-99.999', 'max:999.999',
@@ -113,9 +104,7 @@ class AjusteMasivoRequest extends FormRequest
             'precio_desde' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999'],
             'precio_hasta' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999'],
 
-            'incluir_manuales' => ['nullable', 'boolean'],
-
-            'page' => ['nullable', 'integer', 'min:1'],
+            'incluir_manuales' => ['required', 'boolean'],
         ];
     }
 
@@ -128,9 +117,7 @@ class AjusteMasivoRequest extends FormRequest
         });
     }
 
-    /**
-     * El alcance y el recorte tienen que decir lo mismo.
-     */
+    /** El alcance y el recorte tienen que decir lo mismo: «todos» con un recorte haría creer que se filtró. */
     private function exigirUnAlcanceCoherente(Validator $validator): void
     {
         $hayRecorte = collect(self::RECORTES)->contains(fn (string $campo) => filled($this->input($campo)));
@@ -160,10 +147,7 @@ class AjusteMasivoRequest extends FormRequest
         }
     }
 
-    /**
-     * El extremo de arriba no puede ser menor que el de abajo.
-
-     */
+    /** El extremo de arriba no puede ser menor que el de abajo: así el recorte no alcanza a nadie. */
     private function exigirRangosEnOrden(Validator $validator): void
     {
         foreach (['costo', 'precio'] as $campo) {
@@ -178,17 +162,47 @@ class AjusteMasivoRequest extends FormRequest
         }
     }
 
+    /** Lo que el servicio recibe: los campos del ajuste, sin el paginado. */
+    public function ajuste(): array
+    {
+        return array_intersect_key($this->validated(), array_flip(self::CAMPOS));
+    }
+
     public function messages(): array
     {
         return [
+            ...parent::messages(),
+            'operacion.required'            => 'Elegí qué operación aplicar.',
+            'operacion.in'                  => 'Elegí una de las operaciones de la lista.',
             'porcentaje.required_if'        => 'Escribí el porcentaje del ajuste.',
             'porcentaje.numeric'            => 'Escribí el porcentaje como 15 o como -7,5.',
+            'porcentaje.decimal'            => 'El porcentaje puede tener hasta tres decimales.',
             'porcentaje.min'                => 'Una baja del 100 % o más dejaría el precio en cero. Para liquidar un producto puntual, usá el precio manual.',
+            'porcentaje.max'                => 'El porcentaje puede llegar hasta :max.',
             'ganancia.required_if'          => 'Escribí el multiplicador de ganancia del conjunto.',
+            'ganancia.numeric'              => 'Escribí el multiplicador como 2,5.',
+            'ganancia.decimal'              => 'El multiplicador puede tener hasta tres decimales.',
             'ganancia.gte'                  => 'Un multiplicador menor que 1 vende por debajo del costo, y acá lo haría sobre todo el conjunto.',
+            'ganancia.max'                  => 'El multiplicador puede llegar hasta :max.',
             'redondeo_multiplo.required_if' => 'Escribí a qué múltiplo redondear.',
+            'redondeo_multiplo.numeric'     => 'Escribí el múltiplo como 100 o 0,01.',
             'redondeo_multiplo.gt'          => 'Escribí a qué múltiplo redondear. 0,01 redondea al centavo, que es no redondear.',
+            'redondeo_multiplo.max'         => 'El múltiplo puede llegar hasta :max.',
+            'alcance.required'              => 'Elegí si el ajuste es para todos los productos o para un recorte.',
+            'alcance.in'                    => 'Elegí si el ajuste es para todos los productos o para un recorte.',
+            'categoria_id.exists'           => 'Esa categoría no existe.',
+            'marca_id.exists'               => 'Esa marca no existe.',
+            'proveedor_id.exists'           => 'Ese proveedor no existe.',
+            'ids.array'                     => 'Los productos elegidos tienen que venir como lista.',
             'ids.max'                       => 'Son demasiados productos elegidos a mano. Para un conjunto así conviene recortar por categoría, marca o proveedor.',
+            'ids.*.integer'                 => 'Uno de los productos elegidos no es válido.',
+            'ids.*.exists'                  => 'Uno de los productos elegidos no existe.',
+            'costo_desde.numeric'           => 'Escribí el costo como 20000 o 20.000,50.',
+            'costo_hasta.numeric'           => 'Escribí el costo como 20000 o 20.000,50.',
+            'precio_desde.numeric'          => 'Escribí el precio como 20000 o 20.000,50.',
+            'precio_hasta.numeric'          => 'Escribí el precio como 20000 o 20.000,50.',
+            'incluir_manuales.required'     => 'Indicá si el ajuste incluye los productos con precio manual.',
+            'incluir_manuales.boolean'      => 'Indicá si el ajuste incluye los productos con precio manual.',
         ];
     }
 

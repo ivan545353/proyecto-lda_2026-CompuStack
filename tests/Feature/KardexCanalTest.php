@@ -72,33 +72,42 @@ beforeEach(function () {
     };
 });
 
+// Desde el tramo F de la Etapa 3 el kardex es un endpoint: lo que la pantalla leía en el HTML se lee
+// en el JSON que la pinta, con el mismo texto.
+
 test('la venta de la tienda cobrada sale en el kardex con su canal y sin cajero', function () {
     $producto = ($this->tiendaProducto)(5);
     $venta    = ($this->tiendaPedidoCobrado)($producto, 2);
 
-    $this->actingAs(usuarioCon('stock.ver'))->get(route('stock.index', ['producto_id' => $producto->id]))
+    $this->getJson("/api/v1/stock/movimientos?producto_id={$producto->id}", bearer(usuarioCon('stock.ver')))
         ->assertOk()
-        ->assertSee($venta->numeroFormateado().' · tienda online')
-        ->assertSee('Tienda online (cobro automático)');
+        ->assertJsonPath('datos.0.origen_texto', 'Venta '.$venta->numeroFormateado().' · tienda online')
+        ->assertJsonPath('datos.0.registrado_por', 'Tienda online (cobro automático)');
 });
 
 test('el filtro de canal separa las ventas de la tienda de las del mostrador', function () {
     $producto  = ($this->tiendaProducto)(10);
     $online    = ($this->tiendaPedidoCobrado)($producto, 2);
     $mostrador = ventaCobrada($producto, 1);
-    $ver       = fn (string $canal) => $this->actingAs(usuarioCon('stock.ver'))
-        ->get(route('stock.index', ['canal' => $canal]))->assertOk();
+    $ver       = function (string $canal) {
+        app('auth')->forgetGuards();
 
-    $ver('online')->assertSee($online->numeroFormateado())->assertDontSee($mostrador->numeroFormateado())
-        ->assertSee('Canal: Tienda online');
-    $ver('mostrador')->assertSee($mostrador->numeroFormateado())->assertDontSee($online->numeroFormateado());
+        return $this->getJson("/api/v1/stock/movimientos?canal={$canal}", bearer(usuarioCon('stock.ver')))->assertOk();
+    };
+    $origenes = fn ($respuesta) => implode(' | ', array_column($respuesta->json('datos'), 'origen_texto'));
+
+    $enLinea = $ver('online')->assertJsonPath('criterios.canal', 'online');
+    expect($origenes($enLinea))->toContain($online->numeroFormateado())->not->toContain($mostrador->numeroFormateado());
+
+    expect($origenes($ver('mostrador')))->toContain($mostrador->numeroFormateado())->not->toContain($online->numeroFormateado());
 
     expect(MovimientoStock::query()->deCanal('online')->pluck('origen_id')->all())->toBe([$online->id]);
 });
 
 test('un canal que no existe no se acepta', function () {
-    $this->actingAs(usuarioCon('stock.ver'))->get(route('stock.index', ['canal' => 'telefono']))
-        ->assertRedirect(route('stock.index'));
+    $this->getJson('/api/v1/stock/movimientos?canal=telefono', bearer(usuarioCon('stock.ver')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('canal', 'errores');
 });
 
 test('un pedido sin cobrar no tiene asiento, y la ficha dice que lo reservado está en él', function () {
@@ -107,19 +116,22 @@ test('un pedido sin cobrar no tiene asiento, y la ficha dice que lo reservado es
 
     expect(MovimientoStock::where('origen_id', $venta->id)->where('origen_type', Venta::class)->count())->toBe(0);
 
-    $this->actingAs(usuarioCon('stock.ver'))->get(route('stock.index', ['producto_id' => $producto->id]))
+    $this->getJson("/api/v1/productos/{$producto->id}/stock", bearer(usuarioCon('stock.ver')))
         ->assertOk()
-        ->assertSeeInOrder(['data-reservas', 'De las reservadas, 3 están en pedidos', 'y 0 en compras'], false);
+        ->assertJsonPath('datos.stock_reservado', 3)
+        ->assertJsonPath('datos.reservas.pedidos', 3)
+        ->assertJsonPath('datos.reservas.carritos', 0);
 });
 
 test('el kardex impreso dice el canal filtrado y quién registró el cobro de la tienda', function () {
     $producto = ($this->tiendaProducto)(5);
     $venta    = ($this->tiendaPedidoCobrado)($producto, 1);
 
-    $csv = $this->actingAs(usuarioCon('stock.ver'))
-        ->get(route('stock.imprimir', ['formato' => 'csv', 'canal' => 'online']))
+    $url = $this->getJson('/api/v1/stock/movimientos/impresion?formato=csv&canal=online', bearer(usuarioCon('stock.ver')))
         ->assertOk()
-        ->streamedContent();
+        ->json('datos.url');
+
+    $csv = $this->get($url)->assertOk()->streamedContent();
 
     expect($csv)->toContain('Canal: Tienda online')
         ->and($csv)->toContain($venta->numeroFormateado().' · tienda online')

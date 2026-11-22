@@ -1530,3 +1530,27 @@ rápida y la de la búsqueda son idénticas (HL-115) y la venta no muestra dos f
 recurso (regla 40) y la app no se enteró del tramo. El acceso a la tienda es el único endpoint que devuelve un secreto
 (HL-114). Sin `GET` de una dirección (HL-113): sale de la ficha. Los mensajes pasaron tal cual de los controladores web
 a los de la API, y los servicios no cambiaron (D-34).
+
+### Tramo F — Precios y stock
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Api/V1/ImpuestoController`, `FactorCostoController` + sus Requests y Resources | Impuestos y factores: listado, uno, alta, edición y baja; el impuesto cuenta los productos con su alícuota (`Impuesto::scopeConUso`, lo cuenta la base) | Nuevo |
+| `Api/V1/PoliticaPreciosController` + `PoliticaPreciosRequest`, `SimulacionRequest`, `PoliticaPreciosResource` | La política vigente y su edición; la simulación de un precio sin escribir nada | Nuevo |
+| `App\Support\Api\Desglose` | La forma de `calculo`, sacada de `ProductoFichaGestionResource`: la ficha y el simulador devuelven lo mismo | Nuevo |
+| `Api/V1/AjusteMasivoController` + `AjusteMasivoRequest`, `ProyeccionAjusteResource`, `LoteAjusteResource` | Vista previa con conteos y criterio, aplicar, historial con el único lote reversible, deshacer; «nada que hacer» es 409 (HL-122) | Nuevo |
+| `Api/V1/StockController` + `MovimientoFiltroRequest`, `AjusteStockRequest`, `MovimientoStockResource`, `StockProductoResource` | El kardex de a 20 (HL-119) con su impresión, quiénes registraron, el stock de un producto con sus reservas y el ajuste por conteo | Nuevo |
+| `StockService::reservas()` | Dónde está lo reservado de un producto: una lectura que vivía en el controlador web (HL-121) | Modificado |
+| `ListadoMovimientos`, `ImpresionFirmada::LISTADOS` | El kardex se imprime por enlace firmado, con la misma consulta que lista la API | Modificado |
+| `pantallas/precios.js`, `ajuste-masivo.js`, `stock.js`, `formato.js` | Precios (política, impuestos, factores, simulador), el ajuste y su historial, el kardex y el ajuste; los formatos compartidos | Nuevo |
+| `pantallas/listado.js`, `productos.js`, `app.js` | `iniciarListado` marca el 422 de una consulta en su formulario; `cargarFiltro` se reutiliza; salen de `app.js` los bloques de la operación del ajuste y de la diferencia del conteo | Modificado |
+| Vistas de `precios` (índice, impuesto, factor, simulador, ajuste, lotes) y de `stock` (kardex, ajuste) | Shells: la estructura y los `@can`, sin datos de negocio (regla 37) | Modificado |
+| Controladores web `PrecioController`, `AjusteMasivoController`, `StockController` | Sólo devuelven el shell. Se retiran 11 rutas; se borran los siete Form Requests web | Modificado |
+| `EscalaTest`, `ImpresionDialogoTest` | El kardex se mide sobre el endpoint; su diálogo de impresión pide el enlace a la API | Modificado |
+
+**La decisión que lo condicionó.** Un controlador por recurso, como en los tramos D y E: el web juntaba tres en uno. La
+vista previa y aplicar validan con el **mismo** request, así no pueden mostrar un conjunto y escribir otro, y la pantalla
+aplica lo que previsualizó (la URL), no lo que el formulario tenga en ese momento. El servidor dice cuál es el único lote
+que se puede deshacer, para que ninguna pantalla ofrezca lo que va a rechazar. Las reservas son un recurso del producto
+(`GET /productos/{id}/stock`), junto al ajuste: el panel del kardex y la referencia del conteo salen de ahí. Los mensajes
+pasaron tal cual de los controladores web a los de la API, y los servicios no cambiaron salvo una lectura (D-34).

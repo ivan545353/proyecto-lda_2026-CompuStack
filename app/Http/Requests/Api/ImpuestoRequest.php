@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Models\Impuesto;
 use App\Support\Importe;
@@ -9,15 +9,14 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Validación de un impuesto. Sirve para el alta y la edición.
- *
- * El `alcance` sólo se elige al crear: ver la regla.
+ * El alta y la edición de un impuesto (tramo F). Rechaza, no corrige (M-31): sólo normaliza el
+ * formato de la alícuota; `orden` y `activo` viajan siempre. El `alcance` sólo se elige al crear.
  *
  * Métodos:
  *   prepareForValidation()  alícuota en formato argentino
  *   rules()                 reglas
  *   alicuotaSinRepetir()    dos alícuotas de IVA con el mismo número se pisan
- *   messages() / attributes()
+ *   messages() / attributes()  en español y acá (la API no depende de APP_LOCALE)
  */
 class ImpuestoRequest extends FormRequest
 {
@@ -30,12 +29,9 @@ class ImpuestoRequest extends FormRequest
     {
         $alicuota = Importe::normalizar($this->input('alicuota'));
 
+        // "10,5" → "10.50". Lo que no se pueda interpretar llega sin tocar y lo rechaza `numeric`.
         $this->merge([
-            // "10,5" → "10.50". Lo que no se pueda interpretar llega sin tocar
-            // y lo rechaza la regla numeric.
             'alicuota' => is_numeric($alicuota) ? number_format((float) $alicuota, 2, '.', '') : $alicuota,
-            'orden'    => $this->input('orden') ?? 0,
-            'activo'   => $this->boolean('activo'),
         ]);
     }
 
@@ -49,17 +45,14 @@ class ImpuestoRequest extends FormRequest
                 Rule::unique('impuestos', 'nombre')->ignore($impuesto?->id),
             ],
 
-            // min:0 y no gt:0 porque el exento es un impuesto del 0 % y tiene
-            // que existir: el comprobante declara su IVA contenido igual.
+            // min:0: el exento es un impuesto del 0 % y el comprobante declara su IVA contenido igual.
             'alicuota' => [
                 'required', 'numeric', 'decimal:0,2', 'min:0', 'max:99.99',
                 $this->alicuotaSinRepetir(...),
             ],
 
-            // Al editar, el único valor admitido es el que ya tiene. Si una
-            // alícuota de IVA pasara a alcance general, el motor se la sumaría
-            // a todos los productos ADEMÁS del IVA propio de cada uno, y los
-            // precios saldrían con IVA dos veces sin que nada lo avise.
+            // Al editar, el único valor admitido es el que ya tiene: una alícuota de IVA que pasara a
+            // general se sumaría a todo el catálogo además del IVA propio de cada producto.
             'alcance' => [
                 'required',
                 Rule::in($impuesto === null ? array_keys(Impuesto::ALCANCES) : [$impuesto->alcance]),
@@ -71,12 +64,7 @@ class ImpuestoRequest extends FormRequest
         ];
     }
 
-    /**
-     * Dos alícuotas de IVA con el mismo porcentaje serían dos filas que dicen
-     * lo mismo, y el producto las referencia por valor: el desglose no sabría
-     * cuál de las dos nombrar. No se puede declarar en la base porque sólo
-     * aplica a las filas de alcance 'producto'.
-     */
+    /** El producto referencia la alícuota por valor: dos filas con el mismo porcentaje no sabrían cuál nombrar. */
     private function alicuotaSinRepetir(string $atributo, mixed $valor, Closure $fallar): void
     {
         if ($this->input('alcance') !== 'producto') {
@@ -100,13 +88,24 @@ class ImpuestoRequest extends FormRequest
     {
         return [
             'nombre.required'      => 'El impuesto necesita un nombre.',
+            'nombre.min'           => 'El nombre tiene que tener al menos :min letras.',
+            'nombre.max'           => 'El nombre puede tener hasta :max letras.',
             'nombre.unique'        => 'Ya hay un impuesto con ese nombre.',
             'alicuota.required'    => 'Escribí la alícuota.',
             'alicuota.numeric'     => 'Escribí la alícuota como 21 o 10,5.',
             'alicuota.decimal'     => 'La alícuota puede tener hasta dos decimales.',
+            'alicuota.min'         => 'La alícuota no puede ser negativa.',
             'alicuota.max'         => 'La alícuota no puede llegar al 100 %.',
+            'alcance.required'     => 'Elegí el alcance.',
             'alcance.in'           => 'El alcance de un impuesto no se cambia: creá uno nuevo y dale de baja a este.',
             'comprobante.required' => 'Elegí cómo se declara en el comprobante.',
+            'comprobante.in'       => 'Elegí cómo se declara en el comprobante.',
+            'orden.required'       => 'Indicá el orden.',
+            'orden.integer'        => 'El orden es un número entero.',
+            'orden.min'            => 'El orden no puede ser negativo.',
+            'orden.max'            => 'El orden puede llegar hasta :max.',
+            'activo.required'      => 'Indicá si el impuesto está activo.',
+            'activo.boolean'       => 'Indicá si el impuesto está activo.',
         ];
     }
 

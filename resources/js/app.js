@@ -18,6 +18,9 @@ import { iniciarComparadorDeProveedores, iniciarEdicionDeVinculo } from './panta
 import { iniciarFormularioDeDireccion } from './pantallas/direcciones';
 import { iniciarFormularioDeCliente, iniciarListadoDeClientes } from './pantallas/clientes';
 import { iniciarFormularioDeProveedor, iniciarListadoDeProveedores } from './pantallas/proveedores';
+import { iniciarFormularioDeFactor, iniciarFormularioDeImpuesto, iniciarPantallaDePrecios, iniciarSimulador } from './pantallas/precios';
+import { iniciarAjusteMasivo, iniciarHistorialDeAjustes } from './pantallas/ajuste-masivo';
+import { iniciarAjusteDeStock, iniciarKardex } from './pantallas/stock';
 import { iniciarSelecciones } from './componentes/seleccion';
 import { mostrarAvisoPendiente } from './api/estados';
 
@@ -145,34 +148,6 @@ document.addEventListener('DOMContentLoaded', () => {
     refrescar();
 });
 
-// Ajuste de inventario: mostrar la diferencia mientras se escribe, para que el
-// operario vea la consecuencia antes de guardar. Un 30 escrito en lugar de un 3
-// se delata solo cuando el aviso dice "+27".
-document.addEventListener('DOMContentLoaded', () => {
-    const contado = document.getElementById('stock_contado');
-    const aviso = document.getElementById('diferenciaAjuste');
-
-    if (!contado || !aviso) return;
-
-    const actual = Number(aviso.dataset.stockActual);
-
-    const refrescar = () => {
-        if (contado.value === '') {
-            aviso.textContent = '';
-            return;
-        }
-
-        const diferencia = Number(contado.value) - actual;
-
-        aviso.textContent = diferencia === 0
-            ? `El conteo coincide con las ${actual} registradas: no hay nada que ajustar.`
-            : `Se va a registrar un movimiento de ${diferencia > 0 ? '+' : ''}${diferencia} unidad(es).`;
-    };
-
-    contado.addEventListener('input', refrescar);
-    refrescar();
-});
-
 // Política de precios: el margen equivalente, mientras se escribe el multiplicador.
 document.addEventListener('DOMContentLoaded', () => {
     const campo = document.getElementById('ganancia_global');
@@ -183,7 +158,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!campo || (!badge && !aviso)) return;
 
     const elementoConDatos = badge ?? aviso;
-    const guardado = Number(elementoConDatos.dataset.guardado);
+    // Se lee en cada cambio: desde el tramo F lo guardado llega por la API después de cargar la página.
+    const guardado = () => Number(elementoConDatos.dataset.guardado);
     const originalAviso = aviso ? aviso.innerHTML : '';
 
     // Mismo criterio que App\Support\Importe: con coma, el punto es separador
@@ -218,7 +194,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (badge) {
-            const esGuardado = Math.abs(multiplicador - guardado) < 0.0001;
+            const esGuardado = Math.abs(multiplicador - guardado()) < 0.0001;
             badge.className = esGuardado
                 ? 'badge bg-success-subtle text-success-emphasis border border-success-subtle'
                 : 'badge bg-primary-subtle text-primary-emphasis border border-primary-subtle';
@@ -228,7 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (aviso) {
-            if (Math.abs(multiplicador - guardado) < 0.0001) {
+            if (Math.abs(multiplicador - guardado()) < 0.0001) {
                 aviso.innerHTML = originalAviso;
             } else {
                 aviso.textContent = `Con × ${formatear(multiplicador, 3)} el margen sería del `
@@ -277,8 +253,16 @@ document.addEventListener('DOMContentLoaded', () => {
 // El aviso que dejó la pantalla anterior (una alta que volvió al listado): ver api/estados.js
 document.addEventListener('DOMContentLoaded', () => mostrarAvisoPendiente());
 
-// Las pantallas migradas a la API (tramos D y E): ver pantallas/
+// Las pantallas migradas a la API (tramos D, E y F): ver pantallas/
 document.addEventListener('DOMContentLoaded', () => {
+    iniciarPantallaDePrecios();
+    iniciarFormularioDeImpuesto();
+    iniciarFormularioDeFactor();
+    iniciarSimulador();
+    iniciarAjusteMasivo();
+    iniciarHistorialDeAjustes();
+    iniciarKardex();
+    iniciarAjusteDeStock();
     iniciarListadoDeProveedores();
     iniciarFormularioDeProveedor();
     iniciarListadoDeClientes();
@@ -293,88 +277,6 @@ document.addEventListener('DOMContentLoaded', () => {
     iniciarComparadorDeProveedores();
     iniciarEdicionDeVinculo();
 });
-
-document.addEventListener('DOMContentLoaded', () => {
-    const operacion = document.getElementById('operacion');
-    const alcanceTodos = document.getElementById('alcanceTodos');
-
-    if (!operacion || !alcanceTodos) return;
-
-    // Qué bloque muestra cada operación, y qué se le explica al elegirla.
-    const operaciones = {
-        precio: {
-            bloque: 'campoPorcentaje',
-            descripcion: 'Modifica el precio de venta actual en el porcentaje indicado, sin tocar el costo.',
-        },
-        costo: {
-            bloque: 'campoPorcentaje',
-            descripcion: 'Actualiza el costo de compra y recalcula el precio con la ganancia y los factores vigentes.',
-        },
-        ganancia: {
-            bloque: 'campoGanancia',
-            descripcion: 'Fija el mismo multiplicador sobre el costo neto para todo el conjunto y recalcula.',
-        },
-        redondeo: {
-            bloque: 'campoMultiplo',
-            descripcion: 'Lleva el precio de venta al múltiplo más cercano, sin tocar el costo ni la ganancia.',
-        },
-        recalculo: {
-            bloque: 'avisoRecalculo',
-            descripcion: 'Recalcula el precio desde el costo vigente y la parametrización, sin cambiar nada más.',
-        },
-    };
-
-    const bloques = ['campoPorcentaje', 'campoGanancia', 'campoMultiplo', 'avisoRecalculo'];
-    const explicacion = document.getElementById('explicacionOperacion');
-
-    const refrescarOperacion = () => {
-        const elegida = operaciones[operacion.value] ?? operaciones.precio;
-
-        bloques.forEach((id) => {
-            const bloque = document.getElementById(id);
-            if (!bloque) return;
-
-            const corresponde = id === elegida.bloque;
-            bloque.classList.toggle('d-none', !corresponde);
-
-            const campo = bloque.querySelector('input');
-
-            if (campo) {
-                campo.disabled = !corresponde;
-                campo.required = corresponde;
-            }
-        });
-
-        if (explicacion) {
-            explicacion.textContent = elegida.descripcion;
-        }
-    };
-
-    const filtros = document.getElementById('bloqueFiltrosRecorte');
-    const avisoTodos = document.getElementById('avisoCatalogoCompleto');
-
-    const refrescarAlcance = () => {
-        const todos = alcanceTodos.checked;
-
-        filtros?.classList.toggle('d-none', todos);
-        avisoTodos?.classList.toggle('d-none', !todos);
-
-        filtros?.querySelectorAll('input, select').forEach((campo) => {
-            campo.disabled = todos;
-            campo.tomselect?.[todos ? 'disable' : 'enable']();
-        });
-    };
-
-    operacion.addEventListener('change', refrescarOperacion);
-
-    document.querySelectorAll('input[name="alcance"]').forEach((radio) => {
-        radio.addEventListener('change', refrescarAlcance);
-    });
-
-    refrescarOperacion();
-    refrescarAlcance();
-});
-
 
 // Selección de filas para un formulario GET (ajuste de precios, sugeridos): ver componentes/seleccion.js
 document.addEventListener('DOMContentLoaded', () => iniciarSelecciones());

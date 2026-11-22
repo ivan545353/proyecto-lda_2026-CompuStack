@@ -10,20 +10,10 @@ import { iniciarSelectBuscable } from '../componentes/selects-buscables';
 import { iniciarListado, rellenar, todasLasPaginas } from './listado';
 import { llenarOpcionesDeCategoria, porRuta } from './opciones-categoria';
 
-// Los mismos formatos que App\Support\Importe: el JSON trae cadenas con punto y sin miles.
-const conDecimales = (decimales) => new Intl.NumberFormat('es-AR', { minimumFractionDigits: decimales, maximumFractionDigits: decimales });
-const dosDecimales = conDecimales(2);
+// Los formatos viven en formato.js (tramo F); se reexportan porque producto-proveedores.js los toma de acá.
+import { numero, paraFormulario, pesos } from './formato';
 
-/** "1500.5" → "$ 1.500,50". */
-export const pesos = (importe) => `$ ${dosDecimales.format(Number(importe ?? 0))}`;
-
-/** "1500.5" → "1.500,50", para el value de un campo. */
-export const paraFormulario = (importe) => (importe === null || importe === undefined || importe === '' ? '' : dosDecimales.format(Number(importe)));
-
-/** Un número sin ceros sobrantes: "2.500" → "2,5". Para porcentajes y multiplicadores. */
-const numero = (valor, decimales = 3) => (valor === null || valor === undefined || valor === ''
-    ? ''
-    : new Intl.NumberFormat('es-AR', { maximumFractionDigits: decimales }).format(Number(valor)));
+export { paraFormulario, pesos };
 
 const fecha = new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -122,7 +112,8 @@ const FILTROS = {
     },
 };
 
-function cargarFiltro(select) {
+/** Llena un selector de filtro (`data-opciones`) desde su endpoint. Lo usa también el ajuste masivo (tramo F). */
+export function cargarFiltro(select) {
     const filtro = FILTROS[select.dataset.opciones];
     const seleccionada = select.dataset.seleccionada || null;
 

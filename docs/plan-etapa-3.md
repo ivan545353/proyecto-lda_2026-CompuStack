@@ -270,6 +270,47 @@ La web los trataba como casillas, donde ausente quería decir «no»; la pantall
 API el `assertSessionHasInput` de la web («conserva lo que el usuario escribió»): el formulario nunca se recarga, así
 que lo escrito no se pierde. En el test del cliente la diferencia queda anotada en un comentario; el del proveedor («un error no borra los demás campos») pasó a «un error no marca los demás» (`assertJsonMissingValidationErrors`).
 
+### HL-119 — El kardex pagina de a 20
+
+*Registrado en el tramo F.* La web paginaba el kardex de a 15 y la configuración de precios mostraba los impuestos de a
+25. La API pagina todo de a 20, como en HL-117. El test que contaba 15 se migró a 20 con 25 movimientos, y conserva lo que
+fija: el tamaño de la página, el total y que el más nuevo va primero. La pantalla de precios pide los impuestos y los
+factores enteros, página por página (`todasLasPaginas`): son dos listas en la misma página, y un `?pagina=` compartido
+movería las dos.
+
+### HL-120 — Un filtro inválido del kardex es 422
+
+*Registrado en el tramo F.* `MovimientoFiltroRequest` de la web volvía al kardex limpio con el aviso «Ese filtro no es
+válido». En la API rechaza con 422 y el error en su campo (M-31), también para un rango de fechas al revés. La pantalla
+marca el campo en el formulario de filtros (`iniciarListado` recibe el `formulario`). Lo mismo vale para la impresión: un
+filtro inválido no imprime otra cosa.
+
+### HL-121 — Tres cosas que vivían en los controladores web
+
+*Registrado en el tramo F.* Ninguna es una regla de negocio, así que moverlas no rompe D-34:
+- **Las reservas de un producto** (`reservasDe`) son una lectura, y pasaron a `StockService::reservas()` para que la
+  web y la API lean lo mismo. El relevamiento las ponía en `GET /stock/reservas`; quedaron en `GET /productos/{id}/stock`,
+  junto al ajuste. El panel del kardex y la referencia del conteo necesitan el stock y las reservas juntos, y así no
+  dependen de `producto.ver`.
+- **La ganancia global del simulador por omisión** pasó al controlador de la API: es traducir una ausencia.
+  `ganancia_es_global` lo dice.
+- **Las opciones de la vista previa** (categorías, marcas y proveedores) las piden los listados que ya existían, cada uno
+  con su permiso. «Lo registró» del kardex no tenía de dónde salir: se sumó `GET /stock/usuarios`.
+
+### HL-122 — «No hizo falta hacer nada» es 409
+
+*Registrado en el tramo F.* `AjusteMasivoService::aplicar()` y `deshacer()` devuelven `null` cuando no hay nada que hacer:
+un ajuste que no alcanza a ningún producto, o un deshacer cuyos productos cambiaron todos de precio después. La web
+volvía con un `aviso` amarillo. En la API es **409 `regla_de_negocio`** con el mismo texto: no se escribió ningún lote,
+y un 201 afirmaría algo que no pasó (regla 16).
+
+### HL-123 — Impuestos, factores y lotes sin fila en el test de escala
+
+*Registrado en el tramo F.* El dataset «listados de la API» de `EscalaTest` crea las filas con factories, e `Impuesto`,
+`FactorCosto` y `LoteAjuste` no tienen. Crearlas sólo para este test sería sumar código de prueba que nadie más usa. El
+conteo de uso del impuesto es una subconsulta (`scopeConUso`), no una consulta por fila, y el historial carga sus
+relaciones de una vez. El kardex sí se mide: su test pasó al endpoint con el mismo criterio.
+
 ---
 
 ## 4. Alcance

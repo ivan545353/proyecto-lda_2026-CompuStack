@@ -4,9 +4,12 @@ namespace App\Services;
 
 use App\Exceptions\ReglaDeNegocioException;
 use App\Exceptions\StockInsuficienteException;
+use App\Models\CarritoLinea;
 use App\Models\MovimientoStock;
 use App\Models\Producto;
 use App\Models\User;
+use App\Models\VentaLinea;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
@@ -21,6 +24,7 @@ use Illuminate\Support\Facades\DB;
  *   recibirCompra()  entrada por recepción; recalcula el costo promedio ponderado
  *   fijarCosto()     fija el costo neto sin mover stock; no escribe asiento
  *   ajustar()        inventario: se carga el conteo físico, no la diferencia
+ *   reservas()       lectura: dónde está lo reservado de un producto (pedidos y carritos)
  */
 class StockService
 {
@@ -279,5 +283,23 @@ class StockService
                 .'Para llevar el stock a un valor exacto está el ajuste de inventario.'
             );
         }
+    }
+
+    /**
+     * Quién retiene lo reservado (D-25). Es una lectura, no una regla: vivía en el controlador web y se
+     * mudó acá para que la web y la API lean lo mismo (HL-121). Las dos sumas las hace la base (regla 14).
+     *
+     * @return array{pedidos: int, carritos: int}
+     */
+    public function reservas(Producto $producto): array
+    {
+        return [
+            'pedidos' => (int) VentaLinea::query()->where('producto_id', $producto->id)
+                ->whereHas('venta', fn (Builder $venta) => $venta->whereNotNull('reserva_vence'))
+                ->sum('cantidad'),
+            'carritos' => (int) CarritoLinea::query()->where('producto_id', $producto->id)
+                ->whereHas('carrito', fn (Builder $carrito) => $carrito->whereNotNull('reservado_hasta'))
+                ->sum('cantidad'),
+        ];
     }
 }

@@ -34,9 +34,10 @@ export function rellenar(fila, id, textos) {
 /**
  * Arranca el listado. `ruta` es la de la API; `llenar(fila, dato)` completa una fila clonada;
  * `filtros` son las claves de la URL que cuentan como filtro, para el texto de «sin resultados».
- * `alCargar(sobre)` corre después de cada carga, con o sin filas. Devuelve `{ recargar }`.
+ * `alCargar(sobre)` corre después de cada carga, con o sin filas. `formulario`, si lo hay, es donde
+ * el módulo central marca un 422 de la consulta (tramo F). Devuelve `{ recargar }`.
  */
-export function iniciarListado(raiz, { ruta, llenar, filtros = [], alCargar = () => {} }) {
+export function iniciarListado(raiz, { ruta, llenar, filtros = [], alCargar = () => {}, formulario = null }) {
     const filas = raiz.querySelector('[data-listado-filas]');
     const plantilla = raiz.querySelector('template[data-listado-fila]');
     const pie = raiz.querySelector('[data-listado-pie]');
@@ -136,7 +137,7 @@ export function iniciarListado(raiz, { ruta, llenar, filtros = [], alCargar = ()
 
         try {
             const separador = ruta.includes('?') ? '&' : '?';
-            sobre = await api.get(`${ruta}${separador}${consulta()}`, { senal: pedido.signal });
+            sobre = await api.get(`${ruta}${separador}${consulta()}`, { senal: pedido.signal, formulario });
         } catch (error) {
             if (error?.name === 'AbortError') return;
             // El aviso ya lo dio el módulo central: la tabla dice que no hay lista que mostrar.

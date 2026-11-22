@@ -91,8 +91,8 @@ test('el kardex muestra el remito en el asiento de la recepcion', function () {
         $this->orden, [$this->linea->id => 4], admin(), ['numero' => 'A-0001', 'fecha' => '2026-11-02'],
     );
 
-    $this->actingAs(usuarioCon('stock.ver', 'producto.ver'))
-        ->get(route('stock.index'))
+    // Desde el tramo F el kardex es un endpoint: el mismo texto, en el JSON que pinta la pantalla.
+    $this->getJson('/api/v1/stock/movimientos', bearer(usuarioCon('stock.ver', 'producto.ver')))
         ->assertOk()
-        ->assertSee('Remito A-0001 del 02/11/2026');
+        ->assertJsonPath('datos.0.remito_texto', 'Remito A-0001 del 02/11/2026');
 });

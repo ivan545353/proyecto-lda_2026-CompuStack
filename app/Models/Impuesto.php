@@ -61,6 +61,15 @@ class Impuesto extends Model
         );
     }
 
+    /** Cuántos productos usan la alícuota, contado por la base (A-26): el producto la guarda por valor, sin clave foránea. */
+    public function scopeConUso(Builder $query): Builder
+    {
+        return $query->select('impuestos.*')->selectSub(
+            Producto::query()->selectRaw('COUNT(*)')->whereColumn('productos.alicuota_iva', 'impuestos.alicuota'),
+            'productos_con_la_alicuota',
+        );
+    }
+
     /** El orden del desglose, que es el de la pantalla de factores. */
     public function scopeOrdenados(Builder $query): Builder
     {
