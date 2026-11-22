@@ -239,3 +239,41 @@ las formas del listado de proveedores de un producto con su permiso, y `forma=ge
   dos usuarios, `app('auth')->forgetGuards()`.
 - Al perder un permiso en medio de un test, la caché del rol lo sigue concediendo: `Cache::forget(User::claveCache($rolId))`,
   como hace `RolService`.
+
+
+## 9. Tramo E — Terceros
+
+**Migradas las 46 escrituras de los tres módulos** (Cliente, Dirección, Proveedor, el acceso a la tienda y el alta
+rápida), más los tests de impresión de los dos listados. El inventario (§5) baja de 210 a **164 llamadas en 17
+archivos**, y ninguna es de clientes, direcciones ni proveedores (las dos que el script marca con `?` son
+`$url` de la API, y la de `ClienteAccesoTiendaTest` es el `password.store` del enlace de restablecimiento, del
+tramo I). Ningún test se perdió: `ClienteModuloTest` pasa de 31 a 39 tests, `ProveedorModuloTest` de 27 a 35,
+y cada archivo del tramo conserva o suma.
+
+**Cómo se migró**: igual que en el tramo D (§8). Dos agregados:
+- Una casilla que la web trataba como «ausente = no» (`activo`, `es_predeterminada`) es **obligatoria** en el
+  endpoint, y el test la manda siempre (M-31, HL-118).
+- Una dirección ajena se prueba en las dos capas: la página web da 404 y el endpoint da 404 `no_encontrado`.
+
+| Test | Fijaba | Ahora | Por qué |
+| --- | --- | --- | --- |
+| `ClienteAltaRapidaTest` › «el alta pedida en json devuelve 201 con la misma fila que traería una búsqueda» | El `POST clientes` web, en JSON, contra `resultadoDeBusqueda()`, con igualdad estricta | El `datos` de `POST /api/v1/clientes` contra el `datos.0` de `GET /api/v1/clientes?q=…`, con `toBe` | HL-115: un solo `ClienteResource` |
+| `ClienteAltaRapidaTest` › «la venta ofrece el alta…» | `action="route('clientes.store')"` | `data-alta-rapida-api="/clientes"` | El modal envía a la API. |
+| `ClienteModuloTest` › «el formulario de la primera dirección llega con el checkbox marcado» | `assertViewHas('direccion', …es_predeterminada)` | El shell trae la casilla y los ids; la ficha de la API trae `direcciones: []` sin ninguna, y una con una | La casilla la marca el JS con la ficha (HL-113). |
+| `ClienteModuloTest` › una dirección ajena | 404 de la página web | 404 de la página (se conserva) y 404 `no_encontrado` de los dos endpoints | Se suma la capa de la API |
+| `ClienteAccesoTiendaTest` › «la ficha ofrece el acceso sólo con el permiso, y sin correo pide cargarlo» | Con y sin correo, en la ficha renderizada | El bloque del shell con el permiso y sin él; con o sin correo, en `datos.email` de la API | La decide la pantalla con la ficha. |
+| `ClienteAccesoTiendaTest` › el enlace | `with('enlace_restablecimiento')` en la sesión | `datos.enlace_restablecimiento`, `Cache-Control: no-store`, y ausente de la ficha y del listado | HL-114 |
+| `ClienteModuloTest` › «un documento mal escrito se rechaza…» | `assertSessionHasInput('nro_doc', …)`: lo escrito se conserva | Sin equivalente en la API (el formulario no se recarga); el 422 por campo y que no se guarda nada se conservan, y la diferencia queda anotada en el test | HL-118 |
+| `ProveedorModuloTest` › «si los pedidos se mandan por correo, el correo es obligatorio» | `assertSessionHasInput('razon_social', …)`: un error no borra los demás campos | `assertJsonMissingValidationErrors('razon_social')`: un error no marca los demás | Misma intención, dicha en el idioma del endpoint |
+| `ProveedorModuloTest` › «la casilla de cascada sólo aparece si el proveedor tiene productos activos» | `assertDontSee('desactivar_productos')` sin productos | La casilla nace oculta en el shell, sólo en la edición, y `productos_activos` de la ficha decide | Misma aserción, repartida. |
+| `ProveedorModuloTest` › «el listado avisa cuando el proveedor tiene órdenes de compra» | `assertSee('2 orden(es)')` en la vista | `productos` y `ordenes_compra` del listado; la pantalla arma el texto | La fila es una plantilla |
+| `ClienteImpresionTest`, `ProveedorImpresionTest` | `GET /<x>/imprimir` y la descarga | El endpoint `…/impresion` y la URL firmada; 422 si la columna o el filtro no existen | D-22; la validación rechaza |
+| `ImpresionDialogoTest` › `clientes` y `proveedores` | Dataset de «ruta web» | Dataset de «listado migrado por la API» | HL-116 |
+
+**Tests nuevos**: «los shells de clientes / de proveedores / de la dirección no traen datos de negocio» (regla 37),
+«los números de la fila se enlazan sólo a los listados que quien mira puede ver», y el dataset de permisos en las
+dos direcciones de cada endpoint (`endpoints de clientes`, con las tres de direcciones). `EscalaTest` suma
+`clientes` y `proveedores` a «listados de la API».
+
+**Hueco**: el JS de las pantallas (`clientes.js`, `direcciones.js`, `proveedores.js`, `alta-rapida.js`) no tiene
+test automático: lo cubre el recorrido manual del usuario, como en el tramo D.

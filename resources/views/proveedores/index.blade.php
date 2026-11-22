@@ -69,7 +69,7 @@
                             </a>
 
                             @if (request()->filled('q'))
-                                <a href="{{ request()->fullUrlWithoutQuery(['q', 'page']) }}"
+                                <a href="{{ request()->fullUrlWithoutQuery(['q', 'pagina']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de búsqueda">
                                     <span class="text-secondary fw-normal">Texto:</span>
@@ -79,7 +79,7 @@
                             @endif
 
                             @if (request()->filled('canal'))
-                                <a href="{{ request()->fullUrlWithoutQuery(['canal', 'page']) }}"
+                                <a href="{{ request()->fullUrlWithoutQuery(['canal', 'pagina']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de canal">
                                     <span class="text-secondary fw-normal">Canal:</span>
@@ -89,7 +89,7 @@
                             @endif
 
                             @if (request()->filled('estado'))
-                                <a href="{{ request()->fullUrlWithoutQuery(['estado', 'page']) }}"
+                                <a href="{{ request()->fullUrlWithoutQuery(['estado', 'pagina']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar filtro de estado">
                                     <span class="text-secondary fw-normal">Estado:</span>
@@ -111,7 +111,7 @@
                         </a>
                     @endif
 
-                    <x-imprimir ruta="proveedores.imprimir" :listado="new \App\Impresion\ListadoProveedores()" />
+                    <x-imprimir api="/proveedores/impresion" :listado="new \App\Impresion\ListadoProveedores()" />
 
                     <button type="submit" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center gap-1">
                         <i class="bi bi-funnel" aria-hidden="true"></i> Filtrar
@@ -121,173 +121,114 @@
         </div>
     </form>
 
-    <div class="card border-0 shadow-sm">
-        <table class="table table-hover align-middle mb-0">
-            <caption class="visually-hidden">Listado de proveedores</caption>
-            <thead class="table-light">
-                <tr>
-                    <th scope="col">Proveedor</th>
-                    <th scope="col">Canal de pedido</th>
-                    {{-- Dos columnas, dos preguntas. Antes «Vinculado a» mostraba los dos
-                         números y «Productos» repetía el primero --}}
-                    <th scope="col" class="text-center d-none d-sm-table-cell">Productos</th>
-                    <th scope="col" class="text-center d-none d-sm-table-cell">Órdenes</th>
-                    <th scope="col" class="d-none d-md-table-cell">Tiempo de Entrega</th>
-                    <th scope="col">Estado</th>
-                    <th scope="col" class="text-end">Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
-                @forelse ($proveedores as $proveedor)
-                    @php
-                        $urlProductos = route('productos.index', ['proveedor_id' => $proveedor->id]);
-                        $urlOrdenes = route('compras.index', ['proveedor_id' => $proveedor->id]);
-                    @endphp
-
+    {{-- La tabla llega vacía: las filas las pide pantallas/proveedores.js a la API (regla 37). --}}
+    <div data-pantalla="proveedores">
+        <div class="card border-0 shadow-sm">
+            <table class="table table-hover align-middle mb-0">
+                <caption class="visually-hidden">Listado de proveedores</caption>
+                <thead class="table-light">
                     <tr>
-                        <td>
-                            <span class="fw-semibold">{{ $proveedor->razon_social }}</span>
-                            <div class="small text-body-secondary">
-                                CUIT {{ $proveedor->cuitFormateado() }}
-                                @if ($proveedor->contacto)
-                                    · {{ $proveedor->contacto }}
-                                @endif
-                            </div>
-                            {{-- En móvil las dos columnas se ocultan, así que los números
-                                 bajan acá con los mismos enlaces --}}
-                            <div class="small d-sm-none">
-                                @if ($proveedor->productos_count > 0)
-                                    @can('producto.ver')
-                                        <a href="{{ $urlProductos }}">{{ $proveedor->productos_count }} producto(s)</a>
-                                    @else
-                                        {{ $proveedor->productos_count }} producto(s)
-                                    @endcan
-                                @else
-                                    <span class="text-body-secondary">Sin productos</span>
-                                @endif
-
-                                @if ($proveedor->ordenes_compra_count > 0)
-                                    ·
-                                    @can('compra.ver')
-                                        <a href="{{ $urlOrdenes }}">{{ $proveedor->ordenes_compra_count }} orden(es)</a>
-                                    @else
-                                        {{ $proveedor->ordenes_compra_count }} orden(es)
-                                    @endcan
-                                @endif
-                            </div>
-                        </td>
-
-                        <td>
-                            {{-- El badge lleva texto: ningún estado se comunica sólo con color --}}
-                            <span class="badge text-bg-light border">{{ $proveedor->canalPedidoTexto() }}</span>
-
-                            @if ($proveedor->canal_pedido === 'portal_externo' && $proveedor->portal_url)
-                                <a href="{{ $proveedor->portal_url }}" target="_blank" rel="noopener noreferrer"
-                                    class="small d-inline-flex align-items-center gap-1 ms-1"
-                                    aria-label="Abrir el portal de {{ $proveedor->razon_social }} en una pestaña nueva">
-                                    <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Portal
-                                </a>
-                            @elseif ($proveedor->canal_pedido === 'email' && $proveedor->email)
-                                <div class="small text-body-secondary">{{ $proveedor->email }}</div>
-                            @endif
-                        </td>
-
-                        {{-- Cuántos productos se le compran, enlazado al catálogo filtrado.
-                             Un cero no se enlaza: el listado no tendría nada que mostrar.
-                             Sin `producto.ver` el número se ve pero no es enlace, porque ese
-                             listado le devolvería un 403 --}}
-                        <td class="text-center d-none d-sm-table-cell">
-                            @if ($proveedor->productos_count > 0)
-                                @can('producto.ver')
-                                    <a href="{{ $urlProductos }}"
-                                        aria-label="Ver los {{ $proveedor->productos_count }} productos que se le compran a {{ $proveedor->razon_social }}">
-                                        {{ $proveedor->productos_count }}
-                                    </a>
-                                @else
-                                    {{ $proveedor->productos_count }}
-                                @endcan
-                            @else
-                                <span class="text-body-secondary" title="No se le compra ningún producto">—</span>
-                            @endif
-                        </td>
-
-                        {{-- Cuántas órdenes tiene, enlazado al listado de compras filtrado --}}
-                        <td class="text-center d-none d-sm-table-cell">
-                            @if ($proveedor->ordenes_compra_count > 0)
-                                @can('compra.ver')
-                                    <a href="{{ $urlOrdenes }}"
-                                        aria-label="Ver las {{ $proveedor->ordenes_compra_count }} órdenes de compra de {{ $proveedor->razon_social }}">
-                                        {{ $proveedor->ordenes_compra_count }}
-                                    </a>
-                                @else
-                                    {{ $proveedor->ordenes_compra_count }}
-                                @endcan
-                            @else
-                                <span class="text-body-secondary" title="Todavía no se le hizo ningún pedido">—</span>
-                            @endif
-                        </td>
-
-                        <td class="d-none d-md-table-cell">
-                            @if ($proveedor->plazo_entrega_dias > 0)
-                                ~{{ $proveedor->plazo_entrega_dias }} día(s)
-                            @else
-                                <span class="text-body-secondary">No informado</span>
-                            @endif
-                        </td>
-
-                        <td>
-                            <span class="badge {{ $proveedor->activo ? 'text-bg-dark' : 'text-bg-secondary' }}">
-                                {{ $proveedor->activo ? 'Activo' : 'Inactivo' }}
-                            </span>
-                        </td>
-
-                        <td class="text-end text-nowrap">
-                            @can('proveedor.editar')
-                                <a href="{{ route('proveedores.edit', $proveedor) }}" class="btn btn-sm btn-outline-dark"
-                                    aria-label="Editar {{ $proveedor->razon_social }}">
-                                    <i class="bi bi-pencil" aria-hidden="true"></i>
-                                    <span class="d-none d-sm-inline">Editar</span>
-                                </a>
-                            @endcan
-
-                            @can('proveedor.eliminar')
-                                <form method="POST" action="{{ route('proveedores.destroy', $proveedor) }}"
-                                    class="d-inline" onsubmit="return confirm(@js($proveedor->productos_count + $proveedor->ordenes_compra_count > 0 ? "«{$proveedor->razon_social}» tiene {$proveedor->productos_count} producto(s) y {$proveedor->ordenes_compra_count} orden(es) de compra. No se va a eliminar: se desactiva y su historial queda intacto. ¿Continuar?" : "¿Eliminar el proveedor «{$proveedor->razon_social}»?"));">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button class="btn btn-sm btn-outline-danger"
-                                        aria-label="Eliminar el proveedor {{ $proveedor->razon_social }}">
-                                        <i class="bi bi-trash" aria-hidden="true"></i>
-                                    </button>
-                                </form>
-                            @endcan
-                        </td>
+                        <th scope="col">Proveedor</th>
+                        <th scope="col">Canal de pedido</th>
+                        {{-- Dos columnas, dos preguntas. Antes «Vinculado a» mostraba los dos
+                             números y «Productos» repetía el primero --}}
+                        <th scope="col" class="text-center d-none d-sm-table-cell">Productos</th>
+                        <th scope="col" class="text-center d-none d-sm-table-cell">Órdenes</th>
+                        <th scope="col" class="d-none d-md-table-cell">Tiempo de Entrega</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col" class="text-end">Acciones</th>
                     </tr>
-                @empty
-                    {{-- El vacío por filtro y el vacío por falta de datos dicen cosas distintas.
-                         El colspan decía 6 con siete columnas arriba --}}
+                </thead>
+                <tbody data-listado-filas data-columnas="7" data-vacio="Todavía no hay proveedores cargados."
+                    data-vacio-filtrado="Ningún proveedor coincide con el filtro." data-ver-todos="Ver todos">
                     <tr>
-                        <td colspan="7" class="text-center text-body-secondary py-4">
-                            @if ($hayFiltros)
-                                Ningún proveedor coincide con el filtro.
-                                <a href="{{ route('proveedores.index') }}">Ver todos</a>.
-                            @else
-                                Todavía no hay proveedores cargados.
-                            @endif
-                        </td>
+                        <td colspan="7" class="text-center text-body-secondary py-4">Cargando…</td>
                     </tr>
-                @endforelse
-            </tbody>
-        </table>
-    </div>
-
-    @if ($proveedores->total() > 0)
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
-            <p class="text-body-secondary small mb-0">
-                Mostrando {{ $proveedores->firstItem() }}–{{ $proveedores->lastItem() }} de {{ $proveedores->total() }}.
-            </p>
-
-            {{ $proveedores->links() }}
+                </tbody>
+            </table>
         </div>
-    @endif
+
+        {{-- Una fila, con un @can por acción (regla 12). Los textos los pone el JS con textContent.
+             Un número se enlaza al catálogo o a las compras filtrados sólo con el permiso de ese
+             listado, que sin él devolvería un 403; un cero no se enlaza. --}}
+        <template data-listado-fila>
+            <tr>
+                <td>
+                    <span class="fw-semibold" data-campo="razon_social"></span>
+                    <div class="small text-body-secondary" data-campo="detalle"></div>
+                    {{-- En móvil las dos columnas se ocultan, así que los números bajan acá con los mismos enlaces --}}
+                    <div class="small d-sm-none">
+                        <span data-cantidad="productos">
+                            @can('producto.ver')
+                                <a href="{{ route('productos.index', ['proveedor_id' => '__ID__']) }}" hidden></a>
+                            @endcan
+                            <span data-plano hidden></span>
+                            <span class="text-body-secondary" data-cero>Sin productos</span>
+                        </span>
+                        <span data-cantidad="ordenes" data-solo-con-cantidad hidden>
+                            ·
+                            @can('compra.ver')
+                                <a href="{{ route('compras.index', ['proveedor_id' => '__ID__']) }}" hidden></a>
+                            @endcan
+                            <span data-plano hidden></span>
+                        </span>
+                    </div>
+                </td>
+
+                <td>
+                    {{-- El badge lleva texto: ningún estado se comunica sólo con color --}}
+                    <span class="badge text-bg-light border" data-campo="canal"></span>
+                    <a href="#" target="_blank" rel="noopener noreferrer" data-portal hidden
+                        class="small d-inline-flex align-items-center gap-1 ms-1">
+                        <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Portal
+                    </a>
+                    <div class="small text-body-secondary" data-campo="correo" hidden></div>
+                </td>
+
+                <td class="text-center d-none d-sm-table-cell" data-cantidad="productos">
+                    @can('producto.ver')
+                        <a href="{{ route('productos.index', ['proveedor_id' => '__ID__']) }}" hidden></a>
+                    @endcan
+                    <span data-plano hidden></span>
+                    <span class="text-body-secondary" data-cero title="No se le compra ningún producto">—</span>
+                </td>
+
+                <td class="text-center d-none d-sm-table-cell" data-cantidad="ordenes">
+                    @can('compra.ver')
+                        <a href="{{ route('compras.index', ['proveedor_id' => '__ID__']) }}" hidden></a>
+                    @endcan
+                    <span data-plano hidden></span>
+                    <span class="text-body-secondary" data-cero title="Todavía no se le hizo ningún pedido">—</span>
+                </td>
+
+                <td class="d-none d-md-table-cell" data-campo="plazo"></td>
+
+                <td><span class="badge" data-campo="estado"></span></td>
+
+                <td class="text-end text-nowrap">
+                    @can('proveedor.editar')
+                        <a href="{{ route('proveedores.edit', ['proveedor' => '__ID__']) }}" data-accion="editar"
+                            class="btn btn-sm btn-outline-dark">
+                            <i class="bi bi-pencil" aria-hidden="true"></i>
+                            <span class="d-none d-sm-inline">Editar</span>
+                        </a>
+                    @endcan
+
+                    {{-- Baja física o lógica: el aviso previo dice cuál va a ser, según esté referenciado. --}}
+                    @can('proveedor.eliminar')
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-listado-eliminar
+                            data-ruta="/proveedores/__ID__">
+                            <i class="bi bi-trash" aria-hidden="true"></i>
+                        </button>
+                    @endcan
+                </td>
+            </tr>
+        </template>
+
+        {{-- Resumen de resultados y paginado: los arma el JS con el sobre de la API. --}}
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" data-listado-pie hidden>
+            <p class="text-body-secondary small mb-0" data-listado-resumen></p>
+            <div data-listado-paginas></div>
+        </div>
+    </div>
 @endsection

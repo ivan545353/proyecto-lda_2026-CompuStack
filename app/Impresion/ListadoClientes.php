@@ -3,13 +3,29 @@
 namespace App\Impresion;
 
 use App\Models\Cliente;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * El padrón de clientes, con lo mismo que muestra la pantalla y nada más.
  */
-final class ListadoClientes extends Listado
+final class ListadoClientes extends Listado implements ImprimiblePorEnlace
 {
     private const CUENTAS = ['con_cuenta' => 'Con cuenta', 'sin_cuenta' => 'De mostrador'];
+
+    public function permiso(): string
+    {
+        return 'cliente.ver';
+    }
+
+    /** La del listado de la pantalla, la misma para mirar y para imprimir. */
+    public function consulta(array $filtros): Builder
+    {
+        return Cliente::query()
+            ->buscar($filtros['q'] ?? null)
+            ->conCondicionIva($filtros['condicion_iva'] ?? null)
+            ->conCuenta($filtros['cuenta'] ?? null)
+            ->orderBy('razon_social');
+    }
 
     public function titulo(): string
     {

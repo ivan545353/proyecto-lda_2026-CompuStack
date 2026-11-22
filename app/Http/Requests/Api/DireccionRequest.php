@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Models\Direccion;
 use Illuminate\Foundation\Http\FormRequest;
@@ -8,19 +8,15 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
- * Validación del formulario de dirección. Sirve para el alta y la edición.
- *
- * `cliente_id` está PROHIBIDO: el cliente lo determina la ruta, no el cuerpo de
- * la petición. Si se leyera del cuerpo, alguien podría mover una dirección a
- * otro cliente enviando un id distinto. El servicio igual enumera los campos y
- * nunca lo escribiría, pero declararlo prohibido hace que el intento se vea en
- * vez de ignorarse: mismo criterio con el que se cerró C-3.
+ * El alta y la edición de una dirección de un cliente (tramo E). Rechaza, no corrige (M-31):
+ * `es_predeterminada` viaja siempre, porque la API no adivina una casilla ausente. `cliente_id` está
+ * PROHIBIDO: el cliente lo determina la ruta, no el cuerpo (C-3), y declararlo prohibido hace que
+ * el intento de mudar una dirección se vea en lugar de ignorarse.
  *
  * Métodos:
- *   authorize()             true; la ruta exige cliente.editar
- *   prepareForValidation()  normaliza el checkbox y el código postal
+ *   prepareForValidation()  pone en mayúsculas el código postal (formato, no contenido)
  *   rules()                 las reglas
- *   messages() / attributes()
+ *   messages() / attributes()  en español y acá (la API no depende de APP_LOCALE)
  */
 class DireccionRequest extends FormRequest
 {
@@ -32,13 +28,7 @@ class DireccionRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         $this->merge([
-            // El checkbox sin marcar no viaja en el POST. Sin esto, no habría
-            // forma de distinguir "no la quiero predeterminada" de "no mandé el
-            // campo".
-            'es_predeterminada' => $this->boolean('es_predeterminada'),
-
-            // Un CPA se escribe en mayúsculas (A4400XXX). Normaliza el formato,
-            // no el contenido: si tiene un largo inválido, la regla lo rechaza.
+            // Un CPA se escribe en mayúsculas (A4400XXX); un largo inválido lo rechaza la regla.
             'codigo_postal' => is_string($this->input('codigo_postal'))
                 ? Str::upper(trim($this->input('codigo_postal')))
                 : $this->input('codigo_postal'),
@@ -52,9 +42,7 @@ class DireccionRequest extends FormRequest
             'numero'     => ['required', 'string', 'max:10'],
             'piso_depto' => ['nullable', 'string', 'max:20'],
 
-            // Acepta los dos formatos que se usan en el país: el postal de
-            // cuatro dígitos (9011) y el CPA de ocho (Z9011XAA). Rechazar el
-            // viejo dejaría afuera a quien copia la dirección de una factura.
+            // Los dos formatos del país: el postal de cuatro dígitos (9011) y el CPA (Z9011XAA).
             'codigo_postal' => ['required', 'string', 'regex:/^(\d{4}|[A-Z]\d{4}[A-Z]{3})$/'],
 
             'localidad' => ['required', 'string', 'min:2', 'max:100'],
@@ -62,7 +50,6 @@ class DireccionRequest extends FormRequest
 
             'es_predeterminada' => ['required', 'boolean'],
 
-            // El cliente lo determina la ruta, no el cuerpo de la petición.
             'cliente_id' => ['prohibited'],
         ];
     }
@@ -77,6 +64,8 @@ class DireccionRequest extends FormRequest
             'localidad.required'     => 'Escribí la localidad.',
             'provincia.required'     => 'Elegí la provincia.',
             'provincia.in'           => 'Elegí una provincia de la lista.',
+            'es_predeterminada.required' => 'Indicá si es la dirección predeterminada.',
+            '*.boolean'              => 'Esa opción es sí o no.',
             'cliente_id.prohibited'  => 'La dirección pertenece al cliente de esta pantalla.',
         ];
     }

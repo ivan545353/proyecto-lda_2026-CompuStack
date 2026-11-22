@@ -1,20 +1,24 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * El nombre de la cuenta de la tienda que el operador le da a un cliente del mostrador (D-26).
+ * El nombre de la cuenta de la tienda que el operador le da a un cliente del mostrador (D-26, tramo E).
  *
- * El correo no viaja: es el de la ficha, que la persona ya dio en el mostrador. La ficha sólo
- * tiene razón social, y una cuenta pide nombre y apellido por separado.
+ * El correo no viaja: es el de la ficha, que la persona ya dio en el mostrador. La ficha sólo tiene
+ * razón social, y una cuenta pide nombre y apellido por separado.
+ *
+ * Métodos:
+ *   rules()     nombre y apellido, obligatorios
+ *   messages()  en español y acá (la API no depende de APP_LOCALE)
  */
 class AccesoTiendaRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;   // la ruta ya exige cliente.dar_acceso_tienda
+        return true;   // la ruta exige cliente.dar_acceso_tienda
     }
 
     public function rules(): array

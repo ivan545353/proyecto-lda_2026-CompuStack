@@ -228,6 +228,48 @@ Decidido con el usuario: **el mínimo es de la interfaz** (`data-buscable-minimo
 antes), y la API rechaza sólo lo que no puede ser una búsqueda (más de 100 caracteres). `estado=todos` deja de
 existir: «todos» es no mandar el estado. El test de la Etapa 1 se migró a esas dos aserciones.
 
+### HL-113 — No hay `GET` de una dirección
+
+*Registrado en el tramo E.* El relevamiento listaba alta, edición y baja de una dirección, pero no su lectura: la pantalla
+«editar dirección» recibía el modelo desde el servidor. Con el shell (regla 37) la pantalla necesita traerla. No se agregó
+un endpoint: la ficha del cliente (`GET /clientes/{id}`) ya trae sus `direcciones`, y la pantalla toma de ahí la que edita
+y sabe si es la primera o la única predeterminada. Un endpoint más habría sido otra forma de pedir lo mismo. La página web
+sigue buscando la dirección **dentro** del cliente y da 404 si es ajena.
+
+### HL-114 — El acceso a la tienda devuelve un secreto
+
+*Registrado en el tramo E.* Hoy el enlace para elegir la contraseña viaja en la sesión (flash) y se muestra una vez. Un
+endpoint no tiene flash: `POST /clientes/{id}/acceso-tienda` lo devuelve en `datos.enlace_restablecimiento`, con `201` y
+`Cache-Control: no-store`. Es de un solo uso, vence en una hora, **no aparece en la ficha ni en el listado** y no se
+registra. La pantalla lo muestra una vez, como antes; si se pierde, se genera de nuevo desde Usuarios.
+
+### HL-115 — El alta rápida se compara contra el listado de la API
+
+*Registrado en el tramo E.* `ClienteAltaRapidaTest` fijaba, con igualdad estricta, que el alta por JSON devolvía **la misma
+fila** que la búsqueda. Se migró conservando la aserción: el `datos` del `POST /clientes` contra el `datos.0` de
+`GET /clientes?q=…`. Por eso hay un solo `ClienteResource` para listado, ficha y alta, con las claves nuevas al final.
+El modal de la venta envía a ese mismo endpoint (`data-alta-rapida-api`): un solo camino.
+
+### HL-116 — Las filas de `ImpresionDialogoTest` se mudan de dataset
+
+*Registrado en el tramo E.* Las filas `clientes` y `proveedores` estaban en el dataset de «ruta web»; pasaron al de
+«listado migrado por la API» (como las del tramo D), sin perder la aserción: el diálogo vive afuera del formulario de
+filtros y apunta a `/<recurso>/impresion`. El de «funciona sin JavaScript» deja de valer para ellas, igual que en HL-111.
+
+### HL-117 — Las listas de la API paginan de a 20
+
+*Registrado en el tramo E.* La web paginaba clientes y proveedores de a 15. La API ya paginaba sus listados mínimos de a
+20 (`PaginadoRequest::POR_PAGINA`): cambiarlo habría cambiado una forma existente (regla 40). Los listados del tramo
+quedan en 20. Los tests que contaban 15 se migraron a 20 conservando lo que fijan (que se pagina y que el resumen cuenta
+bien).
+
+### HL-118 — Lo que el formulario conservaba, la API lo rechaza
+
+*Registrado en el tramo E.* `activo` y `es_predeterminada` son obligatorios y booleanos en la API (M-31: rechaza, no corrige).
+La web los trataba como casillas, donde ausente quería decir «no»; la pantalla los manda siempre. Tampoco existe en la
+API el `assertSessionHasInput` de la web («conserva lo que el usuario escribió»): el formulario nunca se recarga, así
+que lo escrito no se pierde. En el test del cliente la diferencia queda anotada en un comentario; el del proveedor («un error no borra los demás campos») pasó a «un error no marca los demás» (`assertJsonMissingValidationErrors`).
+
 ---
 
 ## 4. Alcance

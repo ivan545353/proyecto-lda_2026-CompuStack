@@ -27,13 +27,20 @@ beforeEach(function () {
 |
 */
 
+// Las pantallas, que siguen en la web.
 dataset('rutas de proveedores', [
-    'listado'            => ['get',    'proveedores.index',   'proveedor.ver',      false],
-    'formulario alta'    => ['get',    'proveedores.create',  'proveedor.crear',    false],
-    'alta'               => ['post',   'proveedores.store',   'proveedor.crear',    false],
-    'formulario edicion' => ['get',    'proveedores.edit',    'proveedor.editar',   true],
-    'edicion'            => ['put',    'proveedores.update',  'proveedor.editar',   true],
-    'baja'               => ['delete', 'proveedores.destroy', 'proveedor.eliminar', true],
+    'listado'            => ['get', 'proveedores.index',  'proveedor.ver',    false],
+    'formulario alta'    => ['get', 'proveedores.create', 'proveedor.crear',  false],
+    'formulario edicion' => ['get', 'proveedores.edit',   'proveedor.editar', true],
+]);
+
+// Las operaciones, en la API (tramo E de la Etapa 3). `{proveedor}` se reemplaza por el del test.
+dataset('endpoints de proveedores', [
+    'listado' => ['get',    '/api/v1/proveedores',             'proveedor.ver'],
+    'ficha'   => ['get',    '/api/v1/proveedores/{proveedor}', 'proveedor.ver'],
+    'alta'    => ['post',   '/api/v1/proveedores',             'proveedor.crear'],
+    'edicion' => ['patch',  '/api/v1/proveedores/{proveedor}', 'proveedor.editar'],
+    'baja'    => ['delete', '/api/v1/proveedores/{proveedor}', 'proveedor.eliminar'],
 ]);
 
 const PERMISOS_PROVEEDOR = ['proveedor.ver', 'proveedor.crear', 'proveedor.editar', 'proveedor.eliminar'];
@@ -57,17 +64,79 @@ test('el permiso de la ruta alcanza para pasar', function (string $metodo, strin
     expect($respuesta->status())->not->toBe(403);
 })->with('rutas de proveedores');
 
+test('en la API, ningun otro permiso del modulo habilita el endpoint', function (string $metodo, string $url, string $permiso) {
+    $proveedor = Proveedor::factory()->create();
+    $otros     = array_values(array_diff(PERMISOS_PROVEEDOR, [$permiso]));
+
+    $this->json($metodo, str_replace('{proveedor}', $proveedor->id, $url), datosDeProveedor(), bearer(usuarioCon(...$otros)))
+        ->assertForbidden()
+        ->assertJsonPath('codigo', 'sin_permiso');
+})->with('endpoints de proveedores');
+
+test('en la API, el permiso del endpoint alcanza para pasar', function (string $metodo, string $url, string $permiso) {
+    $proveedor = Proveedor::factory()->create();
+
+    $respuesta = $this->json($metodo, str_replace('{proveedor}', $proveedor->id, $url), datosDeProveedor(), bearer(usuarioCon($permiso)));
+
+    expect($respuesta->status())->toBeLessThan(300);
+})->with('endpoints de proveedores');
+
 test('quien solo puede ver no recibe los botones de alta, edicion ni baja', function () {
     $proveedor = Proveedor::factory()->create();
 
     // Ocultar el botón es comodidad; el control real es la ruta, que ya se probó
     // arriba. Esto verifica que la interfaz no ofrezca lo que va a rechazar
     // (M-33: el frontend original mostraba pantallas que el backend rechazaba).
+    // Desde el tramo E la fila es una plantilla del shell: lo que se afirma es que la plantilla
+    // no trae el botón. Y en la otra dirección, que sí lo trae para quien tiene el permiso.
     $this->actingAs(usuarioCon('proveedor.ver'))
         ->get(route('proveedores.index'))
         ->assertOk()
         ->assertDontSee(route('proveedores.create'))
-        ->assertDontSee(route('proveedores.edit', $proveedor));
+        ->assertDontSee(route('proveedores.edit', $proveedor))
+        ->assertDontSee('data-accion="editar"', false)
+        ->assertDontSee('data-listado-eliminar', false);
+
+    $this->actingAs(usuarioCon('proveedor.ver', 'proveedor.crear', 'proveedor.editar', 'proveedor.eliminar'))
+        ->get(route('proveedores.index'))
+        ->assertSee(route('proveedores.create'))
+        ->assertSee('data-accion="editar"', false)
+        ->assertSee('data-listado-eliminar', false);
+});
+
+test('los numeros de la fila se enlazan sólo a los listados que quien mira puede ver', function () {
+    // Un enlace a un listado sin permiso devolvería un 403: la plantilla no lo trae.
+    $this->actingAs(usuarioCon('proveedor.ver'))
+        ->get(route('proveedores.index'))
+        ->assertOk()
+        ->assertDontSee('proveedor_id=__ID__', false);
+
+    $html = $this->actingAs(usuarioCon('proveedor.ver', 'producto.ver', 'compra.ver'))
+        ->get(route('proveedores.index'))
+        ->assertOk()
+        ->getContent();
+
+    expect($html)->toContain(route('productos.index', ['proveedor_id' => '__ID__']))
+        ->and($html)->toContain(route('compras.index', ['proveedor_id' => '__ID__']));
+});
+
+// Regla 37: la página llega con su estructura, y los datos por la API.
+test('los shells de proveedores no traen datos de negocio', function () {
+    // Un CUIT distinto del de ejemplo que lleva el formulario como placeholder.
+    $proveedor = Proveedor::factory()->create(['razon_social' => 'Proveedora Secreta S.A.', 'cuit' => '30998877665']);
+    $usuario   = usuarioCon('proveedor.ver', 'proveedor.editar');
+
+    $this->actingAs($usuario)->get(route('proveedores.index'))
+        ->assertOk()
+        ->assertDontSee('Proveedora Secreta')
+        ->assertDontSee('30-99887766-5')
+        ->assertSee('data-pantalla="proveedores"', false);
+
+    $this->actingAs($usuario)->get(route('proveedores.edit', $proveedor))
+        ->assertOk()
+        ->assertDontSee('Proveedora Secreta')
+        ->assertDontSee('30-99887766-5')
+        ->assertSee('data-proveedor="'.$proveedor->id.'"', false);
 });
 
 /*
@@ -85,10 +154,10 @@ test('el parametro q llega al listado y filtra', function () {
     Proveedor::factory()->create(['razon_social' => 'Distribuidora Austral S.A.']);
     Proveedor::factory()->create(['razon_social' => 'Tecno Patagonia']);
 
-    $this->actingAs(usuarioCon('proveedor.ver'))
-        ->get(route('proveedores.index', ['q' => 'austral']))
+    $this->getJson('/api/v1/proveedores?q=austral', bearer(usuarioCon('proveedor.ver')))
         ->assertOk()
-        ->assertViewHas('proveedores', fn ($p) => $p->total() === 1);
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('criterios.q', 'austral');
 });
 
 test('el parametro canal llega al listado y filtra', function () {
@@ -96,54 +165,82 @@ test('el parametro canal llega al listado y filtra', function () {
     Proveedor::factory()->porPortal()->create();
     Proveedor::factory()->count(2)->create();   // 'manual', el valor por omisión
 
-    $this->actingAs(usuarioCon('proveedor.ver'))
-        ->get(route('proveedores.index', ['canal' => 'portal_externo']))
-        ->assertViewHas('proveedores', fn ($p) => $p->total() === 1);
+    $this->getJson('/api/v1/proveedores?canal=portal_externo', bearer(usuarioCon('proveedor.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('criterios.canal', 'portal_externo');
 });
 
 test('el parametro estado llega al listado y filtra', function () {
     Proveedor::factory()->count(2)->create();
     Proveedor::factory()->inactivo()->create();
 
-    $this->actingAs(usuarioCon('proveedor.ver'))
-        ->get(route('proveedores.index', ['estado' => 'inactivos']))
-        ->assertViewHas('proveedores', fn ($p) => $p->total() === 1);
+    $this->getJson('/api/v1/proveedores?estado=inactivos', bearer(usuarioCon('proveedor.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 1);
 });
 
-test('un canal inexistente vuelve al listado limpio con aviso', function () {
-    $this->actingAs(usuarioCon('proveedor.ver'))
-        ->get(route('proveedores.index', ['canal' => 'telepatia']))
-        ->assertRedirect(route('proveedores.index'))
-        ->assertSessionHas('error');
+// En la API, el aviso es el 422: el listado no muestra otra cosa que la pedida.
+test('un canal inexistente se rechaza con aviso', function () {
+    $this->getJson('/api/v1/proveedores?canal=telepatia', bearer(usuarioCon('proveedor.ver')))
+        ->assertUnprocessable()
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonValidationErrors('canal', 'errores');
 });
 
-test('el listado pagina de a 15 y los enlaces conservan el filtro', function () {
-    Proveedor::factory()->count(20)
+test('el listado pagina de a 20 y criterios conserva el filtro', function () {
+    Proveedor::factory()->count(25)
         ->sequence(fn ($s) => ['razon_social' => "Proveedor {$s->index}"])
         ->create();
 
-    $usuario = usuarioCon('proveedor.ver');
+    $encabezado = bearer(usuarioCon('proveedor.ver'));
 
-    $this->actingAs($usuario)
-        ->get(route('proveedores.index', ['q' => 'proveedor']))
-        ->assertViewHas('proveedores', fn ($p) => $p->count() === 15
-            && $p->total() === 20
-            // Sin withQueryString(), la página 2 perdería el filtro.
-            && str_contains($p->nextPageUrl(), 'q=proveedor'));
+    // `criterios` es lo que la pantalla repite al pedir la página siguiente: sin él, perdería el filtro.
+    $this->getJson('/api/v1/proveedores?q=proveedor', $encabezado)
+        ->assertJsonCount(20, 'datos')
+        ->assertJsonPath('total', 25)
+        ->assertJsonPath('ultima_pagina', 2)
+        ->assertJsonPath('criterios.q', 'proveedor');
 
-    $this->actingAs($usuario)
-        ->get(route('proveedores.index', ['q' => 'proveedor', 'page' => 2]))
-        ->assertViewHas('proveedores', fn ($p) => $p->count() === 5);
+    $this->getJson('/api/v1/proveedores?q=proveedor&pagina=2', $encabezado)
+        ->assertJsonCount(5, 'datos');
 });
 
-test('el listado muestra el CUIT formateado aunque se guarde sin separadores', function () {
+test('el listado trae el CUIT formateado aunque se guarde sin separadores', function () {
     Proveedor::factory()->create(['cuit' => '30712345678']);
 
     // Es la contracara de normalizar: una sola forma de guardar, una sola de leer.
-    $this->actingAs(usuarioCon('proveedor.ver'))
-        ->get(route('proveedores.index'))
+    $this->getJson('/api/v1/proveedores', bearer(usuarioCon('proveedor.ver')))
         ->assertOk()
-        ->assertSee('30-71234567-8');
+        ->assertJsonPath('datos.0.cuit', '30712345678')
+        ->assertJsonPath('datos.0.cuit_formateado', '30-71234567-8');
+});
+
+test('el listado cuenta los productos y las ordenes de cada proveedor, y la ficha los productos activos', function () {
+    $proveedor = Proveedor::factory()->create();
+    Producto::factory()->conProveedor($proveedor)->create();
+    Producto::factory()->conProveedor($proveedor)->create(['activo' => false]);
+    OrdenCompra::factory()->count(2)->create(['proveedor_id' => $proveedor->id]);
+
+    $encabezado = bearer(usuarioCon('proveedor.ver'));
+
+    // Sin esto el confirm() diría «¿Eliminar?» sobre un proveedor que en realidad
+    // se va a desactivar: el sistema anunciaría una cosa y haría otra.
+    $this->getJson('/api/v1/proveedores', $encabezado)
+        ->assertJsonPath('datos.0.productos', 2)
+        ->assertJsonPath('datos.0.ordenes_compra', 2)
+        ->assertJsonMissingPath('datos.0.productos_activos');
+
+    $this->getJson("/api/v1/proveedores/{$proveedor->id}", $encabezado)
+        ->assertOk()
+        ->assertJsonPath('datos.productos_activos', 1)
+        ->assertJsonPath('datos.canal_pedido_texto', 'Pedido manual');
+});
+
+test('la ficha de un proveedor que no existe es 404', function () {
+    $this->getJson('/api/v1/proveedores/999999', bearer(usuarioCon('proveedor.ver')))
+        ->assertNotFound()
+        ->assertJsonPath('codigo', 'no_encontrado');
 });
 
 /*
@@ -159,49 +256,46 @@ test('el listado muestra el CUIT formateado aunque se guarde sin separadores', f
 */
 
 test('si los pedidos se mandan por correo, el correo es obligatorio', function () {
-    $this->actingAs(usuarioCon('proveedor.crear'))
-        ->from(route('proveedores.create'))
-        ->post(route('proveedores.store'), datosDeProveedor([
-            'canal_pedido' => 'email',
-            'email'        => '',
-        ]))
-        ->assertRedirect(route('proveedores.create'))
-        ->assertSessionHasErrors('email')
-        // Un error en un campo no borra los demás.
-        ->assertSessionHasInput('razon_social', 'Distribuidora Austral S.A.');
+    $this->postJson('/api/v1/proveedores', datosDeProveedor([
+        'canal_pedido' => 'email',
+        'email'        => '',
+    ]), bearer(usuarioCon('proveedor.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('email', 'errores')
+        // Un error en un campo no marca los demás.
+        ->assertJsonMissingValidationErrors('razon_social', 'errores');
 
     expect(Proveedor::count())->toBe(0);
 });
 
 test('con otro canal, el correo sigue siendo opcional', function () {
-    $this->actingAs(usuarioCon('proveedor.crear'))
-        ->post(route('proveedores.store'), datosDeProveedor([
-            'canal_pedido' => 'manual',
-            'email'        => '',
-        ]))
-        ->assertSessionHasNoErrors();
+    $this->postJson('/api/v1/proveedores', datosDeProveedor([
+        'canal_pedido' => 'manual',
+        'email'        => '',
+    ]), bearer(usuarioCon('proveedor.crear')))
+        ->assertCreated();
 
     expect(Proveedor::count())->toBe(1);
 });
 
 test('si los pedidos se cargan en el portal, hace falta la direccion', function () {
-    $this->actingAs(usuarioCon('proveedor.crear'))
-        ->post(route('proveedores.store'), datosDeProveedor([
-            'canal_pedido' => 'portal_externo',
-            'portal_url'   => '',
-        ]))
-        ->assertSessionHasErrors('portal_url');
+    $this->postJson('/api/v1/proveedores', datosDeProveedor([
+        'canal_pedido' => 'portal_externo',
+        'portal_url'   => '',
+    ]), bearer(usuarioCon('proveedor.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('portal_url', 'errores');
 
     expect(Proveedor::count())->toBe(0);
 });
 
 test('la direccion del portal se rechaza con cualquier otro canal', function () {
-    $this->actingAs(usuarioCon('proveedor.crear'))
-        ->post(route('proveedores.store'), datosDeProveedor([
-            'canal_pedido' => 'manual',
-            'portal_url'   => 'https://no-corresponde.test',
-        ]))
-        ->assertSessionHasErrors('portal_url');
+    $this->postJson('/api/v1/proveedores', datosDeProveedor([
+        'canal_pedido' => 'manual',
+        'portal_url'   => 'https://no-corresponde.test',
+    ]), bearer(usuarioCon('proveedor.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('portal_url', 'errores');
 
     // Se rechaza la petición entera: no se guarda el proveedor con la URL
     // vaciada por atrás, que es lo que hacían los setters del original.
@@ -209,15 +303,14 @@ test('la direccion del portal se rechaza con cualquier otro canal', function () 
 });
 
 test('un campo opcional vacio se guarda como nulo, no como cadena vacia', function () {
-    $this->actingAs(usuarioCon('proveedor.crear'))
-        ->post(route('proveedores.store'), datosDeProveedor([
-            'canal_pedido' => 'manual',
-            'email'        => '',
-            'telefono'     => '',
-            'contacto'     => '',
-            'portal_url'   => '',
-        ]))
-        ->assertSessionHasNoErrors();
+    $this->postJson('/api/v1/proveedores', datosDeProveedor([
+        'canal_pedido' => 'manual',
+        'email'        => '',
+        'telefono'     => '',
+        'contacto'     => '',
+        'portal_url'   => '',
+    ]), bearer(usuarioCon('proveedor.crear')))
+        ->assertCreated();
 
     // '' y NULL significan lo mismo para una persona y cosas distintas para SQL:
     // un WHERE email IS NULL no encontraría una fila con cadena vacía.
@@ -230,9 +323,9 @@ test('un campo opcional vacio se guarda como nulo, no como cadena vacia', functi
 });
 
 test('el CUIT se guarda sin separadores aunque se escriba con guiones', function () {
-    $this->actingAs(usuarioCon('proveedor.crear'))
-        ->post(route('proveedores.store'), datosDeProveedor(['cuit' => '30-71234567-8']))
-        ->assertSessionHasNoErrors();
+    $this->postJson('/api/v1/proveedores', datosDeProveedor(['cuit' => '30-71234567-8']), bearer(usuarioCon('proveedor.crear')))
+        ->assertCreated()
+        ->assertJsonPath('datos.cuit', '30712345678');
 
     expect(Proveedor::first()->cuit)->toBe('30712345678');
 });
@@ -241,9 +334,9 @@ test('un CUIT con letras se rechaza en vez de limpiarse', function () {
     // M-31 en su forma exacta: el setter original convertía "30-ABC" en "30" y lo
     // guardaba. normalizar() saca separadores, no letras, así que la regla lo
     // rechaza con un mensaje que describe el problema real.
-    $this->actingAs(usuarioCon('proveedor.crear'))
-        ->post(route('proveedores.store'), datosDeProveedor(['cuit' => '30-ABCDEFG-8']))
-        ->assertSessionHasErrors('cuit');
+    $this->postJson('/api/v1/proveedores', datosDeProveedor(['cuit' => '30-ABCDEFG-8']), bearer(usuarioCon('proveedor.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('cuit', 'errores');
 
     expect(Proveedor::count())->toBe(0);
 });
@@ -251,19 +344,18 @@ test('un CUIT con letras se rechaza en vez de limpiarse', function () {
 test('un CUIT repetido se rechaza con un mensaje que lo explica', function () {
     Proveedor::factory()->create(['cuit' => '30712345678']);
 
-    $this->actingAs(usuarioCon('proveedor.crear'))
-        ->post(route('proveedores.store'), datosDeProveedor())
-        ->assertSessionHasErrors(['cuit' => 'Ya hay un proveedor registrado con ese CUIT.']);
+    $this->postJson('/api/v1/proveedores', datosDeProveedor(), bearer(usuarioCon('proveedor.crear')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.cuit.0', 'Ya hay un proveedor registrado con ese CUIT.');
 });
 
 test('el proveedor que se edita no choca con su propio CUIT', function () {
     $proveedor = Proveedor::factory()->create(['cuit' => '30712345678']);
 
-    $this->actingAs(usuarioCon('proveedor.editar'))
-        ->put(route('proveedores.update', $proveedor), datosDeProveedor([
-            'razon_social' => 'Distribuidora Austral S.R.L.',
-        ]))
-        ->assertSessionHasNoErrors();
+    $this->patchJson("/api/v1/proveedores/{$proveedor->id}", datosDeProveedor([
+        'razon_social' => 'Distribuidora Austral S.R.L.',
+    ]), bearer(usuarioCon('proveedor.editar')))
+        ->assertOk();
 
     expect($proveedor->fresh()->razon_social)->toBe('Distribuidora Austral S.R.L.');
 });
@@ -271,37 +363,55 @@ test('el proveedor que se edita no choca con su propio CUIT', function () {
 test('un plazo de entrega negativo se rechaza', function () {
     // La columna es unsignedSmallInteger: sin la regla, MariaDB devolvería un
     // error de integridad en la cara del usuario en lugar de un mensaje (M-30).
-    $this->actingAs(usuarioCon('proveedor.crear'))
-        ->post(route('proveedores.store'), datosDeProveedor(['plazo_entrega_dias' => -5]))
-        ->assertSessionHasErrors('plazo_entrega_dias');
+    $this->postJson('/api/v1/proveedores', datosDeProveedor(['plazo_entrega_dias' => -5]), bearer(usuarioCon('proveedor.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('plazo_entrega_dias', 'errores');
 
     expect(Proveedor::count())->toBe(0);
 });
 
-test('el checkbox desmarcado desactiva el proveedor', function () {
+test('el alta devuelve 201 con el proveedor y el mensaje', function () {
+    $this->postJson('/api/v1/proveedores', datosDeProveedor(), bearer(usuarioCon('proveedor.crear')))
+        ->assertCreated()
+        ->assertJsonPath('mensaje', 'Proveedor «Distribuidora Austral S.A.» creado.')
+        ->assertJsonPath('datos.razon_social', 'Distribuidora Austral S.A.')
+        ->assertJsonPath('datos.activo', true);
+});
+
+test('desactivar con activo en falso desactiva el proveedor', function () {
     $proveedor = Proveedor::factory()->create();
 
-    // El checkbox sin marcar no viaja en el POST. Sin la normalización del Form
-    // Request, desactivar un proveedor desde el formulario sería imposible.
-    $datos = datosDeProveedor(['cuit' => $proveedor->cuit]);
-    unset($datos['activo']);
-
-    $this->actingAs(usuarioCon('proveedor.editar'))
-        ->put(route('proveedores.update', $proveedor), $datos);
+    // En la web el checkbox sin marcar no viajaba y el Form Request lo leía como «no». La API no
+    // adivina: `activo` viaja siempre, y su falta se rechaza.
+    $this->patchJson("/api/v1/proveedores/{$proveedor->id}", datosDeProveedor(['cuit' => $proveedor->cuit, 'activo' => false]), bearer(usuarioCon('proveedor.editar')))
+        ->assertOk()
+        ->assertJsonPath('datos.activo', false);
 
     expect($proveedor->fresh()->activo)->toBeFalse();
 });
 
+test('editar sin decir el estado se rechaza en vez de adivinarlo', function () {
+    $proveedor = Proveedor::factory()->create();
+
+    $datos = datosDeProveedor(['cuit' => $proveedor->cuit]);
+    unset($datos['activo']);
+
+    $this->patchJson("/api/v1/proveedores/{$proveedor->id}", $datos, bearer(usuarioCon('proveedor.editar')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('activo', 'errores');
+
+    expect($proveedor->fresh()->activo)->toBeTrue();
+});
+
 /*
 |--------------------------------------------------------------------------
-| La cascada, desde la pantalla
+| La cascada
 |--------------------------------------------------------------------------
 |
-| Se prueba que la casilla EXISTE en el formulario, no sólo que el servicio la
-| obedece. En marcas la cascada vive en el Form Request y en el controlador pero
-| nunca se renderizó, y el test del módulo pasa igual porque postea el campo
-| directo: la pieza funciona y el cableado no existe. Es A-24 con otra ropa, y
-| está anotado en los pendientes de usabilidad.
+| La casilla EXISTE en el formulario (se prueba abajo, sobre la pantalla), y el
+| endpoint la obedece. En marcas la cascada vivía en el Form Request y en el
+| controlador pero nunca se renderizó: la pieza funciona y el cableado no
+| existe. Es A-24 con otra ropa, y está anotado en los pendientes de usabilidad.
 |
 */
 
@@ -312,28 +422,35 @@ test('la casilla de cascada solo aparece si el proveedor tiene productos activos
 
     $usuario = usuarioCon('proveedor.editar');
 
-    // No ofrecer una acción que no tendría efecto.
-    $this->actingAs($usuario)
-        ->get(route('proveedores.edit', $sinProductos))
+    // La casilla está en el formulario de edición, y no en el de alta: la cascada no tiene sentido
+    // sin un proveedor que desactivar. Nace oculta (`hidden`): no se ofrece una acción sin efecto.
+    $html = $this->actingAs($usuario)->get(route('proveedores.edit', $sinProductos))->assertOk()->getContent();
+    expect($html)->toMatch('/<div[^>]*data-aviso-productos[^>]*\shidden[\s>]/')
+        ->and($html)->toContain('name="desactivar_productos"');
+
+    app('auth')->forgetGuards();
+
+    $this->actingAs(usuarioCon('proveedor.crear'))
+        ->get(route('proveedores.create'))
         ->assertOk()
         ->assertDontSee('desactivar_productos');
 
-    $this->actingAs($usuario)
-        ->get(route('proveedores.edit', $conProductos))
-        ->assertOk()
-        ->assertSee('desactivar_productos');
+    // Y la decide la ficha de la API: con productos activos trae el número, y la pantalla la muestra.
+    $encabezado = bearer(usuarioCon('proveedor.ver'));
+
+    $this->getJson("/api/v1/proveedores/{$sinProductos->id}", $encabezado)
+        ->assertJsonPath('datos.productos_activos', 0);
+    $this->getJson("/api/v1/proveedores/{$conProductos->id}", $encabezado)
+        ->assertJsonPath('datos.productos_activos', 1);
 });
 
 test('desactivar desde la pantalla no desactiva los productos, y el mensaje lo dice', function () {
     $proveedor = Proveedor::factory()->create();
     $producto  = Producto::factory()->conProveedor($proveedor)->create();
 
-    $datos = datosDeProveedor(['cuit' => $proveedor->cuit]);
-    unset($datos['activo']);
-
-    $this->actingAs(usuarioCon('proveedor.editar'))
-        ->put(route('proveedores.update', $proveedor), $datos)
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'siguen activos'));
+    $this->patchJson("/api/v1/proveedores/{$proveedor->id}", datosDeProveedor(['cuit' => $proveedor->cuit, 'activo' => false]), bearer(usuarioCon('proveedor.editar')))
+        ->assertOk()
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'siguen activos'));
 
     expect($producto->fresh()->activo)->toBeTrue();
 });
@@ -343,12 +460,13 @@ test('con la casilla, desactivar el proveedor desactiva sus productos', function
     $producto  = Producto::factory()->conProveedor($proveedor)->create();
     $ajeno     = Producto::factory()->create();
 
-    $datos = datosDeProveedor(['cuit' => $proveedor->cuit, 'desactivar_productos' => 1]);
-    unset($datos['activo']);
-
-    $this->actingAs(usuarioCon('proveedor.editar'))
-        ->put(route('proveedores.update', $proveedor), $datos)
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'junto con'));
+    $this->patchJson("/api/v1/proveedores/{$proveedor->id}", datosDeProveedor([
+        'cuit'                 => $proveedor->cuit,
+        'activo'               => false,
+        'desactivar_productos' => true,
+    ]), bearer(usuarioCon('proveedor.editar')))
+        ->assertOk()
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'junto con'));
 
     expect($producto->fresh()->activo)->toBeFalse()
         ->and($ajeno->fresh()->activo)->toBeTrue();
@@ -367,10 +485,10 @@ test('con la casilla, desactivar el proveedor desactiva sus productos', function
 test('un proveedor que nadie referencia se elimina y el mensaje lo dice', function () {
     $proveedor = Proveedor::factory()->create();
 
-    $this->actingAs(usuarioCon('proveedor.eliminar'))
-        ->delete(route('proveedores.destroy', $proveedor))
-        ->assertRedirect(route('proveedores.index'))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'eliminado'));
+    $this->deleteJson("/api/v1/proveedores/{$proveedor->id}", [], bearer(usuarioCon('proveedor.eliminar')))
+        ->assertOk()
+        ->assertJsonPath('datos.eliminado', true)
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'eliminado'));
 
     $this->assertModelMissing($proveedor);
 });
@@ -379,9 +497,10 @@ test('un proveedor con productos se desactiva y el mensaje lo dice', function ()
     $proveedor = Proveedor::factory()->create();
     Producto::factory()->conProveedor($proveedor)->create();
 
-    $this->actingAs(usuarioCon('proveedor.eliminar'))
-        ->delete(route('proveedores.destroy', $proveedor))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'se desactivó'));
+    $this->deleteJson("/api/v1/proveedores/{$proveedor->id}", [], bearer(usuarioCon('proveedor.eliminar')))
+        ->assertOk()
+        ->assertJsonPath('datos.eliminado', false)
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'se desactivó'));
 
     $this->assertModelExists($proveedor);
     expect($proveedor->fresh()->activo)->toBeFalse();
@@ -391,9 +510,9 @@ test('un proveedor con ordenes de compra se desactiva y el mensaje lo dice', fun
     $proveedor = Proveedor::factory()->create();
     OrdenCompra::factory()->create(['proveedor_id' => $proveedor->id]);
 
-    $this->actingAs(usuarioCon('proveedor.eliminar'))
-        ->delete(route('proveedores.destroy', $proveedor))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'se desactivó'));
+    $this->deleteJson("/api/v1/proveedores/{$proveedor->id}", [], bearer(usuarioCon('proveedor.eliminar')))
+        ->assertOk()
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'se desactivó'));
 
     $this->assertModelExists($proveedor);
     expect($proveedor->fresh()->activo)->toBeFalse();
@@ -404,10 +523,17 @@ test('el listado avisa cuando el proveedor tiene ordenes de compra', function ()
     OrdenCompra::factory()->count(2)->create(['proveedor_id' => $proveedor->id]);
 
     // Sin esto el confirm() diría «¿Eliminar?» sobre un proveedor que en realidad
-    // se va a desactivar: el sistema anunciaría una cosa y haría otra.
-    $this->actingAs(usuarioCon('proveedor.ver'))
+    // se va a desactivar: el sistema anunciaría una cosa y haría otra. El texto del aviso lo arma
+    // la pantalla (pantallas/proveedores.js) con lo que trae el listado: las órdenes y los
+    // productos de cada fila, aunque el proveedor no tenga ningún producto.
+    $this->getJson('/api/v1/proveedores', bearer(usuarioCon('proveedor.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.0.productos', 0)
+        ->assertJsonPath('datos.0.ordenes_compra', 2);
+
+    // Y la baja, en efecto, no lo elimina: lo desactiva (ver «Bajas»).
+    $this->actingAs(usuarioCon('proveedor.eliminar', 'proveedor.ver'))
         ->get(route('proveedores.index'))
         ->assertOk()
-        ->assertSee('2 orden(es)');
+        ->assertSee('data-listado-eliminar', false);
 });
-

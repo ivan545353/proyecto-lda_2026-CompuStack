@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\CarritoLineaController;
 use App\Http\Controllers\Api\V1\CategoriaController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClienteController;
+use App\Http\Controllers\Api\V1\DireccionController;
 use App\Http\Controllers\Api\V1\ImpresionController;
 use App\Http\Controllers\Api\V1\MarcaController;
 use App\Http\Controllers\Api\V1\PagoPedidoController;
@@ -104,9 +105,33 @@ Route::prefix('v1')->group(function () {
         Route::patch('marcas/{marca}', [MarcaController::class, 'update'])->whereNumber('marca')->middleware('can:marca.editar');
         Route::delete('marcas/{marca}', [MarcaController::class, 'destroy'])->whereNumber('marca')->middleware('can:marca.eliminar');
 
-        // Mínimo para los selectores del catálogo (tramo D); el tramo E suma el resto del módulo.
-        Route::get('proveedores', [ProveedorController::class, 'index'])->middleware('can:proveedor.ver');
-        Route::get('clientes', [ClienteController::class, 'index'])->middleware('can:cliente.ver');
+        // Los proveedores (tramos D y E). Un permiso por acción (C-2), en la ruta.
+        Route::middleware('can:proveedor.ver')->group(function () {
+            Route::get('proveedores', [ProveedorController::class, 'index']);
+            Route::get('proveedores/impresion', [ProveedorController::class, 'impresion']);
+            Route::get('proveedores/{proveedor}', [ProveedorController::class, 'show'])->whereNumber('proveedor');
+        });
+        Route::post('proveedores', [ProveedorController::class, 'store'])->middleware('can:proveedor.crear');
+        Route::patch('proveedores/{proveedor}', [ProveedorController::class, 'update'])->whereNumber('proveedor')->middleware('can:proveedor.editar');
+        Route::delete('proveedores/{proveedor}', [ProveedorController::class, 'destroy'])->whereNumber('proveedor')->middleware('can:proveedor.eliminar');
+
+        // Los clientes (tramos D y E). Un permiso por acción (C-2), en la ruta.
+        Route::middleware('can:cliente.ver')->group(function () {
+            Route::get('clientes', [ClienteController::class, 'index']);
+            Route::get('clientes/impresion', [ClienteController::class, 'impresion']);
+            Route::get('clientes/{cliente}', [ClienteController::class, 'show'])->whereNumber('cliente');
+        });
+        Route::post('clientes', [ClienteController::class, 'store'])->middleware('can:cliente.crear');
+        Route::patch('clientes/{cliente}', [ClienteController::class, 'update'])->whereNumber('cliente')->middleware('can:cliente.editar');
+        Route::delete('clientes/{cliente}', [ClienteController::class, 'destroy'])->whereNumber('cliente')->middleware('can:cliente.eliminar');
+        Route::post('clientes/{cliente}/acceso-tienda', [ClienteController::class, 'accesoTienda'])->whereNumber('cliente')->middleware('can:cliente.dar_acceso_tienda');
+        // Las direcciones: una dirección no tiene existencia autónoma, así que las tres piden `cliente.editar`.
+        // La lista viaja en la ficha del cliente.
+        Route::middleware('can:cliente.editar')->group(function () {
+            Route::post('clientes/{cliente}/direcciones', [DireccionController::class, 'store'])->whereNumber('cliente');
+            Route::patch('clientes/{cliente}/direcciones/{direccion}', [DireccionController::class, 'update'])->whereNumber(['cliente', 'direccion']);
+            Route::delete('clientes/{cliente}/direcciones/{direccion}', [DireccionController::class, 'destroy'])->whereNumber(['cliente', 'direccion']);
+        });
 
         // El listado y la ficha de gestión son `GET productos?forma=gestion` y `GET productos/{p}?forma=gestion`,
         // arriba: el mismo recurso que la tienda (regla 36).

@@ -2,11 +2,12 @@
 
 namespace App\Http\Requests\Api;
 
+use App\Models\Proveedor;
 use Illuminate\Validation\Rule;
 
 /**
- * Los filtros del listado de proveedores. Mínimo en el tramo D (para los selectores del catálogo):
- * búsqueda y estado. El tramo E le suma lo de su pantalla. Un filtro inválido es 422.
+ * Los filtros del listado de proveedores: búsqueda, estado (tramo D, selectores del catálogo) y
+ * canal de pedido (tramo E, la pantalla). Un filtro inválido es 422.
  *
  * Métodos:
  *   porPagina()  de a 20 por omisión
@@ -24,6 +25,7 @@ class ProveedorFiltroRequest extends PaginadoRequest
             ...parent::rules(),
             'q'      => ['nullable', 'string', 'max:100'],
             'estado' => ['nullable', Rule::in(self::ESTADOS)],
+            'canal'  => ['nullable', Rule::in(array_keys(Proveedor::CANALES))],
         ];
     }
 
@@ -33,6 +35,7 @@ class ProveedorFiltroRequest extends PaginadoRequest
             ...parent::messages(),
             'q.max'     => 'La búsqueda puede tener hasta :max caracteres.',
             'estado.in' => 'Ese estado no existe: activos o inactivos.',
+            'canal.in'  => 'Ese canal de pedido no existe.',
         ];
     }
 
@@ -46,6 +49,7 @@ class ProveedorFiltroRequest extends PaginadoRequest
         return [
             'q'      => $this->filled('q') ? (string) $this->input('q') : null,
             'estado' => $this->filled('estado') ? (string) $this->input('estado') : null,
+            'canal'  => $this->filled('canal') ? (string) $this->input('canal') : null,
         ];
     }
 }

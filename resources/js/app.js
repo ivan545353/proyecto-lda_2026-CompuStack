@@ -15,6 +15,9 @@ import { iniciarFormularioDeMarca, iniciarListadoDeMarcas } from './pantallas/ma
 import { iniciarFormularioDeCategoria, iniciarListadoDeCategorias } from './pantallas/categorias';
 import { iniciarFormularioDeProducto, iniciarListadoDeProductos } from './pantallas/productos';
 import { iniciarComparadorDeProveedores, iniciarEdicionDeVinculo } from './pantallas/producto-proveedores';
+import { iniciarFormularioDeDireccion } from './pantallas/direcciones';
+import { iniciarFormularioDeCliente, iniciarListadoDeClientes } from './pantallas/clientes';
+import { iniciarFormularioDeProveedor, iniciarListadoDeProveedores } from './pantallas/proveedores';
 import { iniciarSelecciones } from './componentes/seleccion';
 import { mostrarAvisoPendiente } from './api/estados';
 
@@ -274,8 +277,13 @@ document.addEventListener('DOMContentLoaded', () => {
 // El aviso que dejó la pantalla anterior (una alta que volvió al listado): ver api/estados.js
 document.addEventListener('DOMContentLoaded', () => mostrarAvisoPendiente());
 
-// Las pantallas migradas a la API (tramo D): ver pantallas/
+// Las pantallas migradas a la API (tramos D y E): ver pantallas/
 document.addEventListener('DOMContentLoaded', () => {
+    iniciarListadoDeProveedores();
+    iniciarFormularioDeProveedor();
+    iniciarListadoDeClientes();
+    iniciarFormularioDeCliente();
+    iniciarFormularioDeDireccion();
     iniciarListadoDeMarcas();
     iniciarFormularioDeMarca();
     iniciarListadoDeCategorias();

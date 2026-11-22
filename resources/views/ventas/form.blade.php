@@ -259,16 +259,14 @@
             </div>
         </form>
 
-        {{-- Afuera del formulario de la venta: un <form> no puede contener otro. Postea a
-             la misma ruta que clientes/crear, así que valida con el mismo ClienteRequest. --}}
+        {{-- Afuera del formulario de la venta: un <form> no puede contener otro. Envía al
+             mismo endpoint que la pantalla de alta (POST /clientes de la API), así que valida con lo mismo. --}}
         @can('cliente.crear')
             <div class="modal fade" id="nuevoCliente" tabindex="-1" aria-labelledby="nuevoClienteTitulo"
                 aria-hidden="true">
                 <div class="modal-dialog modal-lg modal-dialog-scrollable">
-                    <form method="POST" novalidate action="{{ route('clientes.store') }}" class="modal-content"
-                        data-alta-rapida="#cliente_id" data-alta-rapida-anuncio="#anuncioCliente">
-                        @csrf
-
+                    <form method="POST" novalidate class="modal-content" data-alta-rapida="#cliente_id"
+                        data-alta-rapida-api="/clientes" data-alta-rapida-anuncio="#anuncioCliente">
                         <div class="modal-header">
                             <h2 class="modal-title h5" id="nuevoClienteTitulo">Nuevo cliente</h2>
                             <button type="button" class="btn-close" data-bs-dismiss="modal"

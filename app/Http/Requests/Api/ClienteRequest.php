@@ -1,23 +1,21 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Support\ReglasFiscales;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 
 /**
- * Validación del formulario de cliente. Sirve para el alta y para la edición.
- *
- * Las reglas fiscales son las mismas que exige el formulario de usuarios
- * cuando el rol es de ámbito tienda, así que viven en App\Support\ReglasFiscales
- * y se piden con el prefijo vacío.
+ * El alta y la edición de un cliente (tramo E). Las reglas fiscales son las de
+ * `App\Support\ReglasFiscales`, las mismas que exige el formulario de usuarios para una cuenta de
+ * tienda. Rechaza, no corrige (M-31): sólo normaliza el formato (documento sin separadores, correo en
+ * minúscula). La cuenta de acceso no se asigna desde acá.
  *
  * Métodos:
- *   authorize()             true; el permiso ya lo exige la ruta
  *   prepareForValidation()  normaliza el documento y el correo
- *   rules()                 las fiscales más la prohibición
- *   messages() / attributes()
+ *   rules()                 las fiscales más la prohibición de `user_id`
+ *   messages() / attributes()  en español y acá (la API no depende de APP_LOCALE)
  */
 class ClienteRequest extends FormRequest
 {

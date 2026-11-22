@@ -92,12 +92,15 @@ test('el listado no hace mas consultas con mas filas', function (string $url, st
     expect($muchas)->toBe($pocas);
 })->with('listados');
 
-// Los listados migrados a la API (tramo D): la misma medida, sobre el endpoint que trae las filas.
+// Los listados migrados a la API (tramos D y E): la misma medida, sobre el endpoint que trae las filas.
 dataset('listados de la API', [
     'marcas'     => ['/api/v1/marcas', Marca::class, ['marca.ver', 'marca.crear', 'marca.editar', 'marca.eliminar']],
     'categorías' => ['/api/v1/categorias?forma=lista', Categoria::class, ['categoria.ver', 'categoria.crear', 'categoria.editar', 'categoria.eliminar']],
     // Con todos los permisos que suman claves: costo, margen y stock también salen sin consultar por fila.
     'productos'  => ['/api/v1/productos?forma=gestion', Producto::class, ['producto.ver', 'precio.ver_costo', 'stock.ver']],
+    // Tramo E: cada cliente trae su cuenta y su conteo de direcciones, cada proveedor sus conteos.
+    'clientes'    => ['/api/v1/clientes', Cliente::class, ['cliente.ver', 'cliente.crear', 'cliente.editar', 'cliente.eliminar']],
+    'proveedores' => ['/api/v1/proveedores', Proveedor::class, ['proveedor.ver', 'proveedor.crear', 'proveedor.editar', 'proveedor.eliminar']],
 ]);
 
 test('el listado de la API no hace mas consultas con mas filas', function (string $url, string $modelo, array $permisos) {

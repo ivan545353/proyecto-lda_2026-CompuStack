@@ -240,3 +240,133 @@ Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
 GET {{base}}/clientes?q=tilos
 Accept: application/json
 Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+###
+
+### ── Tramo E — Terceros: clientes, direcciones y proveedores ─────────────
+
+# Clientes: el listado con sus filtros. `cuenta` distingue al cliente de mostrador del que tiene cuenta
+# de la tienda; cada fila trae las claves de siempre y las nuevas al final.
+GET {{base}}/clientes?cuenta=sin_cuenta&condicion_iva=consumidor_final
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# El alta: 201 con el cliente y el aviso. La misma fila que devuelve el listado (la usa el alta rápida de la venta).
+# @name altaCliente
+POST {{base}}/clientes
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{
+  "razon_social": "Kiosco La Esquina",
+  "condicion_iva": "consumidor_final",
+  "tipo_doc": "dni",
+  "nro_doc": "30111222",
+  "email": "esquina@ejemplo.com",
+  "telefono": "2974111222"
+}
+
+###
+
+# La ficha trae las direcciones (no hay GET de una sola): la predeterminada primero.
+GET {{base}}/clientes/{{altaCliente.response.body.datos.id}}
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Una dirección: se busca dentro del cliente (la de otro cliente es 404). La primera queda predeterminada.
+# @name altaDireccion
+POST {{base}}/clientes/{{altaCliente.response.body.datos.id}}/direcciones
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{
+  "calle": "Av. Eva Perón",
+  "numero": "1450",
+  "piso_depto": null,
+  "codigo_postal": "9011",
+  "localidad": "Caleta Olivia",
+  "provincia": "Santa Cruz",
+  "es_predeterminada": true
+}
+
+###
+
+# La validación rechaza, no corrige (M-31): una casilla ausente es 422, no «no».
+POST {{base}}/clientes/{{altaCliente.response.body.datos.id}}/direcciones
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{ "calle": "Mitre", "numero": "10", "codigo_postal": "9011", "localidad": "Caleta Olivia", "provincia": "Santa Cruz" }
+
+###
+
+# El acceso a la tienda: devuelve el enlace de un solo uso, sólo en esta respuesta y sin caché (HL-114).
+# Con la cuenta ya creada, o sin correo, es 409.
+POST {{base}}/clientes/{{altaCliente.response.body.datos.id}}/acceso-tienda
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{ "nombre": "Lucía", "apellido": "Esquina" }
+
+###
+
+# Proveedores: el listado con el canal de pedido y los conteos que hace la base.
+GET {{base}}/proveedores?canal=email&estado=activos
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# El alta de un proveedor por el canal del portal: la dirección del portal es obligatoria sólo ahí.
+# @name altaProveedor
+POST {{base}}/proveedores
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{
+  "razon_social": "Mayorista del Sur S.R.L.",
+  "cuit": "30-71111111-4",
+  "email": "ventas@mayoristadelsur.com.ar",
+  "telefono": "2974000111",
+  "contacto": "Mesa de pedidos",
+  "canal_pedido": "portal_externo",
+  "portal_url": "https://pedidos.mayoristadelsur.com.ar",
+  "plazo_entrega_dias": 3,
+  "activo": true
+}
+
+###
+
+# La ficha trae `productos_activos`: lo que la desactivación con cascada va a alcanzar.
+GET {{base}}/proveedores/{{altaProveedor.response.body.datos.id}}
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Un proveedor referenciado no se borra: se desactiva (regla 2) y el mensaje lo dice.
+DELETE {{base}}/proveedores/{{altaProveedor.response.body.datos.id}}
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# La impresión de los dos listados, por URL firmada (D-22).
+GET {{base}}/clientes/impresion?formato=csv
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+GET {{base}}/proveedores/impresion?formato=pdf
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}

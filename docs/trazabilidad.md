@@ -1509,3 +1509,24 @@ del listado de su entidad. Los mensajes de antes y después (la cascada, el prim
 pasaron tal cual del controlador web al de la API, y el servicio no cambió (D-34). Con el usuario se decidieron
 la frontera de categorías, la migración de los tests de impresión sin JS (HL-111), el 405 sobre `PUT` en lugar de
 sobre el `POST` que ahora existe, y el mínimo del buscador en la interfaz (HL-112).
+
+
+### Tramo E — Terceros
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Api/V1/ClienteController` + `ClienteRequest`, `ClienteFiltroRequest`, `ClienteResource` | Clientes: listado con `condicion_iva` y `cuenta`, ficha con direcciones, alta, edición, baja, impresión, y el acceso a la tienda con su enlace de un solo uso (HL-114) | Modificado |
+| `Api/V1/DireccionController` + `DireccionRequest`, `AccesoTiendaRequest`, `DireccionResource` | Alta, edición y baja de una dirección, buscada dentro del cliente (404 si es ajena); la cuenta de la tienda | Nuevo |
+| `Api/V1/ProveedorController` + `ProveedorRequest`, `ProveedorFiltroRequest`, `ProveedorResource` | Proveedores: listado con `canal` y conteos, ficha con `productos_activos`, alta, edición con cascada, baja que desactiva si hay productos u órdenes, impresión | Modificado |
+| `ListadoClientes`, `ListadoProveedores`, `ImpresionFirmada::LISTADOS` | Su permiso y su consulta, para la descarga firmada | Modificado |
+| `pantallas/clientes.js`, `direcciones.js`, `proveedores.js` | El listado, el formulario con sus direcciones y el acceso a la tienda, la dirección, y el proveedor con el aviso de la cascada | Nuevo |
+| `componentes/alta-rapida.js`, `ventas/form.blade.php` | El modal de la venta envía a `POST /clientes` de la API (`data-alta-rapida-api`) y lee `datos` | Modificado |
+| Vistas de `clientes` (listado, formulario, dirección) y de `proveedores` (listado, formulario) | Shells: la estructura y los `@can`, sin datos de negocio (regla 37) | Modificado |
+| Controladores web `ClienteController`, `DireccionController`, `ProveedorController` | Sólo devuelven el shell. Se retiran 12 rutas; se borran los cinco Form Requests web | Modificado |
+| `EscalaTest` (dataset «listados de la API») | Los listados de clientes y proveedores no hacen más consultas con más filas | Modificado |
+
+**La decisión que lo condicionó.** Un solo `ClienteResource` para el listado, la ficha y el alta: así la fila del alta
+rápida y la de la búsqueda son idénticas (HL-115) y la venta no muestra dos formatos. Lo nuevo va al final de cada
+recurso (regla 40) y la app no se enteró del tramo. El acceso a la tienda es el único endpoint que devuelve un secreto
+(HL-114). Sin `GET` de una dirección (HL-113): sale de la ficha. Los mensajes pasaron tal cual de los controladores web
+a los de la API, y los servicios no cambiaron (D-34).

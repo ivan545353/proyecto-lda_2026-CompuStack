@@ -159,11 +159,12 @@ describe('edición', function () {
         ($this->tiendaEditar)(['apellido' => 'Paz', 'tipo_doc' => 'cuit', 'nro_doc' => '20123456786'])->assertOk();
         $cliente = $this->tiendaUsuario->cliente->fresh();
 
+        // Tramo E: la ficha de la administración es un shell; el dato vive en el endpoint (regla 39).
         app('auth')->forgetGuards();
-        $this->actingAs(admin())->get(route('clientes.edit', $cliente))
+        $this->getJson("/api/v1/clientes/{$cliente->id}", bearer(admin()))
             ->assertOk()
-            ->assertSee('Camila Paz')
-            ->assertSee('20123456786');
+            ->assertJsonPath('datos.razon_social', 'Camila Paz')
+            ->assertJsonPath('datos.nro_doc', '20123456786');
     });
 
     test('sin credencial es 401; una cuenta de gestión no llega (D-3)', function () {

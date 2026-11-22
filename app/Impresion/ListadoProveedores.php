@@ -3,13 +3,29 @@
 namespace App\Impresion;
 
 use App\Models\Proveedor;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * El padrón de proveedores, con lo mismo que muestra la pantalla y nada más.
  */
-final class ListadoProveedores extends Listado
+final class ListadoProveedores extends Listado implements ImprimiblePorEnlace
 {
     private const ESTADOS = ['activos' => 'Activos', 'inactivos' => 'Inactivos'];
+
+    public function permiso(): string
+    {
+        return 'proveedor.ver';
+    }
+
+    /** La del listado de la pantalla, la misma para mirar y para imprimir. */
+    public function consulta(array $filtros): Builder
+    {
+        return Proveedor::query()
+            ->buscar($filtros['q'] ?? null)
+            ->conEstado($filtros['estado'] ?? null)
+            ->conCanal($filtros['canal'] ?? null)
+            ->orderBy('razon_social');
+    }
 
     public function titulo(): string
     {

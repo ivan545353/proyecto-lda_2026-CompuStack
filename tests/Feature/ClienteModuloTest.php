@@ -29,18 +29,25 @@ beforeEach(function () {
 |
 */
 
+// Las pantallas, que siguen en la web.
 dataset('rutas de clientes', [
     'listado'            => ['get',    'clientes.index',       'cliente.ver',      'ninguno'],
     'formulario alta'    => ['get',    'clientes.create',      'cliente.crear',    'ninguno'],
-    'alta'               => ['post',   'clientes.store',       'cliente.crear',    'ninguno'],
     'formulario edicion' => ['get',    'clientes.edit',        'cliente.editar',   'cliente'],
-    'edicion'            => ['put',    'clientes.update',      'cliente.editar',   'cliente'],
-    'baja'               => ['delete', 'clientes.destroy',     'cliente.eliminar', 'cliente'],
     'alta de direccion'  => ['get',    'direcciones.create',   'cliente.editar',   'cliente'],
-    'guardar direccion'  => ['post',   'direcciones.store',    'cliente.editar',   'cliente'],
     'editar direccion'   => ['get',    'direcciones.edit',     'cliente.editar',   'direccion'],
-    'guardar edicion'    => ['put',    'direcciones.update',   'cliente.editar',   'direccion'],
-    'baja de direccion'  => ['delete', 'direcciones.destroy',  'cliente.editar',   'direccion'],
+]);
+
+// Las operaciones, en la API (tramo E de la Etapa 3). `{cliente}` y `{direccion}` se reemplazan por los del test.
+dataset('endpoints de clientes', [
+    'listado'           => ['get',    '/api/v1/clientes',                              'cliente.ver'],
+    'ficha'             => ['get',    '/api/v1/clientes/{cliente}',                    'cliente.ver'],
+    'alta'              => ['post',   '/api/v1/clientes',                              'cliente.crear'],
+    'edicion'           => ['patch',  '/api/v1/clientes/{cliente}',                    'cliente.editar'],
+    'baja'              => ['delete', '/api/v1/clientes/{cliente}',                    'cliente.eliminar'],
+    'guardar direccion' => ['post',   '/api/v1/clientes/{cliente}/direcciones',        'cliente.editar'],
+    'guardar edicion'   => ['patch',  '/api/v1/clientes/{cliente}/direcciones/{direccion}', 'cliente.editar'],
+    'baja de direccion' => ['delete', '/api/v1/clientes/{cliente}/direcciones/{direccion}', 'cliente.editar'],
 ]);
 
 const PERMISOS_CLIENTE = ['cliente.ver', 'cliente.crear', 'cliente.editar', 'cliente.eliminar'];
@@ -83,6 +90,25 @@ test('el permiso de la ruta alcanza para pasar', function (string $metodo, strin
     expect($respuesta->status())->not->toBe(403);
 })->with('rutas de clientes');
 
+test('en la API, ningun otro permiso del modulo habilita el endpoint', function (string $metodo, string $url, string $permiso) {
+    $cliente   = Cliente::factory()->create();
+    $direccion = Direccion::factory()->predeterminada()->create(['cliente_id' => $cliente->id]);
+    $otros     = array_values(array_diff(PERMISOS_CLIENTE, [$permiso]));
+
+    $this->json($metodo, str_replace(['{cliente}', '{direccion}'], [$cliente->id, $direccion->id], $url), array_merge(datosDeCliente(), datosDeDireccion()), bearer(usuarioCon(...$otros)))
+        ->assertForbidden()
+        ->assertJsonPath('codigo', 'sin_permiso');
+})->with('endpoints de clientes');
+
+test('en la API, el permiso del endpoint alcanza para pasar', function (string $metodo, string $url, string $permiso) {
+    $cliente   = Cliente::factory()->create();
+    $direccion = Direccion::factory()->predeterminada()->create(['cliente_id' => $cliente->id]);
+
+    $respuesta = $this->json($metodo, str_replace(['{cliente}', '{direccion}'], [$cliente->id, $direccion->id], $url), array_merge(datosDeCliente(), datosDeDireccion()), bearer(usuarioCon($permiso)));
+
+    expect($respuesta->status())->toBeLessThan(300);
+})->with('endpoints de clientes');
+
 test('quien solo puede ver no recibe los botones de alta, edicion ni baja', function () {
     $cliente = Cliente::factory()->create();
 
@@ -93,7 +119,37 @@ test('quien solo puede ver no recibe los botones de alta, edicion ni baja', func
         ->get(route('clientes.index'))
         ->assertOk()
         ->assertDontSee(route('clientes.create'))
-        ->assertDontSee(route('clientes.edit', $cliente));
+        ->assertDontSee(route('clientes.edit', $cliente))
+        ->assertDontSee('data-accion="editar"', false)
+        ->assertDontSee('data-listado-eliminar', false);
+
+    // Desde el tramo E la fila es una plantilla del shell: quien sí tiene los permisos la recibe con los botones.
+    app('auth')->forgetGuards();
+
+    $this->actingAs(usuarioCon('cliente.ver', 'cliente.crear', 'cliente.editar', 'cliente.eliminar'))
+        ->get(route('clientes.index'))
+        ->assertSee(route('clientes.create'))
+        ->assertSee('data-accion="editar"', false)
+        ->assertSee('data-listado-eliminar', false);
+});
+
+// Regla 37: la página llega con su estructura, y los datos por la API.
+test('los shells de clientes no traen datos de negocio', function () {
+    $cliente = Cliente::factory()->create(['razon_social' => 'Cliente Secreto S.R.L.', 'email' => 'secreto@ejemplo.com']);
+    Direccion::factory()->predeterminada()->create(['cliente_id' => $cliente->id, 'calle' => 'Calle Reservada']);
+    $usuario = usuarioCon('cliente.ver', 'cliente.editar');
+
+    $this->actingAs($usuario)->get(route('clientes.index'))
+        ->assertOk()
+        ->assertDontSee('Cliente Secreto')
+        ->assertSee('data-pantalla="clientes"', false);
+
+    $this->actingAs($usuario)->get(route('clientes.edit', $cliente))
+        ->assertOk()
+        ->assertDontSee('Cliente Secreto')
+        ->assertDontSee('secreto@ejemplo.com')
+        ->assertDontSee('Calle Reservada')
+        ->assertSee('data-cliente="'.$cliente->id.'"', false);
 });
 
 /*
@@ -120,17 +176,20 @@ test('la direccion de otro cliente da 404', function () {
 
     $usuario = usuarioCon('cliente.editar');
 
+    // La página de edición también la busca dentro del cliente: una dirección ajena no se abre desde otra ficha.
     $this->actingAs($usuario)
         ->get(route('direcciones.edit', [$ajeno, $direccion]))
         ->assertNotFound();
 
-    $this->actingAs($usuario)
-        ->put(route('direcciones.update', [$ajeno, $direccion]), datosDeDireccion())
-        ->assertNotFound();
+    $encabezado = bearer($usuario);
 
-    $this->actingAs($usuario)
-        ->delete(route('direcciones.destroy', [$ajeno, $direccion]))
-        ->assertNotFound();
+    $this->patchJson("/api/v1/clientes/{$ajeno->id}/direcciones/{$direccion->id}", datosDeDireccion(), $encabezado)
+        ->assertNotFound()
+        ->assertJsonPath('codigo', 'no_encontrado');
+
+    $this->deleteJson("/api/v1/clientes/{$ajeno->id}/direcciones/{$direccion->id}", [], $encabezado)
+        ->assertNotFound()
+        ->assertJsonPath('codigo', 'no_encontrado');
 
     // Y no se tocó nada de la dirección real.
     $this->assertModelExists($direccion);
@@ -145,11 +204,11 @@ test('no se puede mudar una direccion a otro cliente enviando su id', function (
     // El cliente lo determina la ruta, no el cuerpo de la petición. Está
     // declarado prohibido para que el intento se vea en vez de ignorarse:
     // mismo criterio con el que se cerró C-3.
-    $this->actingAs(usuarioCon('cliente.editar'))
-        ->put(route('direcciones.update', [$cliente, $direccion]), datosDeDireccion([
-            'cliente_id' => $ajeno->id,
-        ]))
-        ->assertSessionHasErrors('cliente_id');
+    $this->patchJson("/api/v1/clientes/{$cliente->id}/direcciones/{$direccion->id}", datosDeDireccion([
+        'cliente_id' => $ajeno->id,
+    ]), bearer(usuarioCon('cliente.editar')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('cliente_id', 'errores');
 
     expect($direccion->fresh()->cliente_id)->toBe($cliente->id);
 });
@@ -168,11 +227,11 @@ test('el parametro q llega al listado y filtra', function () {
     Cliente::factory()->create(['razon_social' => 'Estudio Austral S.R.L.']);
     Cliente::factory()->create(['razon_social' => 'Panadería Los Tilos']);
 
-    $this->actingAs(usuarioCon('cliente.ver'))
-        ->get(route('clientes.index', ['q' => 'austral']))
+    $this->getJson('/api/v1/clientes?q=austral', bearer(usuarioCon('cliente.ver')))
         ->assertOk()
-        ->assertViewHas('clientes', fn ($clientes) => $clientes->total() === 1
-            && $clientes->first()->razon_social === 'Estudio Austral S.R.L.');
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.razon_social', 'Estudio Austral S.R.L.')
+        ->assertJsonPath('criterios.q', 'austral');
 });
 
 test('se puede buscar un cuit pegado con guiones', function () {
@@ -180,53 +239,99 @@ test('se puede buscar un cuit pegado con guiones', function () {
     Cliente::factory()->responsableInscripto()->create(['nro_doc' => '30715558881']);
     Cliente::factory()->create(['nro_doc' => '41556778']);
 
-    $this->actingAs(usuarioCon('cliente.ver'))
-        ->get(route('clientes.index', ['q' => '30-71555888-1']))
-        ->assertViewHas('clientes', fn ($clientes) => $clientes->total() === 1);
+    $this->getJson('/api/v1/clientes?q=30-71555888-1', bearer(usuarioCon('cliente.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 1);
 });
 
 test('el parametro condicion_iva llega al listado y filtra', function () {
     Cliente::factory()->count(2)->create(['condicion_iva' => 'consumidor_final']);
     Cliente::factory()->responsableInscripto()->create();
 
-    $this->actingAs(usuarioCon('cliente.ver'))
-        ->get(route('clientes.index', ['condicion_iva' => 'responsable_inscripto']))
-        ->assertViewHas('clientes', fn ($clientes) => $clientes->total() === 1);
+    $this->getJson('/api/v1/clientes?condicion_iva=responsable_inscripto', bearer(usuarioCon('cliente.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('criterios.condicion_iva', 'responsable_inscripto');
 });
 
 test('el parametro cuenta llega al listado y filtra', function () {
     Cliente::factory()->count(2)->create();
     Cliente::factory()->conCuenta()->create();
 
-    $this->actingAs(usuarioCon('cliente.ver'))
-        ->get(route('clientes.index', ['cuenta' => 'con_cuenta']))
-        ->assertViewHas('clientes', fn ($clientes) => $clientes->total() === 1);
+    $this->getJson('/api/v1/clientes?cuenta=con_cuenta', bearer(usuarioCon('cliente.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.con_cuenta', true)
+        ->assertJsonPath('criterios.cuenta', 'con_cuenta');
 });
 
-test('un filtro inexistente vuelve al listado limpio con aviso', function () {
-    $this->actingAs(usuarioCon('cliente.ver'))
-        ->get(route('clientes.index', ['condicion_iva' => 'cualquiera']))
-        ->assertRedirect(route('clientes.index'))
-        ->assertSessionHas('error');
+// En la API, el aviso es el 422: el listado no muestra otra cosa que la pedida.
+test('un filtro inexistente se rechaza con aviso', function () {
+    $this->getJson('/api/v1/clientes?condicion_iva=cualquiera', bearer(usuarioCon('cliente.ver')))
+        ->assertUnprocessable()
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonValidationErrors('condicion_iva', 'errores');
 });
 
-test('el listado pagina de a 15 y los enlaces conservan el filtro', function () {
-    Cliente::factory()->count(20)
+test('el listado pagina de a 20 y criterios conserva el filtro', function () {
+    Cliente::factory()->count(25)
         ->sequence(fn ($s) => ['razon_social' => "Comercio Austral {$s->index}"])
         ->create();
 
-    $usuario = usuarioCon('cliente.ver');
+    $encabezado = bearer(usuarioCon('cliente.ver'));
 
-    $this->actingAs($usuario)
-        ->get(route('clientes.index', ['q' => 'austral']))
-        ->assertViewHas('clientes', fn ($clientes) => $clientes->count() === 15
-            && $clientes->total() === 20
-            // Sin withQueryString(), la página 2 perdería el filtro.
-            && str_contains($clientes->nextPageUrl(), 'q=austral'));
+    // `criterios` es lo que la pantalla repite al pedir la página siguiente: sin él, perdería el filtro.
+    $this->getJson('/api/v1/clientes?q=austral', $encabezado)
+        ->assertJsonCount(20, 'datos')
+        ->assertJsonPath('total', 25)
+        ->assertJsonPath('ultima_pagina', 2)
+        ->assertJsonPath('criterios.q', 'austral');
 
-    $this->actingAs($usuario)
-        ->get(route('clientes.index', ['q' => 'austral', 'page' => 2]))
-        ->assertViewHas('clientes', fn ($clientes) => $clientes->count() === 5);
+    $this->getJson('/api/v1/clientes?q=austral&pagina=2', $encabezado)
+        ->assertJsonCount(5, 'datos');
+});
+
+test('el listado trae lo que la pantalla muestra: condicion, comprobante, cuenta y direcciones', function () {
+    $mostrador = Cliente::factory()->responsableInscripto()->create(['razon_social' => 'Estudio Austral S.R.L.']);
+    Direccion::factory()->count(2)->create(['cliente_id' => $mostrador->id]);
+
+    $this->getJson('/api/v1/clientes', bearer(usuarioCon('cliente.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.0.condicion_iva', 'responsable_inscripto')
+        ->assertJsonPath('datos.0.condicion_iva_texto', 'Responsable inscripto')
+        ->assertJsonPath('datos.0.tipo_comprobante', 'factura_a')
+        ->assertJsonPath('datos.0.tipo_comprobante_texto', 'Factura A')
+        ->assertJsonPath('datos.0.con_cuenta', false)
+        ->assertJsonPath('datos.0.cuenta_email', null)
+        ->assertJsonPath('datos.0.cantidad_direcciones', 2);
+});
+
+test('la ficha trae las direcciones del cliente con la predeterminada primero, y el listado no las trae', function () {
+    $cliente = Cliente::factory()->create();
+    $vieja   = Direccion::factory()->create(['cliente_id' => $cliente->id]);
+    $actual  = Direccion::factory()->predeterminada()->create(['cliente_id' => $cliente->id]);
+    Direccion::factory()->create();   // de otro cliente
+
+    $encabezado = bearer(usuarioCon('cliente.ver'));
+
+    $this->getJson("/api/v1/clientes/{$cliente->id}", $encabezado)
+        ->assertOk()
+        ->assertJsonCount(2, 'datos.direcciones')
+        ->assertJsonPath('datos.direcciones.0.id', $actual->id)
+        ->assertJsonPath('datos.direcciones.0.es_predeterminada', true)
+        ->assertJsonPath('datos.direcciones.1.id', $vieja->id)
+        ->assertJsonPath('datos.cantidad_direcciones', 2);
+
+    // La lista sólo viaja en la ficha; el listado cuenta y nada más.
+    $this->getJson('/api/v1/clientes', $encabezado)
+        ->assertOk()
+        ->assertJsonMissingPath('datos.0.direcciones');
+});
+
+test('la ficha de un cliente que no existe es 404', function () {
+    $this->getJson('/api/v1/clientes/999999', bearer(usuarioCon('cliente.ver')))
+        ->assertNotFound()
+        ->assertJsonPath('codigo', 'no_encontrado');
 });
 
 /*
@@ -245,23 +350,20 @@ test('el listado pagina de a 15 y los enlaces conservan el filtro', function () 
 */
 
 test('quien factura A necesita numero de documento', function () {
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->post(route('clientes.store'), datosDeCliente([
-            'tipo_doc'      => 'cuit',
-            'nro_doc'       => '',
-            'condicion_iva' => 'responsable_inscripto',
-        ]))
-        ->assertSessionHasErrors([
-            'nro_doc' => 'Para esa condición frente al IVA hace falta el número de documento.',
-        ]);
+    $this->postJson('/api/v1/clientes', datosDeCliente([
+        'tipo_doc'      => 'cuit',
+        'nro_doc'       => '',
+        'condicion_iva' => 'responsable_inscripto',
+    ]), bearer(usuarioCon('cliente.crear')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.nro_doc.0', 'Para esa condición frente al IVA hace falta el número de documento.');
 
     expect(Cliente::count())->toBe(0);
 });
 
 test('el consumidor final puede no estar identificado', function () {
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->post(route('clientes.store'), datosDeCliente(['nro_doc' => '']))
-        ->assertSessionHasNoErrors();
+    $this->postJson('/api/v1/clientes', datosDeCliente(['nro_doc' => '']), bearer(usuarioCon('cliente.crear')))
+        ->assertCreated();
 
     // Nulo, no cadena vacía: sólo NULL no colisiona consigo mismo en el
     // UNIQUE(tipo_doc, nro_doc), que es lo que permite dos de mostrador sin
@@ -270,44 +372,42 @@ test('el consumidor final puede no estar identificado', function () {
 });
 
 test('un documento mal escrito se rechaza por lo que es, no por estar vacio', function () {
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->from(route('clientes.create'))
-        ->post(route('clientes.store'), datosDeCliente([
-            'tipo_doc'      => 'cuit',
-            'nro_doc'       => '30-ABC-1',
-            'condicion_iva' => 'responsable_inscripto',
-        ]))
-        ->assertRedirect(route('clientes.create'))
-        ->assertSessionHasErrors(['nro_doc' => 'El CUIT/CUIL tiene 11 dígitos.'])
-        // Y conserva lo que el usuario escribió, sin vaciarlo.
-        ->assertSessionHasInput('nro_doc', '30-ABC-1');
+    // La web además conservaba lo escrito en el campo; en la API no hay sesión que lo guarde:
+    // el formulario no se limpia porque el 422 no toca la pantalla.
+    $this->postJson('/api/v1/clientes', datosDeCliente([
+        'tipo_doc'      => 'cuit',
+        'nro_doc'       => '30-ABC-1',
+        'condicion_iva' => 'responsable_inscripto',
+    ]), bearer(usuarioCon('cliente.crear')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.nro_doc.0', 'El CUIT/CUIL tiene 11 dígitos.');
 
     expect(Cliente::count())->toBe(0);
 });
 
 test('el largo del documento depende del tipo', function () {
-    $usuario = usuarioCon('cliente.crear');
+    $encabezado = bearer(usuarioCon('cliente.crear'));
 
     // Un DNI de 11 dígitos no es un DNI.
-    $this->actingAs($usuario)
-        ->post(route('clientes.store'), datosDeCliente(['tipo_doc' => 'dni', 'nro_doc' => '30715558881']))
-        ->assertSessionHasErrors(['nro_doc' => 'El DNI se escribe sin puntos, entre 6 y 9 dígitos.']);
+    $this->postJson('/api/v1/clientes', datosDeCliente(['tipo_doc' => 'dni', 'nro_doc' => '30715558881']), $encabezado)
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.nro_doc.0', 'El DNI se escribe sin puntos, entre 6 y 9 dígitos.');
 
     // Y un CUIT de 8 tampoco es un CUIT.
-    $this->actingAs($usuario)
-        ->post(route('clientes.store'), datosDeCliente(['tipo_doc' => 'cuit', 'nro_doc' => '41556778']))
-        ->assertSessionHasErrors('nro_doc');
+    $this->postJson('/api/v1/clientes', datosDeCliente(['tipo_doc' => 'cuit', 'nro_doc' => '41556778']), $encabezado)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('nro_doc', 'errores');
 });
 
 test('el cuit se guarda normalizado aunque se escriba con guiones', function () {
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->post(route('clientes.store'), datosDeCliente([
-            'razon_social'  => 'Estudio Austral S.R.L.',
-            'tipo_doc'      => 'cuit',
-            'nro_doc'       => '30-71555888-1',
-            'condicion_iva' => 'responsable_inscripto',
-        ]))
-        ->assertSessionHas('exito');
+    $this->postJson('/api/v1/clientes', datosDeCliente([
+        'razon_social'  => 'Estudio Austral S.R.L.',
+        'tipo_doc'      => 'cuit',
+        'nro_doc'       => '30-71555888-1',
+        'condicion_iva' => 'responsable_inscripto',
+    ]), bearer(usuarioCon('cliente.crear')))
+        ->assertCreated()
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'Se creó el cliente'));
 
     expect(Cliente::first()->nro_doc)->toBe('30715558881');
 });
@@ -315,13 +415,13 @@ test('el cuit se guarda normalizado aunque se escriba con guiones', function () 
 test('un documento repetido del mismo tipo se rechaza con un mensaje que lo explica', function () {
     Cliente::factory()->responsableInscripto()->create(['tipo_doc' => 'cuit', 'nro_doc' => '30715558881']);
 
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->post(route('clientes.store'), datosDeCliente([
-            'tipo_doc'      => 'cuit',
-            'nro_doc'       => '30715558881',
-            'condicion_iva' => 'responsable_inscripto',
-        ]))
-        ->assertSessionHasErrors(['nro_doc' => 'Ya hay un cliente registrado con ese documento.']);
+    $this->postJson('/api/v1/clientes', datosDeCliente([
+        'tipo_doc'      => 'cuit',
+        'nro_doc'       => '30715558881',
+        'condicion_iva' => 'responsable_inscripto',
+    ]), bearer(usuarioCon('cliente.crear')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.nro_doc.0', 'Ya hay un cliente registrado con ese documento.');
 });
 
 test('el mismo numero con otro tipo de documento si se acepta', function () {
@@ -330,14 +430,13 @@ test('el mismo numero con otro tipo de documento si se acepta', function () {
     // integridad.
     Cliente::factory()->responsableInscripto()->create(['tipo_doc' => 'cuit', 'nro_doc' => '30715558881']);
 
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->post(route('clientes.store'), datosDeCliente([
-            'razon_social'  => 'Otra empresa',
-            'tipo_doc'      => 'cuil',
-            'nro_doc'       => '30715558881',
-            'condicion_iva' => 'monotributo',
-        ]))
-        ->assertSessionHasNoErrors();
+    $this->postJson('/api/v1/clientes', datosDeCliente([
+        'razon_social'  => 'Otra empresa',
+        'tipo_doc'      => 'cuil',
+        'nro_doc'       => '30715558881',
+        'condicion_iva' => 'monotributo',
+    ]), bearer(usuarioCon('cliente.crear')))
+        ->assertCreated();
 
     expect(Cliente::count())->toBe(2);
 });
@@ -347,9 +446,9 @@ test('la cuenta de acceso no se puede asignar desde este modulo', function () {
     // en la Etapa 1 ninguna pantalla crea cuentas de tienda.
     $ajeno = User::factory()->conRol('Cliente')->create();
 
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->post(route('clientes.store'), datosDeCliente(['user_id' => $ajeno->id]))
-        ->assertSessionHasErrors('user_id');
+    $this->postJson('/api/v1/clientes', datosDeCliente(['user_id' => $ajeno->id]), bearer(usuarioCon('cliente.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('user_id', 'errores');
 
     expect(Cliente::count())->toBe(0);
 });
@@ -360,30 +459,41 @@ test('la cuenta de acceso no se puede asignar desde este modulo', function () {
 |--------------------------------------------------------------------------
 */
 
-test('el alta lleva a la ficha del cliente para cargarle direcciones', function () {
-    $this->actingAs(usuarioCon('cliente.crear', 'cliente.editar'))
-        ->post(route('clientes.store'), datosDeCliente())
-        ->assertRedirect(route('clientes.edit', Cliente::first()))
-        ->assertSessionHas('exito');
+test('el alta devuelve 201 con el cliente, para cargarle direcciones', function () {
+    // La redirección a la ficha es de la pantalla (JS); acá se afirma lo que la hace posible:
+    // el id del cliente nuevo y el aviso que ofrece cargarle direcciones.
+    $this->postJson('/api/v1/clientes', datosDeCliente(), bearer(usuarioCon('cliente.crear')))
+        ->assertCreated()
+        ->assertJsonPath('datos.id', Cliente::first()->id)
+        ->assertJsonPath('mensaje', 'Se creó el cliente «Panadería Los Tilos». Ya podés agregarle direcciones.');
 });
 
 test('la edicion guarda los datos fiscales', function () {
     $cliente = Cliente::factory()->create();
 
-    $this->actingAs(usuarioCon('cliente.editar'))
-        ->put(route('clientes.update', $cliente), datosDeCliente([
-            'razon_social'  => 'Estudio Austral S.R.L.',
-            'tipo_doc'      => 'cuit',
-            'nro_doc'       => '30715558881',
-            'condicion_iva' => 'responsable_inscripto',
-        ]))
-        ->assertRedirect(route('clientes.index'))
-        ->assertSessionHas('exito');
+    $this->patchJson("/api/v1/clientes/{$cliente->id}", datosDeCliente([
+        'razon_social'  => 'Estudio Austral S.R.L.',
+        'tipo_doc'      => 'cuit',
+        'nro_doc'       => '30715558881',
+        'condicion_iva' => 'responsable_inscripto',
+    ]), bearer(usuarioCon('cliente.editar')))
+        ->assertOk()
+        ->assertJsonPath('mensaje', 'Se guardaron los datos de «Estudio Austral S.R.L.».')
+        ->assertJsonPath('datos.tipo_comprobante', 'factura_a');
 
     $cliente = $cliente->fresh();
 
     expect($cliente->razon_social)->toBe('Estudio Austral S.R.L.')
         ->and($cliente->tipoComprobante())->toBe('factura_a');
+});
+
+test('el cliente que se edita no choca con su propio documento', function () {
+    $cliente = Cliente::factory()->create(['tipo_doc' => 'dni', 'nro_doc' => '41556778']);
+
+    $this->patchJson("/api/v1/clientes/{$cliente->id}", datosDeCliente(['razon_social' => 'Otro nombre']), bearer(usuarioCon('cliente.editar')))
+        ->assertOk();
+
+    expect($cliente->fresh()->razon_social)->toBe('Otro nombre');
 });
 
 /*
@@ -399,23 +509,47 @@ test('la edicion guarda los datos fiscales', function () {
 test('la primera direccion queda predeterminada y el mensaje lo dice', function () {
     $cliente = Cliente::factory()->create();
 
-    $this->actingAs(usuarioCon('cliente.editar'))
-        ->post(route('direcciones.store', $cliente), datosDeDireccion())
-        ->assertRedirect(route('clientes.edit', $cliente))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'predeterminada'));
+    $this->postJson("/api/v1/clientes/{$cliente->id}/direcciones", datosDeDireccion(), bearer(usuarioCon('cliente.editar')))
+        ->assertCreated()
+        ->assertJsonPath('datos.es_predeterminada', true)
+        ->assertJsonPath('mensaje', 'Se agregó la dirección y quedó como predeterminada.');
 
     expect(predeterminadasDe($cliente))->toBe(1);
 });
 
 test('el formulario de la primera direccion llega con el checkbox marcado', function () {
     // Si llegara destildado, el sistema la marcaría igual y la pantalla habría
-    // dicho una cosa distinta del resultado.
+    // dicho una cosa distinta del resultado. Desde el tramo E la casilla la marca pantallas/direcciones.js
+    // con la ficha del cliente: lo que se prueba es lo que la decide (las direcciones que ya tiene).
     $cliente = Cliente::factory()->create();
+    $lector  = bearer(usuarioCon('cliente.ver', 'cliente.editar'));
 
     $this->actingAs(usuarioCon('cliente.editar'))
         ->get(route('direcciones.create', $cliente))
         ->assertOk()
-        ->assertViewHas('direccion', fn ($direccion) => $direccion->es_predeterminada === true);
+        ->assertSee('data-formulario-direccion', false)
+        ->assertSee('data-cliente="'.$cliente->id.'"', false)
+        ->assertSee('name="es_predeterminada"', false);
+
+    $this->getJson("/api/v1/clientes/{$cliente->id}", $lector)
+        ->assertJsonPath('datos.direcciones', []);
+
+    Direccion::factory()->predeterminada()->create(['cliente_id' => $cliente->id]);
+
+    $this->getJson("/api/v1/clientes/{$cliente->id}", $lector)
+        ->assertJsonCount(1, 'datos.direcciones');
+});
+
+test('el shell de la direccion no trae los datos del cliente ni de la direccion', function () {
+    $cliente   = Cliente::factory()->create(['razon_social' => 'Cliente Reservado S.A.']);
+    $direccion = Direccion::factory()->predeterminada()->create(['cliente_id' => $cliente->id, 'calle' => 'Calle Reservada']);
+
+    $this->actingAs(usuarioCon('cliente.editar'))
+        ->get(route('direcciones.edit', [$cliente, $direccion]))
+        ->assertOk()
+        ->assertDontSee('Cliente Reservado')
+        ->assertDontSee('Calle Reservada')
+        ->assertSee('data-direccion="'.$direccion->id.'"', false);
 });
 
 test('marcar una direccion desmarca la anterior', function () {
@@ -423,11 +557,11 @@ test('marcar una direccion desmarca la anterior', function () {
     $primera = Direccion::factory()->predeterminada()->create(['cliente_id' => $cliente->id]);
     $segunda = Direccion::factory()->create(['cliente_id' => $cliente->id]);
 
-    $this->actingAs(usuarioCon('cliente.editar'))
-        ->put(route('direcciones.update', [$cliente, $segunda]), datosDeDireccion([
-            'es_predeterminada' => 1,
-        ]))
-        ->assertSessionHas('exito');
+    $this->patchJson("/api/v1/clientes/{$cliente->id}/direcciones/{$segunda->id}", datosDeDireccion([
+        'es_predeterminada' => true,
+    ]), bearer(usuarioCon('cliente.editar')))
+        ->assertOk()
+        ->assertJsonPath('mensaje', 'Se guardó la dirección.');
 
     expect($primera->fresh()->es_predeterminada)->toBeFalse()
         ->and($segunda->fresh()->es_predeterminada)->toBeTrue()
@@ -439,14 +573,15 @@ test('destildar la predeterminada guarda el resto y lo avisa', function () {
     $primera = Direccion::factory()->predeterminada()->create(['cliente_id' => $cliente->id]);
     Direccion::factory()->create(['cliente_id' => $cliente->id]);
 
-    $this->actingAs(usuarioCon('cliente.editar'))
-        ->put(route('direcciones.update', [$cliente, $primera]), datosDeDireccion([
-            'numero'            => '1460',
-            'es_predeterminada' => 0,
-        ]))
+    $this->patchJson("/api/v1/clientes/{$cliente->id}/direcciones/{$primera->id}", datosDeDireccion([
+        'numero'            => '1460',
+        'es_predeterminada' => false,
+    ]), bearer(usuarioCon('cliente.editar')))
         // El mensaje dice lo que pasó de verdad: guardar algo distinto de lo que
         // el usuario marcó sin avisarle es mentirle sobre el estado del sistema.
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'marcá otra'));
+        ->assertOk()
+        ->assertJsonPath('datos.es_predeterminada', true)
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'marcá otra'));
 
     expect($primera->fresh()->es_predeterminada)->toBeTrue()
         // Y la corrección sí se guardó: no pierde lo que vino a hacer.
@@ -458,9 +593,9 @@ test('borrar la predeterminada asciende otra y el mensaje lo anuncia', function 
     $vieja   = Direccion::factory()->create(['cliente_id' => $cliente->id]);
     $actual  = Direccion::factory()->predeterminada()->create(['cliente_id' => $cliente->id]);
 
-    $this->actingAs(usuarioCon('cliente.editar'))
-        ->delete(route('direcciones.destroy', [$cliente, $actual]))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'más antigua'));
+    $this->deleteJson("/api/v1/clientes/{$cliente->id}/direcciones/{$actual->id}", [], bearer(usuarioCon('cliente.editar')))
+        ->assertOk()
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'más antigua'));
 
     expect($vieja->fresh()->es_predeterminada)->toBeTrue()
         ->and(predeterminadasDe($cliente))->toBe(1);
@@ -472,28 +607,28 @@ test('una provincia fuera de la lista se rechaza', function () {
     // una sola.
     $cliente = Cliente::factory()->create();
 
-    $this->actingAs(usuarioCon('cliente.editar'))
-        ->post(route('direcciones.store', $cliente), datosDeDireccion(['provincia' => 'Sta Cruz']))
-        ->assertSessionHasErrors(['provincia' => 'Elegí una provincia de la lista.']);
+    $this->postJson("/api/v1/clientes/{$cliente->id}/direcciones", datosDeDireccion(['provincia' => 'Sta Cruz']), bearer(usuarioCon('cliente.editar')))
+        ->assertUnprocessable()
+        ->assertJsonPath('errores.provincia.0', 'Elegí una provincia de la lista.');
 
     expect($cliente->direcciones()->count())->toBe(0);
 });
 
 test('el codigo postal acepta los dos formatos del pais y rechaza cualquier otro', function () {
-    $cliente = Cliente::factory()->create();
-    $usuario = usuarioCon('cliente.editar');
+    $cliente    = Cliente::factory()->create();
+    $encabezado = bearer(usuarioCon('cliente.editar'));
+    $url        = "/api/v1/clientes/{$cliente->id}/direcciones";
 
     // El de cuatro dígitos y el CPA. Rechazar el viejo dejaría afuera a quien
     // copia la dirección de una factura.
     foreach (['9011', 'Z9011XAA'] as $valido) {
-        $this->actingAs($usuario)
-            ->post(route('direcciones.store', $cliente), datosDeDireccion(['codigo_postal' => $valido]))
-            ->assertSessionHasNoErrors();
+        $this->postJson($url, datosDeDireccion(['codigo_postal' => $valido]), $encabezado)
+            ->assertCreated();
     }
 
-    $this->actingAs($usuario)
-        ->post(route('direcciones.store', $cliente), datosDeDireccion(['codigo_postal' => '90']))
-        ->assertSessionHasErrors('codigo_postal');
+    $this->postJson($url, datosDeDireccion(['codigo_postal' => '90']), $encabezado)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('codigo_postal', 'errores');
 
     expect($cliente->direcciones()->count())->toBe(2);
 });
@@ -514,10 +649,10 @@ test('un cliente sin ventas ni cuenta se elimina con sus direcciones', function 
     $cliente   = Cliente::factory()->create();
     $direccion = Direccion::factory()->predeterminada()->create(['cliente_id' => $cliente->id]);
 
-    $this->actingAs(usuarioCon('cliente.eliminar'))
-        ->delete(route('clientes.destroy', $cliente))
-        ->assertRedirect(route('clientes.index'))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'Se eliminó'));
+    $this->deleteJson("/api/v1/clientes/{$cliente->id}", [], bearer(usuarioCon('cliente.eliminar')))
+        ->assertOk()
+        ->assertJsonPath('datos.eliminado', true)
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'Se eliminó'));
 
     $this->assertModelMissing($cliente);
     // Cascada del esquema: una dirección sin cliente no significa nada.
@@ -534,12 +669,12 @@ test('un cliente con ventas no se elimina y el mensaje explica por que', functio
         'updated_at' => now(),
     ]);
 
-    $this->actingAs(usuarioCon('cliente.eliminar'))
-        ->delete(route('clientes.destroy', $cliente))
-        // La ReglaDeNegocioException se traduce a mensaje en bootstrap/app.php,
-        // una sola vez para toda la aplicación (M-30, donde toda excepción
-        // volvía como un 400 genérico).
-        ->assertSessionHas('error', fn ($mensaje) => str_contains($mensaje, 'operaciones registradas'));
+    // La ReglaDeNegocioException se traduce una sola vez para toda la API (409 regla_de_negocio),
+    // como en la web se traducía a mensaje (M-30, donde toda excepción volvía como un 400 genérico).
+    $this->deleteJson("/api/v1/clientes/{$cliente->id}", [], bearer(usuarioCon('cliente.eliminar')))
+        ->assertStatus(409)
+        ->assertJsonPath('codigo', 'regla_de_negocio')
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'operaciones registradas'));
 
     $this->assertModelExists($cliente);
 });
@@ -550,9 +685,10 @@ test('un cliente con cuenta de acceso no se elimina desde este modulo', function
     $usuario = User::factory()->conRol('Cliente')->create();
     $cliente = Cliente::factory()->create(['user_id' => $usuario->id]);
 
-    $this->actingAs(usuarioCon('cliente.eliminar'))
-        ->delete(route('clientes.destroy', $cliente))
-        ->assertSessionHas('error', fn ($mensaje) => str_contains($mensaje, 'cuenta de acceso'));
+    $this->deleteJson("/api/v1/clientes/{$cliente->id}", [], bearer(usuarioCon('cliente.eliminar')))
+        ->assertStatus(409)
+        ->assertJsonPath('codigo', 'regla_de_negocio')
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'cuenta de acceso'));
 
     $this->assertModelExists($cliente);
 });

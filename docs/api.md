@@ -1580,7 +1580,7 @@ lo guardado), `es_preferido` (obligatorio). Devuelven el vínculo con su product
 
 #### Proveedores y clientes (mínimos)
 
-Lo que el catálogo y la venta necesitan elegir; los tramos de esos módulos los completan.
+Lo que el catálogo y la venta necesitan elegir; el tramo E los completa (§7.9) sin cambiar estas claves.
 
 | Método y ruta | Permiso | Parámetros | Fila |
 | --- | --- | --- | --- |
@@ -1604,6 +1604,131 @@ primera página del listado de su entidad, con `q`, y si `ultima_pagina` > 1 pid
 compra mandan `estado=activos`; el del kardex, ninguno. El mínimo de dos caracteres antes de buscar es de la
 interfaz: la API busca con cualquier texto de hasta 100.
 
+### 7.9 Terceros: clientes, direcciones y proveedores (Etapa 3, tramo E, r16)
+
+Los tres módulos pasan a escribirse por acá, con la misma credencial y los mismos permisos que cualquier otro
+cliente (regla 35). **Se suma, no se cambia** (regla 40): `GET /clientes` y `GET /proveedores` (§7.8, «mínimos») conservan
+sus claves y su orden, y lo nuevo va al final. Valen las reglas comunes de §7.8: un permiso por acción en la ruta,
+403 `sin_permiso` sin él, listados paginados (20 por página, un filtro inválido es 422), el alta es **201** y las
+casillas (`activo`, `es_predeterminada`) **viajan siempre** (M-31). Las escrituras son **JSON** (`PATCH`, sin
+archivos: no hace falta el `POST` + `_method` de HL-110).
+
+#### Clientes
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /clientes` | `cliente.ver` | Listado. `q` (razón social, documento, correo o teléfono), `condicion_iva`, `cuenta` (`con_cuenta` · `sin_cuenta`) |
+| `GET /clientes/{id}` | `cliente.ver` | La ficha, con sus `direcciones` (la predeterminada primero) |
+| `GET /clientes/impresion` | `cliente.ver` | URL firmada del listado, con los mismos filtros (D-22, §7.8) |
+| `POST /clientes` | `cliente.crear` | Alta: `razon_social`, `condicion_iva`, `tipo_doc`, `nro_doc`, `email`, `telefono` |
+| `PATCH /clientes/{id}` | `cliente.editar` | Edición, con los mismos campos |
+| `DELETE /clientes/{id}` | `cliente.eliminar` | Elimina al cliente y sus direcciones; con cuenta de la tienda o con operaciones, **409** `regla_de_negocio` |
+| `POST /clientes/{id}/acceso-tienda` | `cliente.dar_acceso_tienda` | Crea la cuenta de la tienda de un cliente del mostrador: `nombre`, `apellido` |
+
+```json
+{
+  "datos": [
+    {
+      "id": 1,
+      "texto": "Panadería Los Tilos — DNI 41556778",
+      "razon_social": "Panadería Los Tilos",
+      "documento": "DNI 41556778",
+      "tipo_doc": "dni",
+      "nro_doc": "41556778",
+      "condicion_iva": "consumidor_final",
+      "condicion_iva_texto": "Consumidor final",
+      "tipo_comprobante": "factura_b",
+      "tipo_comprobante_texto": "Factura B",
+      "email": "tilos@ejemplo.com",
+      "telefono": "2974123456",
+      "con_cuenta": false,
+      "cantidad_direcciones": 1
+    }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1,
+  "criterios": { "q": null, "condicion_iva": null, "cuenta": null }
+}
+```
+
+- Las cuatro primeras claves y su orden son las de siempre: el alta rápida de la venta recibe la **misma fila** que
+  el listado. `cuenta_email` viaja cuando el cliente tiene cuenta de la tienda; `direcciones` sólo en la ficha.
+- El alta devuelve el cliente y el mensaje «Se creó el cliente «Panadería Los Tilos». Ya podés agregarle direcciones.»;
+  la edición, «Se guardaron los datos de «Panadería Los Tilos».»; la baja, `{ "id": 1, "eliminado": true }` y «Se eliminó a
+  «Panadería Los Tilos» y sus direcciones.».
+- **El acceso a la tienda devuelve un secreto**: el enlace para que la persona elija su contraseña, de **un solo uso**.
+  Viaja **sólo en esta respuesta** (nunca en la ficha ni en el listado), con `Cache-Control: no-store`, y no se registra.
+  «Ya tiene cuenta», «no tiene correo» o «el correo es de otra cuenta» son **409 `regla_de_negocio`**. `nombre` es el
+  nombre completo en la forma «Apellido, Nombre».
+
+```json
+{
+  "datos": {
+    "cliente_id": 1,
+    "nombre": "Tilos, Panadería",
+    "enlace_restablecimiento": "https://…/restablecer/5f3c…?email=tilos%40ejemplo.com"
+  },
+  "mensaje": "Se creó la cuenta de la tienda de «Panadería Tilos»."
+}
+```
+
+#### Direcciones de un cliente
+
+La dirección se busca **dentro** de las del cliente: la de otro cliente es **404 `no_encontrado`**. No hay `GET` de una
+dirección: la lista viaja en `GET /clientes/{id}` (`direcciones`).
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `POST /clientes/{id}/direcciones` | `cliente.editar` | Alta: `calle`, `numero`, `piso_depto`, `codigo_postal`, `localidad`, `provincia` (de la lista de §5), `es_predeterminada` |
+| `PATCH /clientes/{id}/direcciones/{direccion}` | `cliente.editar` | Edición, con los mismos campos |
+| `DELETE /clientes/{id}/direcciones/{direccion}` | `cliente.editar` | Elimina; si era la predeterminada, la más antigua que queda pasa a serlo |
+
+```json
+{
+  "datos": {
+    "id": 7, "calle": "Av. Eva Perón", "numero": "1450", "piso_depto": null, "codigo_postal": "9011",
+    "localidad": "Caleta Olivia", "provincia": "Santa Cruz", "es_predeterminada": true,
+    "resumen": "Av. Eva Perón 1450 — Caleta Olivia, Santa Cruz (9011)"
+  },
+  "mensaje": "Se agregó la dirección y quedó como predeterminada."
+}
+```
+
+- `cliente_id` en el cuerpo es 422: el cliente es el de la ruta. Los mensajes dicen lo que pasó de verdad: «Se guardó la
+  dirección. Sigue siendo la predeterminada: para cambiarla, marcá otra.» si se quiso destildar la única predeterminada.
+- La baja devuelve `{ "id": 7, "eliminada": true }`.
+
+#### Proveedores
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /proveedores` | `proveedor.ver` | Listado. `q`, `estado` (`activos` · `inactivos`), `canal` (`email` · `portal_externo` · `manual`) |
+| `GET /proveedores/{id}` | `proveedor.ver` | La ficha, con `productos_activos` |
+| `GET /proveedores/impresion` | `proveedor.ver` | URL firmada del listado |
+| `POST /proveedores` | `proveedor.crear` | Alta: `razon_social`, `cuit`, `email`, `telefono`, `contacto`, `canal_pedido`, `portal_url`, `plazo_entrega_dias`, `activo` |
+| `PATCH /proveedores/{id}` | `proveedor.editar` | Edición; suma `desactivar_productos` |
+| `DELETE /proveedores/{id}` | `proveedor.eliminar` | Elimina; con productos u órdenes de compra, **lo desactiva** (regla 2) y lo dice |
+
+```json
+{
+  "datos": [
+    {
+      "id": 1, "razon_social": "Distribuidora Austral S.A.", "activo": true,
+      "cuit": "30712345678", "cuit_formateado": "30-71234567-8", "email": "pedidos@austral.com.ar",
+      "telefono": "2974000000", "contacto": "Mesa de pedidos",
+      "canal_pedido": "email", "canal_pedido_texto": "Correo electrónico", "portal_url": null,
+      "plazo_entrega_dias": 3, "productos": 12, "ordenes_compra": 2
+    }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1,
+  "criterios": { "q": null, "estado": null, "canal": null }
+}
+```
+
+- Las tres primeras claves y su orden son las de siempre. `productos_activos` viaja sólo en la ficha.
+- La baja de uno referenciado devuelve `{ "id": 1, "eliminado": false }`. Al desactivar con `desactivar_productos` = 1, el
+  mensaje dice cuántos productos se desactivaron con él; sin eso, que siguen activos y a la venta.
+- Errores de la sección: 401, 403, 404, 409 `regla_de_negocio`, 422 `validacion`.
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -1623,3 +1748,4 @@ interfaz: la API busca con cualquier texto de hasta 100.
 | 13 | L | D-28: cada elemento de `medios` del checkout suma `modos_entrega`, las entregas con que vale (`contado` → `["retiro"]`; `transferencia` y `pasarela` → `["retiro", "envio"]`, o sólo `retiro` con el envío apagado). `POST /pedidos` con `contado` y `envio`: 422 en `medio_pago` («El pago en efectivo es sólo para retirar en el local.»). El ejemplo de `POST /pedidos` pasa a retiro, con `medio_pago_texto` «Efectivo en el local» (lo es desde la r12). Las rutas no cambian |
 | 14 | B (Etapa 3) | Sesión común (HL-98): `POST /sesion` emite también a cuentas de gestión, con la misma forma y 8 horas de vigencia (D-31); la de tienda sigue en 7 días. `GET /yo` nuevo (nombre, apellido, email, `rol` con `ambito`, `permisos`). Grupo «protegida común»: `DELETE /sesion` y `GET /yo`. `401 sesion_expirada` para la credencial vencida, que hasta la r13 era `sesion_invalida`. Ninguna forma anterior cambia; las rutas pasan a 27 (25 con el simulador apagado) |
 | 15 | D (Etapa 3) | §7.8, la gestión del catálogo, con la misma credencial (regla 35) y sin espacio `/admin` (regla 36): `forma=lista` en `GET /categorias` y `forma=gestion` en `GET /productos` y `GET /productos/{id}`, cada una con su permiso; altas, ediciones y bajas de marcas, categorías y productos; `recalcular`, `opciones` y `padres-posibles`; los proveedores de un producto (tres formas del listado, alta, edición, `preferido`, baja con 409 si hay un pedido vivo); `GET /proveedores` y `GET /clientes` mínimos; la impresión de los tres listados por URL firmada (`GET /<recurso>/impresion`, D-22). Con archivos, `POST` + `_method=PATCH` (HL-110). `GET /categorias` pasa al grupo «credencial si sirve» y `GET /productos` a la sesión opcional de los dos clientes (HL-108): para la app no cambia ninguna respuesta. Sin sesión, `forma=gestion` es 401 `sin_sesion`. Ninguna forma anterior cambia; las rutas pasan a 52 (50 con el simulador apagado) |
+| 16 | E (Etapa 3) | §7.9, los terceros con la misma credencial (regla 35): clientes (listado con `condicion_iva` y `cuenta`, ficha con `direcciones`, alta, edición, baja, impresión por URL firmada y `acceso-tienda`, que devuelve el enlace de un solo uso, sin caché), direcciones de un cliente (alta, edición, baja; 404 si es ajena) y proveedores (listado con `canal` y conteos, ficha con `productos_activos`, alta, edición con cascada, baja que desactiva si hay productos u órdenes, impresión). Las claves nuevas van al final de `ClienteResource` y `ProveedorResource`: ninguna forma anterior cambia, y la fila del alta rápida sigue igual a la del listado. Las rutas pasan a 66 (64 con el simulador apagado) |

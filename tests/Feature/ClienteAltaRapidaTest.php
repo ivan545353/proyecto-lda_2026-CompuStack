@@ -16,18 +16,18 @@ beforeEach(function () {
 | El alta de cliente desde la venta (tramo I)
 |--------------------------------------------------------------------------
 |
-| La ventana flotante postea a la misma ruta que `clientes/crear`, con el mismo
-| `ClienteRequest`: lo único que cambia es que pide JSON. Estos tests fijan las
-| dos mitades de esa decisión —que las reglas son las mismas, y que la fila que
-| vuelve es la misma que traería una búsqueda— y el permiso de la acción.
+| La ventana flotante postea al mismo endpoint que el formulario de clientes
+| (`POST /api/v1/clientes`, tramo E): el alta rápida y el alta normal son dos
+| clientes del mismo camino. Estos tests fijan las dos mitades de esa decisión
+| —que las reglas son las mismas, y que la fila que vuelve es la misma que
+| traería una búsqueda— y el permiso de la acción.
 |
 */
 
 test('el alta pedida en json devuelve 201 con la misma fila que traeria una busqueda', function () {
     $usuario = usuarioCon('cliente.crear', 'cliente.ver');
 
-    $alta = $this->actingAs($usuario)
-        ->postJson(route('clientes.store'), datosDeCliente())
+    $alta = $this->postJson('/api/v1/clientes', datosDeCliente(), bearer($usuario))
         ->assertCreated();
 
     // Desde el tramo D la búsqueda es el listado de clientes de la API.
@@ -36,18 +36,17 @@ test('el alta pedida en json devuelve 201 con la misma fila que traeria una busq
 
     // Igualdad estricta, claves y tipos: si un camino cambia la fila y el otro no, la
     // venta mostraría dos formatos para el mismo cliente.
-    expect($alta->json())->toBe($busqueda->json('datos.0'))
-        ->and($alta->json('texto'))->toBe('Panadería Los Tilos — DNI 41556778');
+    expect($alta->json('datos'))->toBe($busqueda->json('datos.0'))
+        ->and($alta->json('datos.texto'))->toBe('Panadería Los Tilos — DNI 41556778');
 });
 
 test('el alta en json con datos invalidos devuelve 422 con el error en su campo', function () {
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->postJson(route('clientes.store'), datosDeCliente([
-            'condicion_iva' => 'responsable_inscripto',
-            'nro_doc'       => '',
-        ]))
+    $this->postJson('/api/v1/clientes', datosDeCliente([
+        'condicion_iva' => 'responsable_inscripto',
+        'nro_doc'       => '',
+    ]), bearer(usuarioCon('cliente.crear')))
         ->assertUnprocessable()
-        ->assertJsonPath('errors.nro_doc.0', 'Para esa condición frente al IVA hace falta el número de documento.');
+        ->assertJsonPath('errores.nro_doc.0', 'Para esa condición frente al IVA hace falta el número de documento.');
 
     expect(Cliente::count())->toBe(0);
 });
@@ -55,32 +54,31 @@ test('el alta en json con datos invalidos devuelve 422 con el error en su campo'
 test('el alta en json rechaza el documento repetido con el mismo mensaje que el formulario', function () {
     Cliente::factory()->create(['tipo_doc' => 'dni', 'nro_doc' => '41556778']);
 
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->postJson(route('clientes.store'), datosDeCliente())
+    $this->postJson('/api/v1/clientes', datosDeCliente(), bearer(usuarioCon('cliente.crear')))
         ->assertUnprocessable()
-        ->assertJsonPath('errors.nro_doc.0', 'Ya hay un cliente registrado con ese documento.');
+        ->assertJsonPath('errores.nro_doc.0', 'Ya hay un cliente registrado con ese documento.');
 
     expect(Cliente::count())->toBe(1);
 });
 
 test('el alta en json tampoco asigna una cuenta de acceso', function () {
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->postJson(route('clientes.store'), datosDeCliente(['user_id' => admin()->id]))
+    $this->postJson('/api/v1/clientes', datosDeCliente(['user_id' => admin()->id]), bearer(usuarioCon('cliente.crear')))
         ->assertUnprocessable()
-        ->assertJsonValidationErrors('user_id');
+        ->assertJsonValidationErrors('user_id', 'errores');
 
     expect(Cliente::count())->toBe(0);
 });
 
 test('crear un cliente desde la venta exige cliente.crear y no alcanza con venta.crear', function () {
-    $this->actingAs(usuarioCon('venta.crear', 'cliente.ver'))
-        ->postJson(route('clientes.store'), datosDeCliente())
+    $this->postJson('/api/v1/clientes', datosDeCliente(), bearer(usuarioCon('venta.crear', 'cliente.ver')))
         ->assertForbidden();
 
     expect(Cliente::count())->toBe(0);
 
-    $this->actingAs(usuarioCon('cliente.crear'))
-        ->postJson(route('clientes.store'), datosDeCliente())
+    // Dos cuentas en el mismo test: el guard de la primera no se hereda a la segunda.
+    app('auth')->forgetGuards();
+
+    $this->postJson('/api/v1/clientes', datosDeCliente(), bearer(usuarioCon('cliente.crear')))
         ->assertCreated();
 });
 
@@ -107,7 +105,7 @@ test('la venta ofrece el alta de cliente solo a quien puede crear clientes', fun
         ->assertOk()
         ->assertSee('data-alta-rapida-abre', false)
         ->assertSee('href="'.route('clientes.create').'"', false)
-        ->assertSee('action="'.route('clientes.store').'"', false)
+        ->assertSee('data-alta-rapida-api="/clientes"', false)
         ->assertSee('no guardaste acá');
 });
 

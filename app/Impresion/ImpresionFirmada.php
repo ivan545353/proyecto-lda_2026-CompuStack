@@ -26,9 +26,11 @@ final class ImpresionFirmada
 
     /** Los listados que se imprimen por enlace, por su clave en la URL. Cada tramo suma los suyos. */
     public const LISTADOS = [
-        'marcas'     => ListadoMarcas::class,
-        'categorias' => ListadoCategorias::class,
-        'productos'  => ListadoProductos::class,
+        'marcas'      => ListadoMarcas::class,
+        'categorias'  => ListadoCategorias::class,
+        'productos'   => ListadoProductos::class,
+        'clientes'    => ListadoClientes::class,
+        'proveedores' => ListadoProveedores::class,
     ];
 
     /** Las claves del diálogo de impresión; el resto de la consulta son filtros. */

@@ -20,8 +20,6 @@ beforeEach(function () {
 dataset('listados con dialogo', [
     'ventas'      => ['ventas.index', 'ventas.exportar', 'venta.ver'],
     'compras'     => ['compras.index', 'compras.imprimir', 'compra.ver'],
-    'clientes'    => ['clientes.index', 'clientes.imprimir', 'cliente.ver'],
-    'proveedores' => ['proveedores.index', 'proveedores.imprimir', 'proveedor.ver'],
     'kardex'      => ['stock.index', 'stock.imprimir', 'stock.ver'],
 ]);
 
@@ -31,6 +29,8 @@ dataset('listados con dialogo por la API', [
     'catálogo'   => ['productos.index', '/productos/impresion', 'producto.ver'],
     'categorías' => ['categorias.index', '/categorias/impresion', 'categoria.ver'],
     'marcas'     => ['marcas.index', '/marcas/impresion', 'marca.ver'],
+    'proveedores' => ['proveedores.index', '/proveedores/impresion', 'proveedor.ver'],
+    'clientes'   => ['clientes.index', '/clientes/impresion', 'cliente.ver'],
 ]);
 
 test('el dialogo vive afuera del formulario de filtros y apunta a la ruta de impresion', function (string $listado, string $imprimir, string $permiso) {

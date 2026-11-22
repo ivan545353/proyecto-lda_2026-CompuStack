@@ -138,47 +138,24 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::post('/personal/{usuario}/restablecer-contrasena', [PersonalController::class, 'generarEnlaceDeRestablecimiento'])
         ->middleware('can:usuario.resetear_password')->name('personal.restablecer');
 
-    // Personas — Clientes
+    // Personas — Clientes: sólo las páginas; las operaciones y la impresión, por la API (tramo E).
     Route::get('/clientes', [ClienteController::class, 'index'])
         ->middleware('can:cliente.ver')->name('clientes.index');
-
-    Route::get('/clientes/imprimir', [ClienteController::class, 'imprimir'])
-        ->middleware('can:cliente.ver')->name('clientes.imprimir');
 
     Route::get('/clientes/crear', [ClienteController::class, 'create'])
         ->middleware('can:cliente.crear')->name('clientes.create');
 
-    Route::post('/clientes', [ClienteController::class, 'store'])
-        ->middleware('can:cliente.crear')->name('clientes.store');
-
     Route::get('/clientes/{cliente}/editar', [ClienteController::class, 'edit'])
         ->middleware('can:cliente.editar')->name('clientes.edit');
 
-    Route::put('/clientes/{cliente}', [ClienteController::class, 'update'])
-        ->middleware('can:cliente.editar')->name('clientes.update');
-
-    Route::delete('/clientes/{cliente}', [ClienteController::class, 'destroy'])
-        ->middleware('can:cliente.eliminar')->name('clientes.destroy');
-
-    Route::post('/clientes/{cliente}/acceso-tienda', [ClienteController::class, 'darAccesoTienda'])
-        ->middleware('can:cliente.dar_acceso_tienda')->name('clientes.acceso_tienda');
-
-    // Direcciones del cliente.
+    // Direcciones del cliente: sólo las páginas; las operaciones, por la API (tramo E).
     Route::middleware('can:cliente.editar')->group(function () {
         Route::get('/clientes/{cliente}/direcciones/crear', [DireccionController::class, 'create'])
             ->name('direcciones.create');
 
-        Route::post('/clientes/{cliente}/direcciones', [DireccionController::class, 'store'])
-            ->name('direcciones.store');
-
         Route::get('/clientes/{cliente}/direcciones/{direccion}/editar', [DireccionController::class, 'edit'])
             ->name('direcciones.edit');
 
-        Route::put('/clientes/{cliente}/direcciones/{direccion}', [DireccionController::class, 'update'])
-            ->name('direcciones.update');
-
-        Route::delete('/clientes/{cliente}/direcciones/{direccion}', [DireccionController::class, 'destroy'])
-            ->name('direcciones.destroy');
     });
         
     // Catálogo — categorías
@@ -196,22 +173,12 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/proveedores', [ProveedorController::class, 'index'])
         ->middleware('can:proveedor.ver')->name('proveedores.index');
 
-    Route::get('/proveedores/imprimir', [ProveedorController::class, 'imprimir'])
-        ->middleware('can:proveedor.ver')->name('proveedores.imprimir');
+    // Sólo las páginas: las operaciones y la impresión, por la API (tramo E).
     Route::get('/proveedores/crear', [ProveedorController::class, 'create'])
         ->middleware('can:proveedor.crear')->name('proveedores.create');
 
-    Route::post('/proveedores', [ProveedorController::class, 'store'])
-        ->middleware('can:proveedor.crear')->name('proveedores.store');
-
     Route::get('/proveedores/{proveedor}/editar', [ProveedorController::class, 'edit'])
         ->middleware('can:proveedor.editar')->name('proveedores.edit');
-
-    Route::put('/proveedores/{proveedor}', [ProveedorController::class, 'update'])
-        ->middleware('can:proveedor.editar')->name('proveedores.update');
-
-    Route::delete('/proveedores/{proveedor}', [ProveedorController::class, 'destroy'])
-        ->middleware('can:proveedor.eliminar')->name('proveedores.destroy');
 
     // Compras — Stock y kardex
     Route::get('/stock', [StockController::class, 'index'])

@@ -10,6 +10,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
+// La impresión se pide a la API y se abre por enlace firmado (D-22, tramo E de la Etapa 3).
 beforeEach(function () {
     $this->seed(RolPermisoSeeder::class);
 
@@ -22,11 +23,14 @@ beforeEach(function () {
 test('imprimir los proveedores pide proveedor.ver y ningun otro permiso del modulo lo habilita', function () {
     $otros = array_values(array_diff(permisosDelModulo('proveedor'), ['proveedor.ver']));
 
-    $this->actingAs(usuarioCon(...$otros))->get(route('proveedores.imprimir'))->assertForbidden();
+    $this->getJson('/api/v1/proveedores/impresion', bearer(usuarioCon(...$otros)))
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
+    app('auth')->forgetGuards();
 
-    $respuesta = $this->actingAs(usuarioCon('proveedor.ver'))->get(route('proveedores.imprimir'));
+    $url = $this->getJson('/api/v1/proveedores/impresion', bearer(usuarioCon('proveedor.ver')))
+        ->assertOk()->json('datos.url');
 
-    $respuesta->assertOk();
+    $respuesta = $this->get($url)->assertOk();
     expect($respuesta->headers->get('content-type'))->toContain('application/pdf')
         ->and($respuesta->headers->get('content-disposition'))->toContain('proveedores-');
 });
@@ -38,14 +42,16 @@ test('la planilla de proveedores trae lo que muestra la pantalla, con lo que fil
     ]);
     Proveedor::factory()->create(['activo' => false]);
 
-    $filas = ($this->filasDe)($this->actingAs(usuarioCon('proveedor.ver'))
-        ->get(route('proveedores.imprimir', [
-            'formato'  => 'csv',
-            'estado'   => 'activos',
-            'columnas' => ['proveedor', 'cuit', 'contacto', 'canal', 'pedidos_a', 'plazo', 'estado'],
-        ]))
-        ->assertOk()
-        ->streamedContent());
+    $consulta = http_build_query([
+        'formato'  => 'csv',
+        'estado'   => 'activos',
+        'columnas' => ['proveedor', 'cuit', 'contacto', 'canal', 'pedidos_a', 'plazo', 'estado'],
+    ]);
+
+    $url = $this->getJson("/api/v1/proveedores/impresion?{$consulta}", bearer(usuarioCon('proveedor.ver')))
+        ->assertOk()->json('datos.url');
+
+    $filas = ($this->filasDe)($this->get($url)->assertOk()->streamedContent());
 
     expect($filas[2][0])->toBe('Alcance: Estado: Activos')
         ->and($filas[4])->toBe(['Proveedor', 'CUIT', 'Contacto', 'Canal de pedido', 'Se le pide en', 'Entrega (días)', 'Estado'])
@@ -58,27 +64,36 @@ test('la planilla de proveedores trae lo que muestra la pantalla, con lo que fil
 test('el telefono del proveedor no se imprime, ni pidiendolo', function () {
     $proveedor = Proveedor::factory()->create();
 
-    $csv = $this->actingAs(usuarioCon('proveedor.ver'))
-        ->get(route('proveedores.imprimir', ['formato' => 'csv']))
-        ->streamedContent();
+    $encabezado = bearer(usuarioCon('proveedor.ver'));
+
+    $url = $this->getJson('/api/v1/proveedores/impresion?formato=csv', $encabezado)->assertOk()->json('datos.url');
+    $csv = $this->get($url)->streamedContent();
 
     expect($csv)->not->toContain($proveedor->telefono)
         ->not->toContain($proveedor->email);
 
-    $this->actingAs(usuarioCon('proveedor.ver'))
-        ->get(route('proveedores.imprimir', ['columnas' => ['proveedor', 'telefono']]))
-        ->assertRedirect(route('proveedores.index'))
-        ->assertSessionHas('error', fn (string $mensaje) => str_contains($mensaje, 'columna que este listado no tiene'));
+    // La web volvía al listado con el aviso; la API no da enlace y lo dice en el 422.
+    $rechazo = $this->getJson('/api/v1/proveedores/impresion?columnas[]=proveedor&columnas[]=telefono', $encabezado)
+        ->assertUnprocessable()
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonMissingPath('datos');
+
+    expect($rechazo->getContent())->toContain('columna que este listado no tiene');
 });
 
-test('el boton de imprimir de proveedores lleva los filtros puestos y no la pagina', function () {
-    $this->actingAs(usuarioCon('proveedor.ver'))
-        ->get(route('proveedores.index', ['canal' => 'manual', 'page' => 2]))
-        ->assertOk()
-        ->assertSee(route('proveedores.imprimir', ['canal' => 'manual']))
-        ->assertDontSee(route('proveedores.imprimir', ['canal' => 'manual', 'page' => 2]));
+test('el enlace de imprimir de proveedores lleva los filtros puestos y no la pagina', function () {
+    $url = $this->getJson('/api/v1/proveedores/impresion?canal=manual&pagina=2', bearer(usuarioCon('proveedor.ver')))
+        ->assertOk()->json('datos.url');
+
+    expect($url)->toContain('canal=manual')->not->toContain('pagina=');
 });
 
+test('un canal inexistente de proveedores es 422 y no da enlace', function () {
+    $this->getJson('/api/v1/proveedores/impresion?canal=telepatia', bearer(usuarioCon('proveedor.ver')))
+        ->assertUnprocessable()
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonMissingPath('datos');
+});
 
 test('los conteos de productos y ordenes salen de la base, sin una consulta por fila', function () {
     $servicio = app(ImpresionService::class);

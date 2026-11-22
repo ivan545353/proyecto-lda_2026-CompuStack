@@ -58,114 +58,85 @@
                     </a>
                 @endif
 
-
-                <x-imprimir ruta="clientes.imprimir" :listado="new \App\Impresion\ListadoClientes()" :chico="false" class="ms-auto" />
+                <x-imprimir api="/clientes/impresion" :listado="new \App\Impresion\ListadoClientes()" :chico="false" class="ms-auto" />
             </div>
         </div>
     </form>
 
-    <div class="card border-0 shadow-sm">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <caption class="visually-hidden">Listado de clientes</caption>
-                <thead class="table-light">
-                    <tr>
-                        <th scope="col">Cliente</th>
-                        <th scope="col" class="d-none d-md-table-cell">Condición frente al IVA</th>
-                        <th scope="col" class="d-none d-lg-table-cell">Cuenta</th>
-                        <th scope="col" class="text-center d-none d-lg-table-cell">Direcciones</th>
-                        <th scope="col" class="text-end">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($clientes as $cliente)
+    {{-- La tabla llega vacía: las filas las pide pantallas/clientes.js a la API (regla 37). --}}
+    <div data-pantalla="clientes">
+        <div class="card border-0 shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <caption class="visually-hidden">Listado de clientes</caption>
+                    <thead class="table-light">
                         <tr>
-                            <td>
-                                <span class="fw-semibold">{{ $cliente->razon_social }}</span>
-
-                                <div class="small text-body-secondary">
-                                    @if ($cliente->nro_doc)
-                                        {{ App\Models\Cliente::TIPOS_DOC[$cliente->tipo_doc] }}
-                                        {{ $cliente->nro_doc }}
-                                    @else
-                                        Sin documento
-                                    @endif
-                                </div>
-
-                                {{-- En móvil no están las columnas de al lado: el dato
-                                     no puede desaparecer --}}
-                                <div class="small text-body-secondary d-md-none">
-                                    {{ App\Models\Cliente::CONDICIONES_IVA[$cliente->condicion_iva] }}
-                                </div>
-                            </td>
-
-                            <td class="d-none d-md-table-cell">
-                                {{ App\Models\Cliente::CONDICIONES_IVA[$cliente->condicion_iva] }}
-
-                                {{-- Lo único que esta columna decide hoy --}}
-                                <div class="small text-body-secondary">
-                                    {{ $cliente->tipoComprobante() === 'factura_a' ? 'Factura A' : 'Factura B' }}
-                                </div>
-                            </td>
-
-                            {{-- El estado se comunica con texto, no sólo con color --}}
-                            <td class="d-none d-lg-table-cell">
-                                @if ($cliente->esDeMostrador())
-                                    <span class="badge text-bg-secondary">De mostrador</span>
-                                @else
-                                    <span class="badge text-bg-dark">Con cuenta</span>
-                                    <div class="small text-body-secondary">{{ $cliente->usuario->email }}</div>
-                                @endif
-                            </td>
-
-                            <td class="text-center d-none d-lg-table-cell">{{ $cliente->direcciones_count }}</td>
-
-                            <td class="text-end text-nowrap">
-                                @can('cliente.editar')
-                                    <a href="{{ route('clientes.edit', $cliente) }}" class="btn btn-sm btn-outline-dark">
-                                        <i class="bi bi-pencil" aria-hidden="true"></i> Editar
-                                    </a>
-                                @endcan
-
-                                @can('cliente.eliminar')
-                                    <form method="POST" action="{{ route('clientes.destroy', $cliente) }}" class="d-inline"
-                                        onsubmit="return confirm(@js("¿Eliminar a «{$cliente->razon_social}» y sus {$cliente->direcciones_count} dirección(es)? Si tiene ventas registradas o cuenta de acceso, no se va a poder eliminar."));">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button class="btn btn-sm btn-outline-danger"
-                                            aria-label="Eliminar el cliente {{ $cliente->razon_social }}">
-                                            <i class="bi bi-trash" aria-hidden="true"></i>
-                                        </button>
-                                    </form>
-                                @endcan
-                            </td>
+                            <th scope="col">Cliente</th>
+                            <th scope="col" class="d-none d-md-table-cell">Condición frente al IVA</th>
+                            <th scope="col" class="d-none d-lg-table-cell">Cuenta</th>
+                            <th scope="col" class="text-center d-none d-lg-table-cell">Direcciones</th>
+                            <th scope="col" class="text-end">Acciones</th>
                         </tr>
-                    @empty
-                        {{-- El vacío por filtro y el vacío por falta de datos dicen
-                             cosas distintas --}}
+                    </thead>
+                    <tbody data-listado-filas data-columnas="5" data-vacio="Todavía no hay clientes cargados."
+                        data-vacio-filtrado="Ningún cliente coincide con el filtro." data-ver-todos="Ver todos">
                         <tr>
-                            <td colspan="5" class="text-center text-body-secondary py-4">
-                                @if (request()->hasAny(['q', 'condicion_iva', 'cuenta']))
-                                    Ningún cliente coincide con el filtro.
-                                    <a href="{{ route('clientes.index') }}">Ver todos</a>.
-                                @else
-                                    Todavía no hay clientes cargados.
-                                @endif
-                            </td>
+                            <td colspan="5" class="text-center text-body-secondary py-4">Cargando…</td>
                         </tr>
-                    @endforelse
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {{-- Una fila, con un @can por acción (regla 12). Los textos los pone el JS con textContent. --}}
+        <template data-listado-fila>
+            <tr>
+                <td>
+                    <span class="fw-semibold" data-campo="razon_social"></span>
+
+                    <div class="small text-body-secondary" data-campo="documento"></div>
+
+                    {{-- En móvil no están las columnas de al lado: el dato no puede desaparecer --}}
+                    <div class="small text-body-secondary d-md-none" data-campo="condicion-movil"></div>
+                </td>
+
+                <td class="d-none d-md-table-cell">
+                    <span data-campo="condicion"></span>
+
+                    {{-- Lo único que esta columna decide hoy --}}
+                    <div class="small text-body-secondary" data-campo="comprobante"></div>
+                </td>
+
+                {{-- El estado se comunica con texto, no sólo con color --}}
+                <td class="d-none d-lg-table-cell">
+                    <span class="badge" data-campo="cuenta"></span>
+                    <div class="small text-body-secondary" data-campo="cuenta-correo" hidden></div>
+                </td>
+
+                <td class="text-center d-none d-lg-table-cell" data-campo="direcciones"></td>
+
+                <td class="text-end text-nowrap">
+                    @can('cliente.editar')
+                        <a href="{{ route('clientes.edit', ['cliente' => '__ID__']) }}" data-accion="editar"
+                            class="btn btn-sm btn-outline-dark">
+                            <i class="bi bi-pencil" aria-hidden="true"></i> Editar
+                        </a>
+                    @endcan
+
+                    @can('cliente.eliminar')
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-listado-eliminar
+                            data-ruta="/clientes/__ID__">
+                            <i class="bi bi-trash" aria-hidden="true"></i>
+                        </button>
+                    @endcan
+                </td>
+            </tr>
+        </template>
+
+        {{-- Resumen de resultados y paginado: los arma el JS con el sobre de la API. --}}
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3" data-listado-pie hidden>
+            <p class="text-body-secondary small mb-0" data-listado-resumen></p>
+            <div data-listado-paginas></div>
         </div>
     </div>
-
-    @if ($clientes->total() > 0)
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
-            <p class="text-body-secondary small mb-0">
-                Mostrando {{ $clientes->firstItem() }}–{{ $clientes->lastItem() }} de {{ $clientes->total() }}.
-            </p>
-
-            {{ $clientes->links() }}
-        </div>
-    @endif
 @endsection
