@@ -12,8 +12,10 @@ use App\Http\Controllers\Api\V1\DireccionController;
 use App\Http\Controllers\Api\V1\FactorCostoController;
 use App\Http\Controllers\Api\V1\ImpresionController;
 use App\Http\Controllers\Api\V1\ImpuestoController;
+use App\Http\Controllers\Api\V1\InformeController;
 use App\Http\Controllers\Api\V1\MarcaController;
 use App\Http\Controllers\Api\V1\PagoPedidoController;
+use App\Http\Controllers\Api\V1\PanelController;
 use App\Http\Controllers\Api\V1\PedidoController;
 use App\Http\Controllers\Api\V1\PerfilController;
 use App\Http\Controllers\Api\V1\PoliticaPreciosController;
@@ -25,8 +27,10 @@ use App\Http\Controllers\Api\V1\SesionController;
 use App\Http\Controllers\Api\V1\SimuladorController;
 use App\Http\Controllers\Api\V1\StockController;
 use App\Http\Controllers\Api\V1\TiendaController;
+use App\Http\Controllers\Api\V1\VentaController;
 use App\Http\Controllers\Api\V1\YoController;
 use App\Impresion\ComprobanteVenta;
+use App\Impresion\DocumentosDeVenta;
 use App\Impresion\ImpresionFirmada;
 use App\Impresion\PedidoCompra;
 use Illuminate\Support\Facades\Route;
@@ -91,6 +95,15 @@ Route::prefix('v1')->group(function () {
         // quién lo pidió y al abrirlo se vuelve a exigir `compra.ver`. Lo pide `GET compras/{orden}/pdf`.
         Route::get('compras/{orden}/pedido.pdf', [CompraController::class, 'descargarPdf'])
             ->whereNumber('orden')->middleware('signed')->name(PedidoCompra::RUTA);
+
+        // Los documentos de una venta (tramo H, HL-129, HL-130): la firma cubre quién lo pidió, y al abrirlo
+        // se vuelve a exigir el permiso y que el documento sea de esa venta. Los piden los GET de abajo.
+        Route::get('ventas/{venta}/documento.pdf', [VentaController::class, 'descargarPdf'])
+            ->whereNumber('venta')->middleware('signed')->name(DocumentosDeVenta::RUTA_DOCUMENTO);
+        Route::get('ventas/{venta}/entregas/{entrega}/remito.pdf', [VentaController::class, 'descargarRemito'])
+            ->whereNumber(['venta', 'entrega'])->middleware('signed')->name(DocumentosDeVenta::RUTA_REMITO);
+        Route::get('ventas/{venta}/comprobantes-transferencia/{comprobante}/archivo', [VentaController::class, 'descargarTransferencia'])
+            ->whereNumber(['venta', 'comprobante'])->middleware('signed')->name(DocumentosDeVenta::RUTA_TRANSFERENCIA);
     });
 
     // Sesión opcional, de los dos clientes (HL-108): qué ve cada uno lo decide el permiso.
@@ -200,6 +213,39 @@ Route::prefix('v1')->group(function () {
         });
         // Cerrar incompleta es del que recibe: es decir que el resto no va a llegar.
         Route::post('compras/{orden}/cerrar', [CompraController::class, 'cerrar'])->whereNumber('orden')->middleware('can:compra.recibir');
+
+        // Los dos paneles (tramo H): un permiso cada uno, porque ver lo propio y ver el conjunto son dos acciones.
+        Route::get('panel', [PanelController::class, 'propio'])->middleware('can:panel.ver_propio');
+        Route::get('panel/general', [PanelController::class, 'general'])->middleware('can:panel.ver_global');
+
+        // Los informes que salieron del panel general muestran el conjunto: el mismo permiso que él.
+        Route::middleware('can:panel.ver_global')->group(function () {
+            Route::get('informes/vendedores', [InformeController::class, 'vendedores']);
+            Route::get('informes/productos', [InformeController::class, 'productos']);
+        });
+
+        // Las ventas de la administración (tramo H). Los pedidos del cliente siguen en `pedidos`, con `tienda.*`.
+        Route::middleware('can:venta.ver')->group(function () {
+            Route::get('ventas', [VentaController::class, 'index']);
+            Route::get('ventas/vendedores', [VentaController::class, 'vendedores']);
+            Route::get('ventas/impresion', [VentaController::class, 'impresion']);
+            Route::get('ventas/{venta}', [VentaController::class, 'show'])->whereNumber('venta');
+            Route::get('ventas/{venta}/pdf', [VentaController::class, 'pdf'])->whereNumber('venta');
+            Route::get('ventas/{venta}/entregas/{entrega}/pdf', [VentaController::class, 'remito'])->whereNumber(['venta', 'entrega']);
+        });
+        Route::post('ventas', [VentaController::class, 'store'])->middleware('can:venta.crear');
+        // Recotizar y cancelar son de quien opera el presupuesto: no mueven stock ni plata (cancelar no es anular).
+        Route::middleware('can:venta.editar')->group(function () {
+            Route::patch('ventas/{venta}', [VentaController::class, 'update'])->whereNumber('venta');
+            Route::post('ventas/{venta}/recotizar', [VentaController::class, 'recotizar'])->whereNumber('venta');
+            Route::post('ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])->whereNumber('venta');
+        });
+        Route::get('ventas/{venta}/comprobantes-transferencia/{comprobante}', [VentaController::class, 'transferencia'])
+            ->whereNumber(['venta', 'comprobante'])->middleware('can:venta.ver_comprobante_transferencia');
+        Route::post('ventas/{venta}/pagos', [VentaController::class, 'cobrar'])->whereNumber('venta')->middleware('can:venta.cobrar');
+        Route::post('ventas/{venta}/entregas', [VentaController::class, 'entregar'])->whereNumber('venta')->middleware('can:venta.entregar');
+        // La devolución es la que toca la plata: `venta.anular`, no `venta.editar`.
+        Route::post('ventas/{venta}/devoluciones', [VentaController::class, 'devolver'])->whereNumber('venta')->middleware('can:venta.anular');
 
         // El listado de categorías es `GET categorias?forma=lista`, arriba: el mismo recurso (regla 36).
         Route::middleware('can:categoria.ver')->group(function () {

@@ -1,6 +1,7 @@
 /**
  * La pantalla de cobro: «Total» por medio, billetes con el vuelto en pantalla y la suma en vivo.
- * Nada de esto viaja ni se guarda: el servidor valida los montos igual que sin JavaScript.
+ * Nada de esto viaja ni se guarda. Desde el tramo H lo arranca pantallas/operaciones-venta.js, con el
+ * saldo de la ficha ya puesto en `data-cobro-saldo`.
  */
 
 /** Un importe en centavos, con las mismas formas que acepta Importe::normalizar(); NaN si no se entiende. */

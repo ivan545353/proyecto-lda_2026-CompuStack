@@ -1,15 +1,15 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
-use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Exceptions\HttpResponseException;
 
-// El contrato de filtros del panel y de los informes que salieron de él: el período y
-// nada más (A-24). Sin filtro por canal, que en la Etapa 1 tendría un solo valor posible.
+/**
+ * El período del panel por la API (tramo H): las mismas reglas que el de la web. Un período inválido es
+ * un 422 con el error en su campo (patrón HL-120), no una redirección al mes en curso.
+ */
 class PanelFiltroRequest extends FormRequest
 {
     public function authorize(): bool
@@ -53,18 +53,5 @@ class PanelFiltroRequest extends FormRequest
             'desde' => 'fecha inicial',
             'hasta' => 'fecha final',
         ];
-    }
-
-    // Un período inválido vuelve a la misma pantalla limpia con un aviso, igual que los
-    // demás listados. Redirige a la URL sin query para servir a las cuatro rutas que lo
-    // usan: los dos paneles y los dos informes de ventas.
-    protected function failedValidation(Validator $validator): void
-    {
-        throw new HttpResponseException(
-            redirect($this->url())->with(
-                'error',
-                'Ese período no es válido. Se muestra el mes en curso.'
-            )
-        );
     }
 }

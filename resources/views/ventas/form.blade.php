@@ -2,14 +2,14 @@
 
 @use('App\Support\Importe')
 
+{{-- Shell (tramo H, regla 37): en la edición, el cliente, los renglones y sus precios llegan por
+     `GET /api/v1/ventas/{venta}`; emitir es `POST /api/v1/ventas` y guardar, `PATCH`. Lo único que trae
+     el servidor es lo que no es de negocio: el tope de descuento del usuario y si hay algo que vender. --}}
 @php
     $esAlta = !$venta->exists;
-
-    $descuentoInicial = old('descuento_porcentaje', $esAlta ? null : ($venta->descuentoPorcentaje() ?: null));
-    $idsCargados = collect($lineas)->pluck('producto_id')->filter(fn($id) => ctype_digit((string) $id))->implode(',');
 @endphp
 
-@section('title', $esAlta ? 'Nueva venta' : "Editar {$venta->numeroFormateado()}")
+@section('title', $esAlta ? 'Nueva venta' : 'Editar la venta')
 
 @section('content')
     <a href="{{ $esAlta ? route('ventas.index') : route('ventas.show', $venta) }}" class="btn btn-link link-dark px-0 mb-3">
@@ -18,7 +18,7 @@
     </a>
 
     <div class="mb-4">
-        <h1 class="h3 mb-1">{{ $esAlta ? 'Nueva venta' : "Editar {$venta->numeroFormateado()}" }}</h1>
+        <h1 class="h3 mb-1">@if ($esAlta) Nueva venta @else Editar <span data-numero-venta>la venta</span> @endif</h1>
         <p class="text-body-secondary small mb-0">
             @if ($esAlta)
                 Se emite como <strong>presupuesto</strong>: no descuenta stock ni genera comprobante hasta que se cobre.
@@ -29,17 +29,13 @@
         </p>
     </div>
 
-    @include('partials.errores')
-
     <noscript>
         <div class="alert alert-warning d-flex gap-2" role="alert">
             <i class="bi bi-exclamation-triangle flex-shrink-0 mt-1" aria-hidden="true"></i>
             <div>
-                <strong>Sin JavaScript no se pueden agregar productos ni elegir un cliente en esta pantalla.</strong>
-                Los dos buscadores le preguntan al servidor mientras escribís: mandar el
-                catálogo completo en la página la hacía pesar cinco megabytes, y con el doble
-                de productos dejaba de abrir. Lo que sí funciona acá: ver los renglones que
-                la venta ya tiene, cambiarles la cantidad, cargar el descuento y guardar.
+                <strong>Esta pantalla necesita JavaScript.</strong>
+                Desde la Etapa 3 la venta se carga y se guarda por la API, con tu credencial, y
+                sólo el JavaScript la manda (HL-111): sin él no se puede emitir ni guardar.
                 @can('cliente.crear')
                     «Nuevo cliente» te lleva a la pantalla de clientes en lugar de abrir una ventana,
                     y lo que no guardaste acá se pierde.
@@ -58,13 +54,14 @@
             </p>
         </div>
     @else
-        <script type="application/json" id="preciosCongelados">@json($congelados)</script>
+        <div data-pantalla="formulario-venta" data-venta="{{ $esAlta ? '' : $venta->id }}"
+            data-ficha="{{ route('ventas.show', '__ID__') }}" @unless ($esAlta) aria-busy="true" @endunless>
+        @unless ($esAlta)
+            <p class="text-body-secondary" data-cargando>Cargando la venta…</p>
+        @endunless
 
-        <form method="POST" novalidate action="{{ $esAlta ? route('ventas.store') : route('ventas.update', $venta) }}">
-            @csrf
-            @unless ($esAlta)
-                @method('PUT')
-            @endunless
+        <form novalidate data-formulario-venta @unless ($esAlta) hidden @endunless>
+            <div class="alert alert-danger" role="alert" data-errores-formulario hidden></div>
 
             <div class="card border-0 shadow-sm mb-4">
                 <div class="card-body">
@@ -84,16 +81,11 @@
                                     </a>
                                 @endcan
                             </div>
-                            <select class="form-select @error('cliente_id') is-invalid @enderror" id="cliente_id"
+                            <select class="form-select" id="cliente_id"
                                 name="cliente_id" aria-describedby="ayudaCliente" data-buscable
                                 data-buscable-url="/clientes"
                                 data-buscable-minimo="2">
                                 <option value="">Sin identificar</option>
-                                @if ($cliente)
-                                    <option value="{{ $cliente->id }}" selected
-                                        data-data="{{ json_encode(['text' => $cliente->razonConDocumento()], JSON_UNESCAPED_UNICODE) }}">
-                                        {{ $cliente->razonConDocumento() }}</option>
-                                @endif
                             </select>
 
                             <div id="ayudaCliente" class="form-text">
@@ -102,18 +94,14 @@
                             @can('cliente.crear')
                                 <div id="anuncioCliente" class="form-text text-success-emphasis" aria-live="polite"></div>
                             @endcan
-                            @error('cliente_id')
-                                <div class="invalid-feedback d-block">{{ $message }}</div>
-                            @enderror
                         </div>
 
                         <div class="col-12 col-sm-6 col-lg-3">
                             <label for="descuento_porcentaje" class="form-label">Descuento</label>
                             <div class="input-group">
                                 <input type="text" inputmode="decimal" autocomplete="off"
-                                    class="form-control text-end @error('descuento_porcentaje') is-invalid @enderror"
-                                    id="descuento_porcentaje" name="descuento_porcentaje"
-                                    value="{{ $descuentoInicial === null ? '' : Importe::paraFormulario($descuentoInicial) }}"
+                                    class="form-control text-end"
+                                    id="descuento_porcentaje" name="descuento_porcentaje" value=""
                                     placeholder="0" aria-describedby="ayudaDescuento">
                                 <span class="input-group-text" aria-hidden="true">%</span>
                             </div>
@@ -121,26 +109,18 @@
                             <div id="ayudaDescuento" class="form-text">
                                 Tope permitido: {{ Importe::paraFormulario($tope) }}%.
                             </div>
-
-                            @error('descuento_porcentaje')
-                                <div class="invalid-feedback d-block">{{ $message }}</div>
-                            @enderror
                         </div>
 
                         <div class="col-12 col-lg-3">
                             <label for="observaciones" class="form-label">Observaciones</label>
-                            <textarea class="form-control @error('observaciones') is-invalid @enderror" id="observaciones" name="observaciones"
-                                rows="2" maxlength="255" placeholder="Pasa a buscarlo el jueves">{{ old('observaciones', $venta->observaciones) }}</textarea>
-
-                            @error('observaciones')
-                                <div class="invalid-feedback d-block">{{ $message }}</div>
-                            @enderror
+                            <textarea class="form-control" id="observaciones" name="observaciones"
+                                rows="2" maxlength="255" placeholder="Pasa a buscarlo el jueves"></textarea>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="card border-0 shadow-sm mb-4" data-venta data-proximo-indice="{{ $proximoIndice }}">
+            <div class="card border-0 shadow-sm mb-4" data-venta>
                 <div class="card-body">
                     <div
                         class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-3">
@@ -162,7 +142,7 @@
                             <select id="buscadorProducto" data-buscador-producto data-buscable
                                 data-buscable-url="/productos?forma=gestion&amp;estado=activos"
                                 data-buscable-minimo="2"
-                                data-buscable-detalle="precio,disponible" data-buscable-excluir="{{ $idsCargados }}"
+                                data-buscable-detalle="precio,disponible" data-buscable-excluir=""
                                 aria-describedby="ayudaBuscadorProducto">
                                 <option value="">Buscá por código o nombre</option>
                             </select>
@@ -172,10 +152,6 @@
                             </div>
                         </div>
                     </div>
-
-                    @error('lineas')
-                        <div class="alert alert-danger">{{ $message }}</div>
-                    @enderror
 
                     <table class="table align-middle mb-0" style="min-width: 44rem;">
                         <caption class="visually-hidden">Productos de la venta</caption>
@@ -195,54 +171,33 @@
                         </thead>
 
                         <tbody data-lineas>
-                            @foreach ($lineas as $indice => $linea)
-                                @include('ventas._linea', [
-                                    'indice' => $indice,
-                                    'linea' => $linea,
-                                    'productos' => $productos,
-                                    'congelados' => $congelados,
-                                ])
-                            @endforeach
-
                             <template id="plantillaLineaVenta">
-                                @include('ventas._linea', [
-                                    'indice' => '__INDICE__',
-                                    'linea' => null,
-                                    'productos' => $productos,
-                                    'congelados' => $congelados,
-                                ])
+                                @include('ventas._linea')
                             </template>
                         </tbody>
 
                         <tfoot>
                             <tr>
                                 <td colspan="3" class="text-end text-body-secondary">Subtotal</td>
-                                <td class="text-end text-nowrap" data-subtotal-venta>
-                                    {{ Importe::pesos($esAlta ? 0 : $venta->subtotal) }}
-                                </td>
+                                <td class="text-end text-nowrap" data-subtotal-venta>{{ Importe::pesos(0) }}</td>
                                 <td></td>
                             </tr>
 
-                            <tr data-fila-descuento @unless (!$esAlta && (float) $venta->descuento > 0) hidden @endunless>
+                            <tr data-fila-descuento hidden>
                                 <td colspan="3" class="text-end text-body-secondary">Descuento</td>
-                                <td class="text-end text-nowrap" data-descuento-venta>
-                                    − {{ Importe::pesos($esAlta ? 0 : $venta->descuento) }}
-                                </td>
+                                <td class="text-end text-nowrap" data-descuento-venta>− {{ Importe::pesos(0) }}</td>
                                 <td></td>
                             </tr>
 
                             <tr>
                                 <td colspan="3" class="text-end fw-semibold">Total</td>
-                                <td class="text-end fw-semibold text-nowrap" data-total-venta>
-                                    {{ Importe::pesos($esAlta ? 0 : $venta->total) }}
-                                </td>
+                                <td class="text-end fw-semibold text-nowrap" data-total-venta>{{ Importe::pesos(0) }}</td>
                                 <td></td>
                             </tr>
                         </tfoot>
                     </table>
 
-                    <p class="text-body-secondary small mt-3 mb-0" data-sin-lineas
-                        @unless ($lineas === []) hidden @endunless>
+                    <p class="text-body-secondary small mt-3 mb-0" data-sin-lineas>
                         Todavía no hay ningún producto. Buscalo arriba por código o por nombre.
                     </p>
 
@@ -258,6 +213,7 @@
                 </button>
             </div>
         </form>
+        </div>
 
         {{-- Afuera del formulario de la venta: un <form> no puede contener otro. Envía al
              mismo endpoint que la pantalla de alta (POST /clientes de la API), así que valida con lo mismo. --}}

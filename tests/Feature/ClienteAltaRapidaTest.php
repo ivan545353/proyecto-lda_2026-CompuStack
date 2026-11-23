@@ -117,7 +117,8 @@ test('la ventana del cliente vive afuera del formulario de la venta', function (
         ->assertOk()
         ->getContent();
 
-    $venta   = strpos($html, 'action="'.route('ventas.store').'"');
+    // Tramo H: el formulario de la venta ya no tiene `action`, lo manda el JS a la API.
+    $venta   = strpos($html, 'data-formulario-venta');
     $cierre  = strpos($html, '</form>', $venta);
     $ventana = strpos($html, 'data-alta-rapida="');
 

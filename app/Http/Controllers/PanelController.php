@@ -2,8 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\PanelFiltroRequest;
-use App\Services\PanelService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -21,10 +19,6 @@ class PanelController extends Controller
         'producto.ver'     => 'productos.index',
     ];
 
-    public function __construct(private PanelService $service)
-    {
-    }
-
     // La raíz y el login no pueden apuntar derecho al panel ahora que exige permiso: un
     // rol creado sin ningún permiso de panel recibiría un 403 sin navbar del que salir.
     // Es la forma de M-21 —un permiso que si no se asigna deja sin salida— atajada acá.
@@ -39,21 +33,14 @@ class PanelController extends Controller
         abort(403, 'Tu rol todavía no tiene ninguna pantalla asignada. Pedile a un administrador que revise sus permisos.');
     }
 
-    public function propio(PanelFiltroRequest $request): View
+    // Los dos shells (tramo H, regla 37): los números llegan por `GET /api/v1/panel` y `GET /api/v1/panel/general`.
+    public function propio(): View
     {
-        return view('panel.propio', [
-            'metricas' => $this->service->paraVendedor($request->user(), $request->desde(), $request->hasta()),
-            'desde'    => $request->desde(),
-            'hasta'    => $request->hasta(),
-        ]);
+        return view('panel.propio');
     }
 
-    public function general(PanelFiltroRequest $request): View
+    public function general(): View
     {
-        return view('panel.general', [
-            'metricas' => $this->service->paraAdministrativo($request->desde(), $request->hasta()),
-            'desde'    => $request->desde(),
-            'hasta'    => $request->hasta(),
-        ]);
+        return view('panel.general');
     }
 }

@@ -1,10 +1,12 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
+ * Tramo H: la de la web, pasada a la API sin cambiar ninguna regla.
+ *
  * Validación de una entrega.
  *
  * Sin `cantidades` es «entregar todo lo pendiente», el botón de un clic de la ficha;

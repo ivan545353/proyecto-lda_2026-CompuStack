@@ -5,13 +5,35 @@ namespace App\Impresion;
 use App\Models\Cliente;
 use App\Models\User;
 use App\Models\Venta;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 
 /**
- * El listado de ventas: el informe de un período, con el total de todas las coincidencias.
+ * El listado de ventas: el informe de un período, con el total de todas las coincidencias. Desde el
+ * tramo H, la misma consulta lista la API e imprime por enlace firmado (D-22).
  */
-final class ListadoVentas extends Listado
+final class ListadoVentas extends Listado implements ImprimiblePorEnlace
 {
+    public function permiso(): string
+    {
+        return 'venta.ver';
+    }
+
+    /** La de la pantalla: de la más nueva a la más vieja. */
+    public function consulta(array $filtros): Builder
+    {
+        return Venta::query()
+            ->buscar($filtros['q'] ?? null)
+            ->conEstado($filtros['estado'] ?? null)
+            ->deCliente($filtros['cliente_id'] ?? null)
+            ->deVendedor($filtros['vendedor_id'] ?? null)
+            ->deCanal($filtros['canal'] ?? null)
+            ->dePago($filtros['pago'] ?? null)
+            ->desde($filtros['desde'] ?? null)
+            ->hasta($filtros['hasta'] ?? null)
+            ->orderByDesc('id');
+    }
+
     public function titulo(): string
     {
         return 'Listado de ventas';

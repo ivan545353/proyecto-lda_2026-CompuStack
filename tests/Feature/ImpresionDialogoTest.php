@@ -17,10 +17,6 @@ beforeEach(function () {
     };
 });
 
-dataset('listados con dialogo', [
-    'ventas'      => ['ventas.index', 'ventas.exportar', 'venta.ver'],
-]);
-
 // Los migrados a la API (tramo D): el botón y el diálogo piden el enlace firmado al endpoint.
 // Ya no funcionan sin JavaScript: la credencial viaja como Bearer, y sólo la manda el JS (HL-111).
 dataset('listados con dialogo por la API', [
@@ -33,24 +29,10 @@ dataset('listados con dialogo por la API', [
     'kardex'     => ['stock.index', '/stock/movimientos/impresion', 'stock.ver'],
     // Tramo G.
     'compras'    => ['compras.index', '/compras/impresion', 'compra.ver'],
+    // Tramo H: era el último listado con el diálogo de la web. Sus dos tests de «funciona sin
+    // JavaScript» salieron con él: las mismas aserciones viven en los dos de abajo, contra el endpoint.
+    'ventas'     => ['ventas.index', '/ventas/impresion', 'venta.ver'],
 ]);
-
-test('el dialogo vive afuera del formulario de filtros y apunta a la ruta de impresion', function (string $listado, string $imprimir, string $permiso) {
-    $html = $this->actingAs(usuarioCon($permiso))->get(route($listado))->assertOk()->getContent();
-
-    // El stack del layout lo rinde después del pie: no puede quedar adentro de otro <form>.
-    expect(strpos($html, 'data-impresion>'))->toBeGreaterThan(strpos($html, '</main>'))
-        ->and(($this->dialogo)($html))->toContain('action="'.route($imprimir).'"');
-})->with('listados con dialogo');
-
-test('el boton que abre el dialogo nace oculto y el de imprimir funciona sin javascript', function (string $listado, string $imprimir, string $permiso) {
-    $html = $this->actingAs(usuarioCon($permiso))->get(route($listado))->assertOk()->getContent();
-
-    preg_match('/<button[^>]*data-impresion-abre[^>]*>/', $html, $abre);
-
-    expect($abre[0])->toMatch('/\shidden[\s>]/')
-        ->and($html)->toContain('href="'.route($imprimir).'"');
-})->with('listados con dialogo');
 
 test('en un listado migrado, el dialogo vive afuera del formulario de filtros y apunta al endpoint', function (string $listado, string $endpoint, string $permiso) {
     $html = $this->actingAs(usuarioCon($permiso))->get(route($listado))->assertOk()->getContent();

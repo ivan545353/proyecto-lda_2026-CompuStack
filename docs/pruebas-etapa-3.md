@@ -360,3 +360,40 @@ aprobada es 409, el estado y el total no llegan desde el cuerpo).
 - El JS de las pantallas (`compras.js`, `lineas-pedido.js`, `lineas-orden.js`, `recepcion.js`) no tiene test
   automático: lo cubre el recorrido manual del usuario. Ese recorrido encontró que la edición y la recepción quedaban en
   blanco (el encabezado se buscaba dentro del contenedor y el `catch` se tragaba el error); se corrigió antes de cerrar.
+
+## 12. Tramo H — Ventas, panel e informes
+
+**Migradas las escrituras del módulo** (alta, edición, recotizar, cancelar, cobro, entrega, devolución) y sus cuatro
+descargas, más las lecturas de las nueve pantallas de ventas, los dos paneles y los dos informes. El inventario (§5) baja
+de 100 a **67 llamadas en 10 archivos**: no queda ninguna de ventas ni de pagos. Ningún archivo perdió tests salvo uno:
+`VentaModuloTest` pasa de 73 a 85, `EntregaModuloTest` de 14 a 16, `PanelModuloTest` de 20 a 23,
+`InformeVentasModuloTest` de 9 a 12; el resto conserva su número. `ImpresionDialogoTest` baja de 8 a 6: ver abajo.
+
+**Cómo se migró**: igual que en D a G. El dato se afirma en el JSON (`datos.*`, `mensaje`, 409, 422) y la estructura en
+el shell (plantilla, botón con su `data-accion`, `data-campo`).
+
+| Test | Fijaba | Ahora | Por qué |
+| --- | --- | --- | --- |
+| `VentaModuloTest` › alta, edición, recotizar, cancelar | `post`/`put` a la ruta web, `with('exito'/'error')` | `POST`/`PATCH /api/v1/ventas…`: la ficha, `mensaje`; la transición inválida, 409 | — |
+| `VentaModuloTest` › «un error de validacion devuelve los renglones» | `withInput()` conservaba los renglones | 422 con el error en `lineas.{i}.campo`; los renglones quedan en la pantalla porque nadie la recarga | El formulario ya no se recarga |
+| `VentaModuloTest` › el cobro con problemas (baja, faltante) | `assertSee` del aviso en la pantalla de cobro | `datos.cobro.problemas` de la ficha, con el mismo texto | HL-131 |
+| `CobroPantallaTest` › cobro correcto, rechazo por saldo | `post pagos.store`, aviso arriba con `withInput` | `POST /ventas/{id}/pagos`: 201, o 409 con `errores` vacío (el saldo no es de un campo) | Opción (a) acordada |
+| `EntregaModuloTest` › entregar todo o una parte, la ficha | `post ventas.entregar`, `assertSee` | `POST /ventas/{id}/entregas` (201); `datos.entregas.*` | — |
+| `VentaImpresionTest`, `VentaTransferenciaTest` › las descargas | `GET` con sesión al PDF o al archivo | El enlace firmado de la API y su descarga, con la misma aserción sobre el contenido; de otra venta, 404 | HL-129, HL-130 |
+| `ImpresionDialogoTest` › `ventas` | Dataset de «ruta web» y dos tests del diálogo sin JS | Dataset de «listado por la API» sobre `/ventas/impresion`. Los dos tests sin JS se fueron: el diálogo lo abre el JS, que es el único que tiene la credencial (HL-111) | Avisado en el paso 5 |
+| `ClienteAltaRapidaTest` › el alta rápida en el formulario de venta | El `action` del formulario | El formulario por su `data-formulario-venta` | El formulario no tiene `action` |
+| `AcreditarIntentoTest`, `PanelAtencionTest` | `assertSee` en la ficha o `assertViewHas` | `datos.pagos.0.metodo_texto`; `total` del listado con el mismo filtro | — |
+| `PanelModuloTest`, `PanelGraficoTest` | `assertViewHas('metricas')`, `assertSee` de los números y del JSON del gráfico | `GET /panel` y `GET /panel/general`: los números, `comparaciones` y `por_dia` | — |
+| `PanelModuloTest` › período inválido | Redirección al mes en curso con aviso | 422 en `hasta`; renombrado «se rechaza con el error en su campo» | HL-120 |
+| `PanelModuloTest` › «lo plegado lo rinde el servidor y se abre sin javascript» | Las filas plegadas en el HTML | El `details` en el shell y las filas en la API | Regla 37 |
+| `InformeVentasModuloTest` › período, paginado, total, vacío | `assertSee` y `href` de las páginas | `datos`, `por_pagina`, `criterios` (el período en la página 2, `elegido`), `totales`; los dos textos del vacío en el shell | — |
+
+**Tests nuevos**: las 11 URLs retiradas, que dan 404 o 405 con todos los permisos del módulo y sin cambiar la venta; los
+shells del listado, la ficha, el formulario, el cobro, la entrega, la devolución, los paneles y los informes sin datos de
+negocio (regla 37); «cobrada, la ficha ya no trae la cotización de hoy»; los endpoints del panel y de los informes con
+las dos mitades del permiso.
+
+**Huecos**:
+- El JS (`ventas.js`, `operaciones-venta.js`, `lineas-venta.js`, `panel.js`, `informes.js`) no tiene test automático. El
+  recorrido manual encontró que la insignia «Sin stock suficiente» y el aviso del cobro se veían siempre: `d-flex` y
+  `d-inline-block` de Bootstrap le ganaban a `hidden`. Se corrigió con una regla global en `app.scss` (pendiente #89).

@@ -17,7 +17,7 @@ use Symfony\Component\HttpFoundation\Response;
  * Métodos:
  *   enlace()    valida las opciones (422) y devuelve la URL firmada y temporal
  *   descarga()  el PDF o el CSV de un enlace ya verificado por el middleware `signed`
- *   archivo()   el PDF o el CSV de una consulta: lo comparten este camino y la web (ImprimeListados)
+ *   archivo()   el PDF o el CSV de una consulta (desde el tramo H, el único camino: no queda impresión por la web)
  */
 final class ImpresionFirmada
 {
@@ -33,6 +33,7 @@ final class ImpresionFirmada
         'proveedores' => ListadoProveedores::class,
         'movimientos' => ListadoMovimientos::class,
         'compras'     => ListadoCompras::class,
+        'ventas'      => ListadoVentas::class,
     ];
 
     /** Las claves del diálogo de impresión; el resto de la consulta son filtros. */

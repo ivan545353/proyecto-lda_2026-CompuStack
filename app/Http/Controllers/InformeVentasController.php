@@ -2,40 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\PanelFiltroRequest;
-use App\Services\InformeVentasService;
 use Illuminate\View\View;
 
 // El ranking de vendedores y los productos más vendidos, que salieron del panel general
 // en el tramo L. Se miran una vez por mes: son informes con su período, no avisos.
+// Desde el tramo H son shells (regla 37): las filas llegan por `GET /api/v1/informes/...`.
 class InformeVentasController extends Controller
 {
-    public function __construct(private InformeVentasService $service)
+    public function vendedores(): View
     {
+        return view('ventas.vendedores');
     }
 
-    public function vendedores(PanelFiltroRequest $request): View
+    public function productos(): View
     {
-        return view('ventas.vendedores', [
-            'filas' => $this->service->vendedores($request->desde(), $request->hasta())
-                ->paginate(InformeVentasService::POR_PAGINA)
-                ->withQueryString(),
-            'total'   => $this->service->totalDeVendedores($request->desde(), $request->hasta()),
-            'desde'   => $request->desde(),
-            'hasta'   => $request->hasta(),
-            'elegido' => $request->hasAny(['desde', 'hasta']),
-        ]);
-    }
-
-    public function productos(PanelFiltroRequest $request): View
-    {
-        return view('ventas.productos', [
-            'filas' => $this->service->productos($request->desde(), $request->hasta())
-                ->paginate(InformeVentasService::POR_PAGINA)
-                ->withQueryString(),
-            'desde'   => $request->desde(),
-            'hasta'   => $request->hasta(),
-            'elegido' => $request->hasAny(['desde', 'hasta']),
-        ]);
+        return view('ventas.productos');
     }
 }

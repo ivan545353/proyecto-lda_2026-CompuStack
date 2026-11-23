@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Models\Pago;
 use App\Support\Importe;
@@ -8,6 +8,8 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
+ * Tramo H: la de la web, pasada a la API sin cambiar ninguna regla.
+ *
  * Validación del formulario de cobro.
  *
  * **Lo que este Form Request NO valida es el centro del hallazgo, así que vale
@@ -57,7 +59,7 @@ use Illuminate\Validation\Rule;
  *   rules()                 la forma del cobro, nunca el saldo
  *   messages() / attributes()
  */
-class PagoRequest extends FormRequest
+class CobroVentaRequest extends FormRequest
 {
     public function authorize(): bool
     {

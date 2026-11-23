@@ -5,12 +5,11 @@ import Chart from 'chart.js/auto';
  *
  * Los números llegan ya agregados desde el servidor y acá sólo se dibujan: un gráfico
  * que recibiera filas y las contara en el navegador sería A-26 otra vez con otra ropa.
- *
- * Mejora progresiva: sin este archivo la tabla plegada debajo del gráfico muestra
- * exactamente los mismos números, así que no se pierde ningún dato.
+ * Desde el tramo H la serie la pasa pantallas/panel.js, con lo que trae la API
+ * (`por_dia`): `dias` es [{ dia: '21/11', facturado: 5000 }]. La tabla plegada debajo
+ * del gráfico muestra exactamente los mismos números.
  */
-export function iniciarGraficosDelPanel(raiz = document) {
-    const dias = leerJson('facturadoPorDia');
+export function dibujarFacturadoPorDia(lienzoDias, dias) {
 
     // El color sale de la variable del sistema para no tener dos paletas.
     const acento = getComputedStyle(document.documentElement)
@@ -40,8 +39,6 @@ export function iniciarGraficosDelPanel(raiz = document) {
         },
     };
 
-    const lienzoDias = raiz.querySelector('[data-grafico-dias]');
-
     if (lienzoDias && dias.length) {
         new Chart(lienzoDias, {
             type: 'line',
@@ -58,13 +55,5 @@ export function iniciarGraficosDelPanel(raiz = document) {
             },
             options: { ...sinLeyenda, scales: { y: { ...ejeDePesos, beginAtZero: true } } },
         });
-    }
-}
-
-function leerJson(id) {
-    try {
-        return JSON.parse(document.getElementById(id)?.textContent ?? '[]');
-    } catch {
-        return [];
     }
 }

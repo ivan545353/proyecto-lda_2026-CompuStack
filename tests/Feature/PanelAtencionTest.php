@@ -71,17 +71,24 @@ test('el numero de la tarjeta y el listado del enlace cuentan lo mismo', functio
     OrdenCompra::factory()->aprobada()->create();
     OrdenCompra::factory()->recibida()->create();                  // cerrada: no cuenta
 
-    $usuario = usuarioCon('panel.ver_global', 'compra.ver');
+    $usuario    = usuarioCon('panel.ver_global', 'compra.ver');
+    $credencial = bearer($usuario);
+
+    // Tramo H: los dos números, de la API; la nota de los borradores la arma el JS con el segundo
+    // («1 borrador lo generó la reposición…») en el lugar que el shell le deja, con su enlace.
+    $this->getJson('/api/v1/panel/general', $credencial)
+        ->assertJsonPath('datos.compras_abiertas', 2)
+        ->assertJsonPath('datos.borradores_de_reposicion', 1);
+
+    app('auth')->forgetGuards();
 
     $this->actingAs($usuario)
         ->get(route('panel.general'))
-        ->assertSeeText('1 borrador lo generó la reposición')
-        ->assertViewHas('metricas', fn (array $m) => $m['comprasAbiertas'] === 2
-            && $m['borradoresDeReposicion'] === 1);
+        ->assertSee('data-texto-detalle', false)
+        ->assertSee(e(route('compras.index', ['estado' => 'borrador', 'origen' => 'reposicion'])), false);
 
     // Desde el tramo G el listado del enlace es la API: el mismo filtro, el mismo número.
     app('auth')->forgetGuards();
-    $credencial = bearer($usuario);
 
     $this->getJson('/api/v1/compras?estado='.OrdenCompra::ABIERTAS, $credencial)
         ->assertJsonPath('total', 2);
@@ -93,9 +100,17 @@ test('el numero de la tarjeta y el listado del enlace cuentan lo mismo', functio
 test('sin borradores de la reposicion la tarjeta no agrega la nota', function () {
     OrdenCompra::factory()->create();   // la cargó una persona
 
+    // Tramo H: sin borradores de la reposición, la nota (que nace oculta) no se muestra.
+    $this->getJson('/api/v1/panel/general', bearer(usuarioCon('panel.ver_global', 'compra.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.borradores_de_reposicion', 0);
+
+    app('auth')->forgetGuards();
+
     $this->actingAs(usuarioCon('panel.ver_global', 'compra.ver'))
         ->get(route('panel.general'))
         ->assertOk()
+        ->assertSee('data-detalle hidden', false)
         ->assertDontSeeText('generó la reposición');
 });
 
@@ -127,25 +142,29 @@ test('cada numero del periodo dice contra que periodo se compara', function () {
     ventaCobrada($producto, 3);
     $this->travelBack();
 
-    $html = $this->actingAs(usuarioCon('panel.ver_global'))
-        ->get(route('panel.general', ['desde' => '2026-03-01', 'hasta' => '2026-03-31']))
+    // Tramo H: la frase la arma el servidor (`Comparacion`) y llega en `comparaciones`.
+    $comparaciones = $this->getJson('/api/v1/panel/general?desde=2026-03-01&hasta=2026-03-31', bearer(usuarioCon('panel.ver_global')))
         ->assertOk()
-        ->getContent();
+        ->json('datos.comparaciones');
 
     // Cobrado, facturado y margen suben lo mismo: 3000 contra 2000, y 1200 contra 800.
-    expect(substr_count($html, '50 % más que entre el 29/01 y el 28/02'))->toBe(3);
+    $textos = array_column($comparaciones, 'texto');
+
+    expect(count(array_filter($textos, fn ($t) => str_contains($t, '50 % más que entre el 29/01 y el 28/02'))))->toBe(3);
 });
 
 test('sin datos del periodo anterior no se inventa un porcentaje', function () {
     ventaCobrada(productoConPrecios(contado: 1000), 3);
 
-    $html = $this->actingAs(usuarioCon('panel.ver_global'))
-        ->get(route('panel.general'))
+    $comparaciones = $this->getJson('/api/v1/panel/general', bearer(usuarioCon('panel.ver_global')))
         ->assertOk()
-        ->getContent();
+        ->json('datos.comparaciones');
 
-    expect(substr_count($html, 'Sin datos del período anterior'))->toBe(3)
-        ->and($html)->not->toContain('100 % más');
+    $textos = implode("\n", array_column($comparaciones, 'texto'));
+
+    expect(substr_count($textos, 'Sin datos del período anterior'))->toBe(3)
+        ->and($textos)->not->toContain('100 % más')
+        ->and(array_column($comparaciones, 'porcentaje'))->toBe([null, null, null]);
 });
 
 /*
@@ -163,17 +182,26 @@ test('los presupuestos abiertos enlazan a los propios para quien ve ventas', fun
 
     $destino = route('ventas.index', ['estado' => 'presupuesto', 'vendedor_id' => $vendedor->id]);
 
+    // Tramo H: el número, de la API; el enlace, del shell (lleva el id de quien entra).
+    $this->getJson('/api/v1/panel', bearer($vendedor))
+        ->assertOk()
+        ->assertJsonPath('datos.presupuestos_abiertos', 1);
+
+    app('auth')->forgetGuards();
+
     $html = $this->actingAs($vendedor)
         ->get(route('panel'))
         ->assertOk()
-        ->assertViewHas('metricas', fn (array $m) => $m['presupuestosAbiertos'] === 1)
         ->getContent();
 
     expect(($this->enlazaA)($html, $destino))->toBeTrue();
 
-    $this->actingAs($vendedor)
-        ->get($destino)
-        ->assertViewHas('ventas', fn ($v) => $v->total() === 1);
+    // Tramo H: el listado es un shell; lo que el enlace filtra se pide a la API con la misma consulta.
+    app('auth')->forgetGuards();
+
+    $this->getJson("/api/v1/ventas?estado=presupuesto&vendedor_id={$vendedor->id}", bearer($vendedor))
+        ->assertOk()
+        ->assertJsonPath('total', 1);
 });
 
 test('sin venta.ver los presupuestos abiertos no son enlace', function () {

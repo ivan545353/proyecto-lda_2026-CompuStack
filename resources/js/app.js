@@ -6,9 +6,7 @@ import { iniciarLineasDeOrden } from './componentes/lineas-orden';
 import { iniciarArmadorDePedido } from './componentes/lineas-pedido';
 import { iniciarRecepcion } from './componentes/recepcion';
 import { iniciarLineasDeVenta } from './componentes/lineas-venta';
-import { iniciarGraficosDelPanel } from './componentes/graficos';
 import { iniciarAltasRapidas } from './componentes/alta-rapida';
-import { iniciarCobro } from './componentes/cobro';
 import { iniciarOpcionesDeImpresion } from './componentes/impresion';
 import { iniciarIngreso, iniciarSalida } from './pantallas/sesion';
 import { iniciarFormularioDeMarca, iniciarListadoDeMarcas } from './pantallas/marcas';
@@ -22,6 +20,10 @@ import { iniciarFormularioDeFactor, iniciarFormularioDeImpuesto, iniciarPantalla
 import { iniciarAjusteMasivo, iniciarHistorialDeAjustes } from './pantallas/ajuste-masivo';
 import { iniciarAjusteDeStock, iniciarKardex } from './pantallas/stock';
 import { iniciarFichaDeCompra, iniciarListadoDeCompras, iniciarSugeridos } from './pantallas/compras';
+import { iniciarFichaDeVenta, iniciarListadoDeVentas } from './pantallas/ventas';
+import { iniciarPanel } from './pantallas/panel';
+import { iniciarInforme } from './pantallas/informes';
+import { iniciarCobroDeVenta, iniciarDevolucion, iniciarEntregaParcial } from './pantallas/operaciones-venta';
 import { iniciarSelecciones } from './componentes/seleccion';
 import { mostrarAvisoPendiente } from './api/estados';
 
@@ -229,16 +231,12 @@ document.addEventListener('DOMContentLoaded', () => iniciarRecepcion());
 // Líneas de la venta: ver componentes/lineas-venta.js
 document.addEventListener('DOMContentLoaded', () => iniciarLineasDeVenta());
 
-// Gráficos del panel: ver componentes/graficos.js
-document.addEventListener('DOMContentLoaded', () => iniciarGraficosDelPanel());
 
 
 // Alta de cliente desde la venta, en una ventana: ver componentes/alta-rapida.js
 document.addEventListener('DOMContentLoaded', () => iniciarAltasRapidas());
 
 
-// Pantalla de cobro: ver componentes/cobro.js
-document.addEventListener('DOMContentLoaded', () => iniciarCobro());
 
 
 // El diálogo «Opciones de impresión» de los listados: ver componentes/impresion.js
@@ -254,10 +252,18 @@ document.addEventListener('DOMContentLoaded', () => {
 // El aviso que dejó la pantalla anterior (una alta que volvió al listado): ver api/estados.js
 document.addEventListener('DOMContentLoaded', () => mostrarAvisoPendiente());
 
-// Las pantallas migradas a la API (tramos D a G): ver pantallas/
+// Las pantallas migradas a la API (tramos D a H): ver pantallas/
 document.addEventListener('DOMContentLoaded', () => {
     iniciarListadoDeCompras();
     iniciarFichaDeCompra();
+    iniciarListadoDeVentas();
+    iniciarFichaDeVenta();
+    // El cobro arranca cobro.js cuando la ficha trajo el saldo.
+    iniciarCobroDeVenta();
+    iniciarEntregaParcial();
+    iniciarDevolucion();
+    iniciarPanel();
+    iniciarInforme();
     iniciarSugeridos();
     iniciarPantallaDePrecios();
     iniciarFormularioDeImpuesto();

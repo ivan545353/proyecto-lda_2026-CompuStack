@@ -25,6 +25,11 @@ body {
     font-family: $font-family-sans-serif;
 }
 
+// Las pantallas muestran y ocultan con `hidden` (Etapa 3); sin esto, `d-flex` y compañía le ganan con !important.
+[hidden] {
+    display: none !important;
+}
+
 // Paginador con la estética negra del sistema en lugar del celeste por defecto
 .pagination {
     --bs-pagination-color: var(--cs-acento);

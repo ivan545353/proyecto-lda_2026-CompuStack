@@ -46,6 +46,22 @@ test('el permiso de la ruta alcanza para pasar en las rutas del panel', function
         ->assertOk();
 })->with('rutas del panel');
 
+// Tramo H: los números van por la API, con el mismo permiso por panel (C-2), en las dos direcciones.
+dataset('endpoints del panel', [
+    'panel propio'  => ['/api/v1/panel', 'panel.ver_propio'],
+    'panel general' => ['/api/v1/panel/general', 'panel.ver_global'],
+]);
+
+test('ningun otro permiso del modulo habilita los endpoints del panel', function (string $ruta, string $permiso) {
+    $otros = array_values(array_diff(PERMISOS_PANEL, [$permiso]));
+
+    $this->getJson($ruta, bearer(usuarioCon(...$otros)))->assertForbidden();
+})->with('endpoints del panel');
+
+test('el permiso del endpoint alcanza para pasar en los endpoints del panel', function (string $ruta, string $permiso) {
+    $this->getJson($ruta, bearer(usuarioCon($permiso)))->assertOk();
+})->with('endpoints del panel');
+
 test('un usuario sin ningun permiso de panel no entra a ninguna de las dos', function () {
     $usuario = usuarioCon('venta.ver');
 
@@ -116,27 +132,29 @@ test('el periodo de la URL llega a las metricas', function () {
     ventaCobrada($producto, 1, vendedor: $vendedor, cajero: $vendedor);
     $this->travelBack();
 
-    $this->actingAs($vendedor)
-        ->get(route('panel', ['desde' => '2026-03-01', 'hasta' => '2026-03-31']))
+    // Tramo H: el shell pide a la API la consulta de su URL, tal cual.
+    $this->getJson('/api/v1/panel?desde=2026-03-01&hasta=2026-03-31', bearer($vendedor))
         ->assertOk()
-        ->assertViewHas('metricas', fn (array $m) => $m['vendi']['cantidad'] === 1
-            && $m['vendi']['facturado'] === 3000.0);
+        ->assertJsonPath('datos.periodo.desde', '2026-03-01')
+        ->assertJsonPath('datos.vendi.cantidad', 1)
+        ->assertJsonPath('datos.vendi.facturado', '3000.00');
 });
 
 test('el periodo por omision es el mes en curso', function () {
-    $this->actingAs(usuarioCon('panel.ver_propio'))
-        ->get(route('panel'))
+    $this->getJson('/api/v1/panel', bearer(usuarioCon('panel.ver_propio')))
         ->assertOk()
-        ->assertViewHas('desde', fn ($desde) => $desde->toDateTimeString() === now()->startOfMonth()->toDateTimeString());
+        ->assertJsonPath('datos.periodo.desde', now()->startOfMonth()->toDateString())
+        ->assertJsonPath('datos.periodo.hasta', now()->toDateString());
 });
 
-test('un periodo invalido vuelve al panel limpio con un aviso', function () {
-    // La fecha final anterior a la inicial. Redirige en vez de rebotar con una
-    // pantalla de errores sobre un formulario que el usuario no completó.
-    $this->actingAs(usuarioCon('panel.ver_propio'))
-        ->get(route('panel', ['desde' => '2026-03-31', 'hasta' => '2026-03-01']))
-        ->assertRedirect(route('panel'))
-        ->assertSessionHas('error');
+test('un periodo invalido se rechaza con el error en su campo', function () {
+    // La fecha final anterior a la inicial. Tramo H: antes redirigía al mes en curso con un
+    // aviso; por la API es un 422 que el filtro marca en su campo (patrón HL-120), y el
+    // panel no muestra números de un período que nadie pidió.
+    $this->getJson('/api/v1/panel?desde=2026-03-31&hasta=2026-03-01', bearer(usuarioCon('panel.ver_propio')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('hasta', 'errores')
+        ->assertJsonMissingPath('datos');
 });
 
 /*
@@ -154,22 +172,28 @@ test('el panel propio muestra lo que vendi y lo que cobre por separado', functio
 
     // Quién vendió y quién cobró son dos columnas de dos tablas (M-19): el Cajero no
     // vende, así que sin el segundo bloque su panel sería todo ceros.
+    $this->getJson('/api/v1/panel', bearer($cajero))
+        ->assertOk()
+        ->assertJsonPath('datos.vendi.cantidad', 0)
+        ->assertJsonPath('datos.cobre.neto', '3000.00');
+
+    app('auth')->forgetGuards();
+
     $this->actingAs($cajero)
         ->get(route('panel'))
         ->assertOk()
-        ->assertSeeText('Lo que cobré')
-        ->assertViewHas('metricas', fn (array $m) => $m['vendi']['cantidad'] === 0
-            && $m['cobre']['neto'] === 3000.0);
+        ->assertSeeText('Lo que cobré');
 });
 
 test('el panel propio no entrega los numeros del conjunto', function () {
     ventaCobrada(productoConPrecios(contado: 1000), 3);   // de otro vendedor
 
-    $this->actingAs(usuarioCon('panel.ver_propio'))
-        ->get(route('panel'))
+    $this->getJson('/api/v1/panel', bearer(usuarioCon('panel.ver_propio')))
         ->assertOk()
-        ->assertViewHas('metricas', fn (array $m) => ! array_key_exists('rankingVendedores', $m)
-            && ! array_key_exists('margenBruto', $m));
+        ->assertJsonPath('datos.vendi.cantidad', 0)
+        ->assertJsonMissingPath('datos.ranking_vendedores')
+        ->assertJsonMissingPath('datos.margen_bruto')
+        ->assertJsonMissingPath('datos.cobrado');
 });
 
 test('el panel general entrega el conjunto y ya no calcula los rankings', function () {
@@ -177,13 +201,12 @@ test('el panel general entrega el conjunto y ya no calcula los rankings', functi
 
     // Desde el tramo L el ranking y los más vendidos son listados (ventas.vendedores y
     // ventas.productos): el panel no los calcula para no mostrarlos.
-    $this->actingAs(usuarioCon('panel.ver_global'))
-        ->get(route('panel.general'))
+    $this->getJson('/api/v1/panel/general', bearer(usuarioCon('panel.ver_global')))
         ->assertOk()
-        ->assertViewHas('metricas', fn (array $m) => $m['facturado'] === 3000.0
-            && $m['margenBruto'] === 1200.0
-            && ! array_key_exists('rankingVendedores', $m)
-            && ! array_key_exists('masVendidos', $m));
+        ->assertJsonPath('datos.facturado', '3000.00')
+        ->assertJsonPath('datos.margen_bruto', '1200.00')
+        ->assertJsonMissingPath('datos.ranking_vendedores')
+        ->assertJsonMissingPath('datos.mas_vendidos');
 });
 
 test('el panel general informa el margen bruto y los descuentos por separado', function () {
@@ -192,22 +215,27 @@ test('el panel general informa el margen bruto y los descuentos por separado', f
     // El margen sale de la línea y no conoce `ventas.descuento`. La pantalla lo rotula
     // como bruto y muestra los descuentos al lado, en vez de informar un margen
     // optimista sin decirlo.
+    $this->getJson('/api/v1/panel/general', bearer(usuarioCon('panel.ver_global')))
+        ->assertOk()
+        ->assertJsonPath('datos.margen_bruto', '1200.00')
+        ->assertJsonPath('datos.descuentos', '300.00');
+
+    app('auth')->forgetGuards();
+
     $this->actingAs(usuarioCon('panel.ver_global'))
         ->get(route('panel.general'))
         ->assertOk()
         ->assertSeeText('Margen bruto')
-        ->assertSeeText('Descuentos otorgados')
-        ->assertViewHas('metricas', fn (array $m) => $m['margenBruto'] === 1200.0
-            && $m['descuentos'] === 300.0);
+        ->assertSeeText('Descuentos otorgados');
 });
 
 test('el panel general muestra el stock critico y las compras abiertas', function () {
     Producto::factory()->conStock(1)->create(['stock_minimo' => 5]);
 
-    $this->actingAs(usuarioCon('panel.ver_global'))
-        ->get(route('panel.general'))
+    $this->getJson('/api/v1/panel/general', bearer(usuarioCon('panel.ver_global')))
         ->assertOk()
-        ->assertViewHas('metricas', fn (array $m) => $m['stockCritico'] === 1);
+        ->assertJsonPath('datos.stock_critico', 1)
+        ->assertJsonPath('datos.compras_abiertas', 0);
 });
 
 test('el panel propio enlaza al conjunto solo si el usuario puede verlo', function () {
@@ -224,6 +252,14 @@ test('el panel propio enlaza al conjunto solo si el usuario puede verlo', functi
 
 test('el panel vacio distingue el periodo sin ventas de la falta de datos', function () {
     Venta::factory()->conLinea(productoConPrecios(contado: 1000), 2)->create();
+
+    // Un presupuesto no es una venta cobrada: el período queda sin ventas, con su aviso.
+    $this->getJson('/api/v1/panel/general', bearer(usuarioCon('panel.ver_global')))
+        ->assertOk()
+        ->assertJsonPath('datos.cantidad', 0)
+        ->assertJsonPath('datos.por_metodo', []);
+
+    app('auth')->forgetGuards();
 
     $this->actingAs(usuarioCon('panel.ver_global'))
         ->get(route('panel.general'))
@@ -243,25 +279,46 @@ test('los graficos reciben los numeros ya agregados y no las filas', function ()
     ventaCobrada($producto, 3);
     ventaCobrada($producto, 2);
 
-    $contenido = $this->actingAs(usuarioCon('panel.ver_global'))
+    // Dos ventas del mismo día llegan como UN punto con la suma ya hecha en la base, no
+    // como dos filas para que el navegador las agrupe. Eso último sería A-26 otra vez.
+    // Tramo H: la serie es `por_dia` de la API.
+    $serie = $this->getJson('/api/v1/panel/general', bearer(usuarioCon('panel.ver_global')))
+        ->assertOk()
+        ->json('datos.por_dia');
+
+    expect($serie)->toHaveCount(1)
+        ->and($serie[0]['facturado'])->toBe('5000.00')
+        ->and($serie[0]['cantidad'])->toBe(2);
+});
+
+test('sin ventas en el periodo el panel no emite ningun grafico', function () {
+    $this->getJson('/api/v1/panel/general', bearer(usuarioCon('panel.ver_global')))
+        ->assertOk()
+        ->assertJsonPath('datos.por_dia', []);
+
+    app('auth')->forgetGuards();
+
+    // Tramo H: el lienzo es del shell, adentro de un bloque que nace oculto; el JS lo muestra
+    // sólo si el período tiene ventas, así que sin ventas no se dibuja nada.
+    $html = $this->actingAs(usuarioCon('panel.ver_global'))
         ->get(route('panel.general'))
         ->assertOk()
         ->getContent();
 
-    $serie = json_decode(
-        str($contenido)->after('id="facturadoPorDia">')->before('</script>')->toString(),
-        associative: true,
-    );
-
-    // Dos ventas del mismo día llegan como UN punto con la suma ya hecha en la base, no
-    // como dos filas para que el navegador las agrupe. Eso último sería A-26 otra vez.
-    expect($serie)->toHaveCount(1)
-        ->and((float) $serie[0]['facturado'])->toBe(5000.0);
+    expect($html)->toMatch('/data-si="con_ventas" hidden>.*data-grafico-dias/s');
 });
 
-test('sin ventas en el periodo el panel no emite ningun grafico', function () {
-    $this->actingAs(usuarioCon('panel.ver_global'))
-        ->get(route('panel.general'))
-        ->assertOk()
-        ->assertDontSee('data-grafico-dias', escape: false);
+test('los shells de los paneles no traen datos de negocio', function () {
+    // Regla 37: la página llega con su estructura; los números, por la API.
+    ventaCobrada(productoConPrecios(contado: 1234), 3);
+    Producto::factory()->conStock(1)->create(['stock_minimo' => 5]);
+
+    foreach ([route('panel'), route('panel.general')] as $pantalla) {
+        $this->actingAs(usuarioCon('panel.ver_propio', 'panel.ver_global', 'compra.ver', 'compra.crear'))
+            ->get($pantalla)
+            ->assertOk()
+            ->assertDontSee('3.702,00')
+            ->assertDontSee('id="facturadoPorDia"', false)
+            ->assertDontSee('Sin datos del período anterior');
+    }
 });

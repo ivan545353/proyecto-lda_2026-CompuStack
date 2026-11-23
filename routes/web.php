@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\ComprobanteTransferenciaController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\MarcaController;
 use App\Http\Controllers\RolController;
@@ -89,7 +88,6 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->middleware('can:marca.editar')
         ->name('marcas.edit');
 
-
     // Catálogo — productos
     Route::get('/productos', [ProductoController::class, 'index'])
         ->middleware('can:producto.ver')->name('productos.index');
@@ -168,7 +166,6 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/categorias/{categoria}/editar', [CategoriaController::class, 'edit'])
         ->middleware('can:categoria.editar')->name('categorias.edit');
 
-
     // Compras — Proveedores
     Route::get('/proveedores', [ProveedorController::class, 'index'])
         ->middleware('can:proveedor.ver')->name('proveedores.index');
@@ -209,18 +206,12 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->whereNumber('orden')
         ->middleware('can:compra.recibir')->name('compras.recepcion');
 
-    // Ventas
+    // Ventas: sólo páginas. Las escrituras y las descargas van por /api/v1/ventas (tramo H).
     Route::get('/ventas', [VentaController::class, 'index'])
         ->middleware('can:venta.ver')->name('ventas.index');
         
     Route::get('/ventas/crear', [VentaController::class, 'create'])
         ->middleware('can:venta.crear')->name('ventas.create');
-
-    Route::post('/ventas', [VentaController::class, 'store'])
-    ->middleware('can:venta.crear')->name('ventas.store');
-
-    Route::get('/ventas/exportar', [VentaController::class, 'exportar'])
-    ->middleware('can:venta.ver')->name('ventas.exportar');
 
     // Los informes que salieron del panel: muestran el conjunto, así que piden el mismo
     // permiso que el panel general y no venta.ver, que tiene también el Vendedor.
@@ -238,55 +229,17 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->whereNumber('venta')
         ->middleware('can:venta.editar')->name('ventas.edit');
 
-    Route::put('/ventas/{venta}', [VentaController::class, 'update'])
-        ->whereNumber('venta')
-        ->middleware('can:venta.editar')->name('ventas.update');
-
-    Route::post('/ventas/{venta}/recotizar', [VentaController::class, 'recotizar'])
-        ->whereNumber('venta')
-        ->middleware('can:venta.editar')->name('ventas.recotizar');
-
-    Route::post('/ventas/{venta}/cancelar', [VentaController::class, 'cancelar'])
-        ->whereNumber('venta')
-        ->middleware('can:venta.editar')->name('ventas.cancelar');
-
-    // COBRO Y ENTREGA
-    Route::get('/ventas/{venta}/comprobantes-transferencia/{comprobante}', [ComprobanteTransferenciaController::class, 'show'])
-        ->middleware('can:venta.ver_comprobante_transferencia')->name('ventas.comprobante_transferencia');
-
     Route::get('/ventas/{venta}/cobro', [PagoController::class, 'create'])
         ->whereNumber('venta')
         ->middleware('can:venta.cobrar')->name('pagos.create');
-
-    Route::post('/ventas/{venta}/cobro', [PagoController::class, 'store'])
-        ->whereNumber('venta')
-        ->middleware('can:venta.cobrar')->name('pagos.store');
 
     Route::get('/ventas/{venta}/entrega', [VentaController::class, 'entrega'])
         ->whereNumber('venta')
         ->middleware('can:venta.entregar')->name('ventas.entrega');
 
-    Route::post('/ventas/{venta}/entregar', [VentaController::class, 'entregar'])
-        ->whereNumber('venta')
-        ->middleware('can:venta.entregar')->name('ventas.entregar');
-
-    // El comprobante se busca dentro de su venta: el de otra venta da 404.
-    Route::get('/ventas/{venta}/entregas/{entrega}/pdf', [VentaController::class, 'entregaPdf'])
-        ->whereNumber(['venta', 'entrega'])
-        ->scopeBindings()
-        ->middleware('can:venta.ver')->name('ventas.entregas.pdf');
-
     Route::get('/ventas/{venta}/devolucion', [VentaController::class, 'devolucion'])
         ->whereNumber('venta')
         ->middleware('can:venta.anular')->name('ventas.devolucion');
-
-    Route::post('/ventas/{venta}/devolucion', [VentaController::class, 'devolver'])
-        ->whereNumber('venta')
-        ->middleware('can:venta.anular')->name('ventas.devolver');
-
-    Route::get('/ventas/{venta}/pdf', [VentaController::class, 'pdf'])
-        ->whereNumber('venta')
-        ->middleware('can:venta.ver')->name('ventas.pdf');
 
     // Administración — Roles y permisos
     Route::get('/roles', [RolController::class, 'index'])

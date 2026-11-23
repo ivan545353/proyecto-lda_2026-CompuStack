@@ -558,3 +558,117 @@ Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
 GET {{base}}/compras?estado=abiertas&proveedor_id=1
 Accept: application/json
 Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+### ── Tramo H — Ventas, panel e informes ───────────────────────────────────────
+
+# Una venta del mostrador con tres manos, cada una con su permiso (C-2): el vendedor emite,
+# la cajera cobra, el administrativo resuelve la devolución. Mismo endpoint que usa la pantalla.
+# @name sesionCajero
+POST {{base}}/sesion
+Accept: application/json
+Content-Type: application/json
+
+{ "email": "cajero@sistema.local", "password": "demo1234" }
+
+###
+
+# El vendedor emite el presupuesto (201). No compromete stock: si falta, `mensaje` avisa y no impide.
+# @name altaVenta
+POST {{base}}/ventas
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+{ "cliente_id": {{altaCliente.response.body.datos.id}}, "descuento_porcentaje": "0", "lineas": [ { "producto_id": 1, "cantidad": 2 } ] }
+
+###
+
+# La ficha: renglones congelados, `cotizacion_hoy` (sólo en un presupuesto), `cobro` y `acciones`.
+# @name fichaVenta
+GET {{base}}/ventas/{{altaVenta.response.body.datos.id}}
+Accept: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+###
+
+# El vendedor no cobra: 403 `sin_permiso`. El permiso lo decide la ruta, no el botón.
+POST {{base}}/ventas/{{altaVenta.response.body.datos.id}}/pagos
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+{ "pagos": [ { "metodo": "efectivo", "monto": "{{fichaVenta.response.body.datos.importes.saldo}}" } ] }
+
+###
+
+# La cajera cobra por el saldo exacto (201): acá sale el stock (regla 5). Otra suma es 409 y no se cobra.
+POST {{base}}/ventas/{{altaVenta.response.body.datos.id}}/pagos
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionCajero.response.body.datos.credencial}}
+
+{ "pagos": [ { "metodo": "efectivo", "monto": "{{fichaVenta.response.body.datos.importes.saldo}}" } ] }
+
+###
+
+# Entregar una parte (201): una unidad del primer renglón. Sin cuerpo, entregaría todo lo pendiente.
+POST {{base}}/ventas/{{altaVenta.response.body.datos.id}}/entregas
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionCajero.response.body.datos.credencial}}
+
+{ "cantidades": { "{{fichaVenta.response.body.datos.lineas.0.id}}": 1 } }
+
+###
+
+# El administrativo devuelve esa unidad (201). El monto no se manda: lo calcula el servidor.
+POST {{base}}/ventas/{{altaVenta.response.body.datos.id}}/devoluciones
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{ "cantidades": { "{{fichaVenta.response.body.datos.lineas.0.id}}": 1 }, "metodo": "efectivo", "motivo": "Falla de fábrica" }
+
+###
+
+# El comprobante, por enlace firmado (HL-129): se abre sin la credencial y vence.
+GET {{base}}/ventas/{{altaVenta.response.body.datos.id}}/pdf
+Accept: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+###
+
+# El listado con sus filtros: las ventas de ese cliente.
+GET {{base}}/ventas?cliente_id={{altaCliente.response.body.datos.id}}
+Accept: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+###
+
+# El panel propio: lo que vendí en el período, contra el anterior. La frase la arma el servidor.
+GET {{base}}/panel
+Accept: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+###
+
+# El panel general es de otro permiso: el vendedor recibe 403; el administrativo, el conjunto.
+GET {{base}}/panel/general
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Un período al revés es 422 en `hasta`: la validación rechaza, no corrige (M-31).
+GET {{base}}/informes/vendedores?desde=2026-11-30&hasta=2026-11-01
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# El ranking del mes, de a 15, con `totales` de todas las páginas.
+GET {{base}}/informes/vendedores
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}

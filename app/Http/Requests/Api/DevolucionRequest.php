@@ -1,12 +1,14 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Models\Pago;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
+ * Tramo H: la de la web, pasada a la API sin cambiar ninguna regla.
+ *
  * Validación de una devolución.
  *
  * `cantidades` llega con el id de cada línea como clave y cuántas unidades vuelven

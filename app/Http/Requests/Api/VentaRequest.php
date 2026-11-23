@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Services\VentaService;
 use App\Support\Importe;
@@ -10,7 +10,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
- * Validación del formulario de venta. Alta y edición del presupuesto.
+ * Validación del alta y la edición del presupuesto (tramo H): la de la web, pasada a la API sin cambiar
+ * ninguna regla. Las rutas exigen venta.crear o venta.editar.
  *
  * Uno solo para las dos, y `$this->route('venta')` las distingue, que es el patrón
  * del proyecto.
@@ -27,8 +28,8 @@ use Illuminate\Validation\Rule;
  * mandar.
  *
  * **El tope de descuento se valida acá y en el servicio.** Acá para que el error
- * caiga en el campo y `old()` conserve lo que el usuario escribió; allá para que la
- * API de la Etapa 3 herede la regla. Los dos leen el mismo `config/venta.php` a
+ * caiga en el campo (422 con `lineas.{i}.campo`); allá para que ningún camino la
+ * saltee. Los dos leen el mismo `config/venta.php` a
  * través de `VentaService::topeDeDescuento()`, así que el número está en un solo
  * lugar (A-12).
  *

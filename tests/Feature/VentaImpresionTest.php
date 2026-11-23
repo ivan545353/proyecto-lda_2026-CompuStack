@@ -15,10 +15,14 @@ test('la planilla de ventas sale de la mas nueva a la mas vieja, con el total de
     $vieja    = ventaCobrada($producto, 1);
     $nueva    = ventaCobrada($producto, 2);
 
-    $csv = $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.exportar', ['formato' => 'csv']))
+    // Tramo H: el enlace firmado lo da la API (D-22) y el navegador lo abre sin credencial.
+    $enlace = $this->getJson('/api/v1/ventas/impresion?formato=csv', bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->streamedContent();
+        ->json('datos.url');
+
+    app('auth')->forgetGuards();
+
+    $csv = $this->get($enlace)->assertOk()->streamedContent();
 
     $filas = array_map(
         fn (string $linea) => str_getcsv($linea, ';', '"', ''),
@@ -33,9 +37,9 @@ test('la planilla de ventas sale de la mas nueva a la mas vieja, con el total de
         ->and(end($filas)[5])->toBe(number_format((float) Venta::sum('total'), 2, ',', ''));
 });
 
-test('una opcion mal pedida vuelve al listado de ventas con sus filtros', function () {
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.exportar', ['estado' => 'pagada', 'columnas' => ['numero', 'margen']]))
-        ->assertRedirect(route('ventas.index', ['estado' => 'pagada']))
-        ->assertSessionHas('error', fn (string $mensaje) => str_contains($mensaje, 'No se imprimió'));
+test('una opcion mal pedida se rechaza y no da enlace', function () {
+    // Desde el tramo H la pantalla no se recarga: el rechazo es un 422 con su mensaje y no hay enlace.
+    $this->getJson('/api/v1/ventas/impresion?estado=pagada&columnas[]=numero&columnas[]=margen', bearer(usuarioCon('venta.ver')))
+        ->assertStatus(422)
+        ->assertJsonMissingPath('datos.url');
 });

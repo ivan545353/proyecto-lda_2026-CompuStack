@@ -18,6 +18,14 @@ uses(RefreshDatabase::class);
 beforeEach(function () {
     $this->seed(RolPermisoSeeder::class);
     $this->service = app(VentaService::class);
+
+    // Tramo H: los documentos se piden a la API, que devuelve el enlace firmado (D-22).
+    $this->enlace = function (string $url, \App\Models\User $usuario): string {
+        $enlace = $this->getJson($url, bearer($usuario))->assertOk()->json('datos.url');
+        app('auth')->forgetGuards();
+
+        return $enlace;
+    };
 });
 
 /** Todas las claves del módulo, para probar los permisos en los dos sentidos. */
@@ -51,23 +59,14 @@ const PERMISOS_VENTA = [
 dataset('rutas sueltas de venta', [
     'listado'    => ['get', 'ventas.index', 'venta.ver'],
     'formulario' => ['get', 'ventas.create', 'venta.crear'],
-    'alta'       => ['post', 'ventas.store', 'venta.crear'],
-    'exportar'   => ['get', 'ventas.exportar', 'venta.ver'],
 ]);
 
 dataset('rutas de la venta', [
     'ficha'                 => ['get', 'ventas.show', 'venta.ver'],
     'formulario de edicion' => ['get', 'ventas.edit', 'venta.editar'],
-    'guardar la edicion'    => ['put', 'ventas.update', 'venta.editar'],
-    'recotizar'             => ['post', 'ventas.recotizar', 'venta.editar'],
-    'cancelar'              => ['post', 'ventas.cancelar', 'venta.editar'],
 
     'formulario de cobro'    => ['get', 'pagos.create', 'venta.cobrar'],
-    'registrar el cobro'     => ['post', 'pagos.store', 'venta.cobrar'],
-    'marcar como entregada'  => ['post', 'ventas.entregar', 'venta.entregar'],
         'formulario de devolucion' => ['get', 'ventas.devolucion', 'venta.anular'],
-    'registrar la devolucion'  => ['post', 'ventas.devolver', 'venta.anular'],
-    'descargar el documento'   => ['get', 'ventas.pdf', 'venta.ver'],
 ]);
 test('ningun otro permiso del modulo habilita las rutas sueltas', function (string $metodo, string $ruta, string $permiso) {
     $otros = array_values(array_diff(PERMISOS_VENTA, [$permiso]));
@@ -100,27 +99,88 @@ test('el permiso de la ruta alcanza para pasar en las rutas de la venta', functi
     expect($respuesta->status())->not->toBe(403);
 })->with('rutas de la venta');
 
+// Tramo H: las lecturas de la venta, también por la API. Las tres piden `venta.ver`.
+dataset('endpoints de lectura de venta', [
+    'listado'    => ['/api/v1/ventas'],
+    'vendedores' => ['/api/v1/ventas/vendedores'],
+    'ficha'      => ['/api/v1/ventas/{venta}'],
+    'enlace del listado impreso'  => ['/api/v1/ventas/impresion'],
+    'enlace del documento'        => ['/api/v1/ventas/{venta}/pdf'],
+]);
+
+test('ningun otro permiso del modulo habilita las lecturas de la API', function (string $url) {
+    $venta = Venta::factory()->conLinea(productoConPrecios(), 2)->create();
+    $otros = array_values(array_diff(PERMISOS_VENTA, ['venta.ver']));
+
+    $this->getJson(str_replace('{venta}', (string) $venta->id, $url), bearer(usuarioCon(...$otros)))
+        ->assertForbidden();
+})->with('endpoints de lectura de venta');
+
+test('venta.ver alcanza para las lecturas de la API', function (string $url) {
+    $venta = Venta::factory()->conLinea(productoConPrecios(), 2)->create();
+
+    $this->getJson(str_replace('{venta}', (string) $venta->id, $url), bearer(usuarioCon('venta.ver')))
+        ->assertOk();
+})->with('endpoints de lectura de venta');
+
+// Tramo H: las escrituras de la venta pasaron a la API, con el mismo permiso que tenían en la web.
+// `{venta}` se reemplaza por una venta de verdad; sin cuerpo, lo que no es 403 es 422 o 200.
+dataset('endpoints de escritura de venta', [
+    'alta'               => ['post',  '/api/v1/ventas',                   'venta.crear'],
+    'guardar la edicion' => ['patch', '/api/v1/ventas/{venta}',           'venta.editar'],
+    'recotizar'          => ['post',  '/api/v1/ventas/{venta}/recotizar', 'venta.editar'],
+    'cancelar'           => ['post',  '/api/v1/ventas/{venta}/cancelar',  'venta.editar'],
+    'registrar el cobro'      => ['post', '/api/v1/ventas/{venta}/pagos',        'venta.cobrar'],
+    'marcar como entregada'   => ['post', '/api/v1/ventas/{venta}/entregas',     'venta.entregar'],
+    'registrar la devolucion' => ['post', '/api/v1/ventas/{venta}/devoluciones', 'venta.anular'],
+]);
+
+test('ningun otro permiso del modulo habilita las escrituras de la API', function (string $metodo, string $url, string $permiso) {
+    $venta = Venta::factory()->conLinea(productoConPrecios(), 2)->create();
+    $otros = array_values(array_diff(PERMISOS_VENTA, [$permiso]));
+
+    $this->json($metodo, str_replace('{venta}', (string) $venta->id, $url), [], bearer(usuarioCon(...$otros)))
+        ->assertForbidden();
+
+    expect($venta->fresh()->estado)->toBe('presupuesto');
+})->with('endpoints de escritura de venta');
+
+test('el permiso del endpoint alcanza para pasar en las escrituras', function (string $metodo, string $url, string $permiso) {
+    $venta = Venta::factory()->conLinea(productoConPrecios(), 2)->create();
+
+    $respuesta = $this->json($metodo, str_replace('{venta}', (string) $venta->id, $url), [], bearer(usuarioCon($permiso)));
+
+    expect($respuesta->status())->not->toBe(403);
+})->with('endpoints de escritura de venta');
+
 test('quien solo puede ver no recibe los botones de accion', function () {
     $venta = Venta::factory()->conLinea(productoConPrecios(), 2)->create();
 
     // M-33: lo que no se puede hacer no se ofrece. El control real es la ruta, que ya
-    // se probó arriba; esto es la mitad de la interfaz.
+    // se probó arriba; esto es la mitad de la interfaz. Desde el tramo H el shell lleva
+    // el botón sólo si el @can deja (regla 12), y el JS lo muestra si el estado lo admite.
     $this->actingAs(usuarioCon('venta.ver'))
         ->get(route('ventas.index'))
         ->assertOk()
         ->assertDontSee(route('ventas.create'))
-        ->assertDontSee(route('ventas.edit', $venta));
+        ->assertDontSee('data-editar', false);
 
     $this->actingAs(usuarioCon('venta.ver'))
         ->get(route('ventas.show', $venta))
         ->assertOk()
-        ->assertDontSee(route('ventas.edit', $venta))
-        ->assertDontSee(route('ventas.recotizar', $venta))
-        ->assertDontSee(route('ventas.cancelar', $venta))
-        ->assertDontSee(route('pagos.create', $venta))
-        ->assertDontSee(route('ventas.devolucion', $venta))
+        ->assertDontSee('data-accion="editar"', false)
+        ->assertDontSee('data-accion="recotizar"', false)
+        ->assertDontSee('data-accion="cancelar"', false)
+        ->assertDontSee('data-accion="cobrar"', false)
+        ->assertDontSee('data-accion="devolver"', false)
         // Y no ve la tarjeta de Acciones vacía: el `@canany` la saca entera.
         ->assertDontSee('Acciones');
+
+    // Y la otra dirección: con los permisos, los botones están en el shell.
+    $this->actingAs(usuarioCon('venta.ver', 'venta.crear', 'venta.editar'))
+        ->get(route('ventas.index'))
+        ->assertSee(route('ventas.create'))
+        ->assertSee('data-editar', false);
 });
 
 test('quien puede cobrar y no editar ve el boton de cobrar', function () {
@@ -140,9 +200,10 @@ test('quien puede cobrar y no editar ve el boton de cobrar', function () {
         ->get(route('ventas.show', $venta))
         ->assertOk()
         ->assertSee(route('pagos.create', $venta))
-        ->assertDontSee(route('ventas.edit', $venta))
-        ->assertDontSee(route('ventas.recotizar', $venta))
-        ->assertDontSee(route('ventas.cancelar', $venta));
+        ->assertSee('data-accion="cobrar"', false)
+        ->assertDontSee('data-accion="editar"', false)
+        ->assertDontSee('data-accion="recotizar"', false)
+        ->assertDontSee('data-accion="cancelar"', false);
 });
 
 test('quien puede devolver y no cobrar ve solo el boton de devolver', function () {
@@ -154,8 +215,27 @@ test('quien puede devolver y no cobrar ve solo el boton de devolver', function (
         ->get(route('ventas.show', $venta))
         ->assertOk()
         ->assertSee(route('ventas.devolucion', $venta))
-        ->assertDontSee(route('ventas.entregar', $venta))
-        ->assertDontSee(route('ventas.edit', $venta));
+        ->assertSee('data-accion="devolver"', false)
+        ->assertDontSee('data-accion="entregar"', false)
+        ->assertDontSee('data-accion="cobrar"', false)
+        ->assertDontSee('data-accion="editar"', false);
+});
+
+test('los shells del listado y de la ficha no traen datos de negocio', function () {
+    // Regla 37: la página llega con su estructura; los datos, por la API.
+    $cliente  = Cliente::factory()->create(['razon_social' => 'Panadería Los Tilos']);
+    $producto = productoConPrecios(contado: 1234);
+    $venta    = $this->service->crear(datosDeVenta([lineaDeVenta($producto, 3)], ['cliente_id' => $cliente->id]), admin());
+
+    foreach ([route('ventas.index'), route('ventas.show', $venta)] as $pantalla) {
+        $this->actingAs(usuarioCon('venta.ver', 'venta.editar', 'venta.cobrar'))
+            ->get($pantalla)
+            ->assertOk()
+            ->assertDontSee('Panadería Los Tilos')
+            ->assertDontSee($producto->nombre)
+            ->assertDontSee($venta->numeroFormateado())
+            ->assertDontSee('3.702,00');
+    }
 });
 
 /*
@@ -170,26 +250,27 @@ test('el filtro de texto llega al scope', function () {
     $deTilos = Venta::factory()->conLinea(productoConPrecios(), 1)->create(['cliente_id' => $tilos->id]);
     Venta::factory()->count(2)->conLinea(productoConPrecios(), 1)->create();
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['q' => 'tilos']))
+    $credencial = bearer(usuarioCon('venta.ver'));
+
+    $this->getJson('/api/v1/ventas?q=tilos', $credencial)
         ->assertOk()
-        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1);
+        ->assertJsonPath('total', 1);
 
     // Y por número, que es la otra rama del OR.
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['q' => $deTilos->numeroFormateado()]))
+    $this->getJson('/api/v1/ventas?q='.urlencode($deTilos->numeroFormateado()), $credencial)
         ->assertOk()
-        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1);
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.id', $deTilos->id);
 });
 
 test('el filtro de estado llega al scope', function () {
     Venta::factory()->count(2)->conLinea(productoConPrecios(), 1)->create();
     Venta::factory()->cancelada()->conLinea(productoConPrecios(), 1)->create();
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['estado' => 'cancelada']))
+    $this->getJson('/api/v1/ventas?estado=cancelada', bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1);
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.estado_texto', 'Cancelada');
 });
 
 test('los filtros de cliente y de vendedor llegan al scope', function () {
@@ -202,20 +283,21 @@ test('los filtros de cliente y de vendedor llegan al scope', function () {
     ]);
     Venta::factory()->count(2)->conLinea(productoConPrecios(), 1)->create();
 
+    $credencial = bearer(usuarioCon('venta.ver'));
+
     // `cliente_id` no tiene selector en el formulario: llega por enlace, desde la
     // ficha del cliente. Que el parámetro funcione es justamente lo que hay que
     // probar, porque ninguna pantalla lo arma con un submit.
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['cliente_id' => $cliente->id]))
+    $this->getJson("/api/v1/ventas?cliente_id={$cliente->id}", $credencial)
         ->assertOk()
-        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1)
+        ->assertJsonPath('total', 1)
         // Y el chip nombra al cliente en lugar de mostrar un id.
-        ->assertSee($cliente->razon_social);
+        ->assertJsonPath('criterios.cliente', $cliente->razon_social);
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['vendedor_id' => $vendedor->id]))
+    $this->getJson("/api/v1/ventas?vendedor_id={$vendedor->id}", $credencial)
         ->assertOk()
-        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1);
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('criterios.vendedor', $vendedor->nombre_completo);
 });
 
 test('el rango de fechas llega al scope', function () {
@@ -229,41 +311,47 @@ test('el rango de fechas llega al scope', function () {
 
     // El extremo de arriba incluye el día completo: la venta de las 23:40 del 15
     // tiene que entrar en «hasta el 15».
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['desde' => '2026-03-01', 'hasta' => '2026-03-15']))
+    $this->getJson('/api/v1/ventas?desde=2026-03-01&hasta=2026-03-15', bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1);
+        ->assertJsonPath('total', 1);
 });
 
-test('un filtro invalido redirige al listado limpio con un aviso', function () {
+test('un filtro invalido se rechaza con su campo', function () {
     Venta::factory()->conLinea(productoConPrecios(), 1)->create();
 
+    $credencial = bearer(usuarioCon('venta.ver'));
+
     // «cobrada» era el nombre del estado en el sistema original y no existe en el
-    // ENUM nuevo. Un filtro inválido no rebota con una pantalla de errores sobre un
-    // formulario que el usuario no completó: redirige y avisa.
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['estado' => 'cobrada']))
-        ->assertRedirect(route('ventas.index'))
-        ->assertSessionHas('error');
+    // ENUM nuevo. Desde el tramo H la API lo rechaza (M-31, HL-120): no se corrige
+    // a «todas» en silencio.
+    $this->getJson('/api/v1/ventas?estado=cobrada', $credencial)
+        ->assertStatus(422)
+        ->assertJsonPath('codigo', 'validacion')
+        ->assertJsonValidationErrorFor('estado', 'errores');
 
     // Y un rango dado vuelta tampoco pasa.
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['desde' => '2026-05-01', 'hasta' => '2026-01-01']))
-        ->assertRedirect(route('ventas.index'))
-        ->assertSessionHas('error');
+    $this->getJson('/api/v1/ventas?desde=2026-05-01&hasta=2026-01-01', $credencial)
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('hasta', 'errores');
 });
 
 test('la paginacion arrastra los filtros', function () {
     Venta::factory()->count(18)->cancelada()->conLinea(productoConPrecios(), 1)->create();
     Venta::factory()->count(3)->conLinea(productoConPrecios(), 1)->create();
 
-    // A-25: `paginate(15)->withQueryString()`. Sin el `withQueryString()` la página
-    // 2 pierde el filtro y muestra cualquier cosa.
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['estado' => 'cancelada']))
+    $credencial = bearer(usuarioCon('venta.ver'));
+
+    // A-25: la página 2 no pierde el filtro. El servidor devuelve en `criterios` lo que aplicó.
+    $this->getJson('/api/v1/ventas?estado=cancelada&por_pagina=15', $credencial)
         ->assertOk()
-        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 18 && $ventas->count() === 15)
-        ->assertSee('estado=cancelada', escape: false);
+        ->assertJsonPath('total', 18)
+        ->assertJsonCount(15, 'datos')
+        ->assertJsonPath('criterios.estado', 'cancelada');
+
+    $this->getJson('/api/v1/ventas?estado=cancelada&por_pagina=15&pagina=2', $credencial)
+        ->assertOk()
+        ->assertJsonCount(3, 'datos')
+        ->assertJsonPath('datos.*.estado', array_fill(0, 3, 'cancelada'));
 });
 
 /*
@@ -272,17 +360,18 @@ test('la paginacion arrastra los filtros', function () {
 |--------------------------------------------------------------------------
 */
 
-test('el alta crea el presupuesto y redirige a la ficha', function () {
+test('el alta crea el presupuesto y devuelve la ficha', function () {
     $producto = productoConPrecios(contado: 1000);
 
-    $this->actingAs(usuarioCon('venta.crear'))
-        ->post(route('ventas.store'), datosDeVenta([lineaDeVenta($producto, 3)]))
-        ->assertRedirect(route('ventas.show', Venta::latest('id')->first()))
-        ->assertSessionHas('exito');
+    $respuesta = $this->postJson('/api/v1/ventas', datosDeVenta([lineaDeVenta($producto, 3)]), bearer(usuarioCon('venta.crear')))
+        ->assertCreated()
+        ->assertJsonPath('datos.estado', 'presupuesto');
 
     $venta = Venta::latest('id')->first();
 
-    expect($venta->estado)->toBe('presupuesto')
+    expect($respuesta->json('datos.id'))->toBe($venta->id)
+        ->and($respuesta->json('mensaje'))->toContain('emitido')
+        ->and($venta->estado)->toBe('presupuesto')
         ->and($venta->total)->toBe('3000.00')
         ->and($venta->lineas)->toHaveCount(1);
 });
@@ -295,13 +384,13 @@ test('el alta rechaza el precio que viene del formulario', function () {
     // `prohibited`. Esta es la única de las tres que **informa** en lugar de
     // descartar en silencio, que es la doctrina de M-31 aplicada a la entrada que
     // nadie debería mandar.
-    $this->actingAs(usuarioCon('venta.crear'))
-        ->post(route('ventas.store'), datosDeVenta([[
+    $this->postJson('/api/v1/ventas', datosDeVenta([[
             'producto_id'     => $producto->id,
             'cantidad'        => 1,
             'precio_unitario' => 1,
-        ]]))
-        ->assertSessionHasErrors('lineas.0.precio_unitario');
+        ]]), bearer(usuarioCon('venta.crear')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('lineas.0.precio_unitario', 'errores');
 
     expect(Venta::count())->toBe(0);
 });
@@ -311,12 +400,12 @@ test('el alta rechaza el estado que viene del formulario', function () {
 
     // La forma de C-9 que una tabla de transiciones no cubre: el estado no es un
     // campo. El original lo tomaba del body en `updateEstado`.
-    $this->actingAs(usuarioCon('venta.crear'))
-        ->post(route('ventas.store'), datosDeVenta([lineaDeVenta($producto, 1)], [
+    $this->postJson('/api/v1/ventas', datosDeVenta([lineaDeVenta($producto, 1)], [
             'estado' => 'pagada',
             'total'  => 1,
-        ]))
-        ->assertSessionHasErrors(['estado', 'total']);
+        ]), bearer(usuarioCon('venta.crear')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['estado', 'total'], 'errores');
 
     expect(Venta::count())->toBe(0);
 });
@@ -325,25 +414,25 @@ test('el alta rechaza un descuento por encima del tope y conserva lo cargado', f
     $producto = productoConPrecios(contado: 1000);
     $cliente  = Cliente::factory()->create();
 
-    $this->actingAs(usuarioCon('venta.crear'))
-        ->post(route('ventas.store'), datosDeVenta([lineaDeVenta($producto, 2)], [
+    $this->postJson('/api/v1/ventas', datosDeVenta([lineaDeVenta($producto, 2)], [
             'cliente_id'           => $cliente->id,
             'descuento_porcentaje' => 20,
             'observaciones'        => 'Pasa el jueves',
-        ]))
-        ->assertSessionHasErrors('descuento_porcentaje')
-        // A-12, y de paso M-31: la petición se rechaza entera y lo que el usuario
-        // escribió vuelve con ella. Un error en un campo no le borra los demás.
-        ->assertSessionHasInput('observaciones', 'Pasa el jueves')
-        ->assertSessionHasInput('cliente_id', (string) $cliente->id);
+        ]), bearer(usuarioCon('venta.crear')))
+        // A-12, y de paso M-31: la petición se rechaza entera y el error cae sólo en
+        // su campo. Desde el tramo H lo cargado no vuelve de la sesión: la pantalla no
+        // se recarga, y los demás campos llegan sin error que los borre.
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('descuento_porcentaje', 'errores')
+        ->assertJsonMissingValidationErrors(['observaciones', 'cliente_id'], 'errores');
 
     expect(Venta::count())->toBe(0);
 });
 
 test('el alta sin lineas se rechaza', function () {
-    $this->actingAs(usuarioCon('venta.crear'))
-        ->post(route('ventas.store'), datosDeVenta([]))
-        ->assertSessionHasErrors('lineas');
+    $this->postJson('/api/v1/ventas', datosDeVenta([]), bearer(usuarioCon('venta.crear')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('lineas', 'errores');
 
     expect(Venta::count())->toBe(0);
 });
@@ -353,12 +442,12 @@ test('el alta rechaza el mismo producto dos veces, en la linea culpable', functi
 
     // El error se cuelga de la línea repetida y no del arreglo entero: es lo que le
     // permite a la pantalla marcar esa fila en lugar de un aviso general.
-    $this->actingAs(usuarioCon('venta.crear'))
-        ->post(route('ventas.store'), datosDeVenta([
+    $this->postJson('/api/v1/ventas', datosDeVenta([
             lineaDeVenta($producto, 2),
             lineaDeVenta($producto, 3),
-        ]))
-        ->assertSessionHasErrors('lineas.1.producto_id');
+        ]), bearer(usuarioCon('venta.crear')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('lineas.1.producto_id', 'errores');
 
     expect(Venta::count())->toBe(0);
 });
@@ -375,10 +464,10 @@ test('la edicion conserva el precio congelado de las lineas que ya estaban', fun
 
     $producto->update(['precio_contado' => 1800]);
 
-    $this->actingAs(usuarioCon('venta.editar'))
-        ->put(route('ventas.update', $venta), datosDeVenta([lineaDeVenta($producto, 3)]))
-        ->assertRedirect(route('ventas.show', $venta))
-        ->assertSessionHas('exito');
+    $this->patchJson("/api/v1/ventas/{$venta->id}", datosDeVenta([lineaDeVenta($producto, 3)]), bearer(usuarioCon('venta.editar')))
+        ->assertOk()
+        ->assertJsonPath('datos.id', $venta->id)
+        ->assertJsonPath('datos.lineas.0.precio_unitario', '1000.00');
 
     // M-14 de punta a punta: el precio quedó en mil aunque el producto hoy valga mil
     // ochocientos, y los importes se recalcularon con ese precio.
@@ -396,10 +485,10 @@ test('el formulario de edicion de una venta cobrada redirige con un aviso', func
         ->assertRedirect(route('ventas.show', $venta))
         ->assertSessionHas('error');
 
-    // Y el PUT armado a mano tampoco pasa: lo rechaza el servicio.
-    $this->actingAs(usuarioCon('venta.editar'))
-        ->put(route('ventas.update', $venta), datosDeVenta([lineaDeVenta(productoConPrecios(), 9)]))
-        ->assertSessionHas('error');
+    // Y la edición por la API tampoco pasa: lo rechaza el servicio (409).
+    $this->patchJson("/api/v1/ventas/{$venta->id}", datosDeVenta([lineaDeVenta(productoConPrecios(), 9)]), bearer(usuarioCon('venta.editar')))
+        ->assertStatus(409)
+        ->assertJsonStructure(['mensaje', 'codigo']);
 
     expect($venta->fresh('lineas')->lineas->first()->cantidad)->toBe(2);
 });
@@ -410,10 +499,10 @@ test('recotizar trae los precios de hoy e informa que cambio', function () {
 
     $producto->update(['precio_contado' => 1500]);
 
-    $this->actingAs(usuarioCon('venta.editar'))
-        ->post(route('ventas.recotizar', $venta))
-        ->assertRedirect(route('ventas.show', $venta))
-        ->assertSessionHas('exito');
+    $this->postJson("/api/v1/ventas/{$venta->id}/recotizar", [], bearer(usuarioCon('venta.editar')))
+        ->assertOk()
+        ->assertJsonPath('datos.importes.total', '3000.00')
+        ->assertJsonPath('mensaje', fn (string $mensaje) => str_contains($mensaje, 'recotizada'));
 
     expect($venta->fresh('lineas')->lineas->first()->precio_unitario)->toBe('1500.00')
         ->and($venta->fresh()->total)->toBe('3000.00');
@@ -423,10 +512,10 @@ test('cancelar deja el presupuesto cancelado sin borrarlo', function () {
     $producto = productoConPrecios(contado: 1000);
     $venta    = $this->service->crear(datosDeVenta([lineaDeVenta($producto, 2)]), admin());
 
-    $this->actingAs(usuarioCon('venta.editar'))
-        ->post(route('ventas.cancelar', $venta))
-        ->assertRedirect(route('ventas.show', $venta))
-        ->assertSessionHas('exito');
+    $this->postJson("/api/v1/ventas/{$venta->id}/cancelar", [], bearer(usuarioCon('venta.editar')))
+        ->assertOk()
+        ->assertJsonPath('datos.estado', 'cancelada')
+        ->assertJsonPath('mensaje', fn (string $mensaje) => str_contains($mensaje, 'cancelado'));
 
     // El núcleo de M-16 visto desde la pantalla: queda cancelada, con sus líneas y
     // su total. `SaleDao::delete()` era un DELETE plano con ON DELETE CASCADE.
@@ -442,11 +531,11 @@ test('cancelar dos veces se rechaza con un aviso', function () {
     $producto = productoConPrecios(contado: 1000);
     $venta    = Venta::factory()->cancelada()->conLinea($producto, 2)->create();
 
-    // La excepción tipada se traduce a un aviso en `bootstrap/app.php`, una sola vez
-    // para toda la aplicación: por eso no hay un try/catch en el controlador (M-30).
-    $this->actingAs(usuarioCon('venta.editar'))
-        ->post(route('ventas.cancelar', $venta))
-        ->assertSessionHas('error');
+    // La excepción tipada se traduce en `bootstrap/app.php`, una sola vez para toda la
+    // aplicación: por eso no hay un try/catch en el controlador (M-30). En la API, 409.
+    $this->postJson("/api/v1/ventas/{$venta->id}/cancelar", [], bearer(usuarioCon('venta.editar')))
+        ->assertStatus(409)
+        ->assertJsonPath('codigo', 'transicion_invalida');
 
     expect($venta->fresh()->estado)->toBe('cancelada');
 });
@@ -455,8 +544,10 @@ test('un vendedor puede cancelar el presupuesto que cargo', function () {
     $producto = productoConPrecios(contado: 1000);
     $vendedor = User::factory()->conRol('Vendedor')->create();
 
-    $this->actingAs($vendedor)
-        ->post(route('ventas.store'), datosDeVenta([lineaDeVenta($producto, 1)]));
+    $credencial = bearer($vendedor);
+
+    $this->postJson('/api/v1/ventas', datosDeVenta([lineaDeVenta($producto, 1)]), $credencial)
+        ->assertCreated();
 
     $venta = Venta::latest('id')->first();
 
@@ -464,9 +555,8 @@ test('un vendedor puede cancelar el presupuesto que cargo', function () {
     // `venta.crear` y `venta.editar` pero NO `venta.anular`, así que si la ruta de
     // cancelar exigiera ese permiso, no podría dar de baja lo que él mismo cargó.
     // Es la decisión que quedó escrita en las rutas, afirmada contra el seeder.
-    $this->actingAs($vendedor)
-        ->post(route('ventas.cancelar', $venta))
-        ->assertSessionHas('exito');
+    $this->postJson("/api/v1/ventas/{$venta->id}/cancelar", [], $credencial)
+        ->assertOk();
 
     expect($venta->fresh()->estado)->toBe('cancelada');
 });
@@ -486,19 +576,58 @@ test('la ficha muestra el documento con sus importes', function () {
         admin(),
     );
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.show', $venta))
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertSee($venta->numeroFormateado())
-        ->assertSee('Presupuesto')
-        ->assertSee('Panadería Los Tilos')
-        ->assertSee($producto->nombre)
+        ->assertJsonPath('datos.numero', $venta->numeroFormateado())
+        ->assertJsonPath('datos.estado_texto', 'Presupuesto')
+        ->assertJsonPath('datos.cliente.razon_social', 'Panadería Los Tilos')
+        ->assertJsonPath('datos.lineas.0.descripcion', $producto->nombre)
         // El neto y el IVA persistidos, que son los importes que se declaran.
-        ->assertSee('2.479,34')
-        ->assertSee('520,66')
+        ->assertJsonPath('datos.lineas.0.neto', '2479.34')
+        ->assertJsonPath('datos.lineas.0.iva', '520.66')
         // Subtotal 3.000, descuento 300 y total 2.700.
-        ->assertSee('300,00')
-        ->assertSee('2.700,00');
+        ->assertJsonPath('datos.importes.subtotal', '3000.00')
+        ->assertJsonPath('datos.importes.descuento', '300.00')
+        ->assertJsonPath('datos.importes.total', '2700.00');
+});
+
+test('la ficha dice que acciones admite el estado, no el permiso', function () {
+    $presupuesto = $this->service->crear(datosDeVenta([lineaDeVenta(productoConPrecios(), 2)]), admin());
+    $cobrada     = ventaCobrada(productoConPrecios(), 2);
+
+    // Con sólo `venta.ver`: las acciones las decide el estado (regla 9), el botón lo decide el @can.
+    $credencial = bearer(usuarioCon('venta.ver'));
+
+    $this->getJson("/api/v1/ventas/{$presupuesto->id}", $credencial)
+        ->assertOk()
+        ->assertJsonPath('datos.acciones.editar', true)
+        ->assertJsonPath('datos.acciones.cobrar', true)
+        ->assertJsonPath('datos.acciones.cancelar', true)
+        ->assertJsonPath('datos.acciones.devolver', false)
+        ->assertJsonPath('datos.cobro.principal', 'efectivo')
+        ->assertJsonPath('datos.devolucion', null);
+
+    $this->getJson("/api/v1/ventas/{$cobrada->id}", $credencial)
+        ->assertOk()
+        ->assertJsonPath('datos.acciones.editar', false)
+        ->assertJsonPath('datos.acciones.cobrar', false)
+        ->assertJsonPath('datos.acciones.cancelar', false)
+        ->assertJsonPath('datos.acciones.devolver', true)
+        ->assertJsonPath('datos.cobro', null)
+        ->assertJsonPath('datos.devolucion.sugerido', 'efectivo');
+});
+
+test('los vendedores del filtro son los que cargaron ventas', function () {
+    $vendedor = User::factory()->create(['nombre' => 'Lucía', 'apellido' => 'Paz']);
+    User::factory()->create();   // sin ventas: no se ofrece
+
+    Venta::factory()->conLinea(productoConPrecios(), 1)->create(['usuario_id' => $vendedor->id]);
+
+    $this->getJson('/api/v1/ventas/vendedores', bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.id', $vendedor->id)
+        ->assertJsonPath('datos.0.nombre', $vendedor->nombre_completo);
 });
 
 test('la ficha dice sin identificar con palabras', function () {
@@ -506,10 +635,10 @@ test('la ficha dice sin identificar con palabras', function () {
 
     // `cliente_id` en null SIGNIFICA sin identificar: no es un dato que falte, y la
     // pantalla no muestra una tarjeta vacía.
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.show', $venta))
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertSee('Sin identificar');
+        ->assertJsonPath('datos.cliente', null)
+        ->assertJsonPath('datos.cliente_texto', 'Sin identificar');
 });
 
 /*
@@ -533,17 +662,16 @@ test('el cobro acepta el cuerpo que manda el formulario, con los medios sin usar
 
     // Exactamente lo que postea la pantalla: una fila por medio ofrecido, con monto
     // sólo en el que se usó, y el monto escrito en formato argentino.
-    $this->actingAs(usuarioCon('venta.cobrar'))
-        ->post(route('pagos.store', $venta), [
+    $this->postJson("/api/v1/ventas/{$venta->id}/pagos", [
             'pagos' => [
                 ['metodo' => 'efectivo',      'monto' => '4.000,00'],
                 ['metodo' => 'transferencia', 'monto' => ''],
                 ['metodo' => 'qr',            'monto' => ''],
             ],
-        ])
-        ->assertRedirect(route('ventas.show', $venta))
-        ->assertSessionHasNoErrors()
-        ->assertSessionHas('exito');
+        ], bearer(usuarioCon('venta.cobrar')))
+        ->assertCreated()
+        ->assertJsonPath('datos.estado', 'pagada')
+        ->assertJsonPath('mensaje', fn (string $mensaje) => str_contains($mensaje, 'cobrada'));
 
     expect($venta->fresh()->estado)->toBe('pagada')
         ->and($venta->fresh()->pagos()->count())->toBe(1)
@@ -556,18 +684,17 @@ test('un cobro donde todos los medios llegan vacios vuelve con un aviso general'
     $venta    = $this->service->crear(datosDeVenta([lineaDeVenta($producto, 2)]), admin());
 
     // Que venga al menos un monto es una regla sobre el conjunto, así que el error no
-    // va en un campo: vuelve como aviso. Mismo criterio que la recepción de
-    // mercadería con todas las cantidades en cero.
-    $this->actingAs(usuarioCon('venta.cobrar'))
-        ->post(route('pagos.store', $venta), [
+    // va en un campo: vuelve como aviso (en la API, 409 con su mensaje y sin errores
+    // por campo). Mismo criterio que la recepción con todas las cantidades en cero.
+    $this->postJson("/api/v1/ventas/{$venta->id}/pagos", [
             'pagos' => [
                 ['metodo' => 'efectivo',      'monto' => ''],
                 ['metodo' => 'transferencia', 'monto' => ''],
                 ['metodo' => 'qr',            'monto' => ''],
             ],
-        ])
-        ->assertSessionHasNoErrors()
-        ->assertSessionHas('error');
+        ], bearer(usuarioCon('venta.cobrar')))
+        ->assertStatus(409)
+        ->assertJsonPath('errores', []);
 
     expect($venta->fresh()->estado)->toBe('presupuesto');
 });
@@ -578,15 +705,14 @@ test('un cobro por un monto que no coincide vuelve con aviso y conserva lo carga
 
     // El saldo NO se valida en el Form Request —depende de los pagos ya registrados,
     // que otra petición puede estar moviendo— así que el error llega como aviso y no
-    // en el campo. El precio que se paga por eso es éste, y `withInput()` lo
-    // compensa: lo que el usuario escribió vuelve a la pantalla.
-    $this->actingAs(usuarioCon('venta.cobrar'))
-        ->post(route('pagos.store', $venta), [
+    // en el campo: 409 con su mensaje. En la web `withInput()` devolvía lo cargado;
+    // desde el tramo H la pantalla no se recarga y lo cargado no se pierde.
+    $this->postJson("/api/v1/ventas/{$venta->id}/pagos", [
             'pagos' => [['metodo' => 'efectivo', 'monto' => '1500']],
-        ])
-        ->assertSessionHasNoErrors()
-        ->assertSessionHas('error')
-        ->assertSessionHasInput('pagos.0.monto', '1500');
+        ], bearer(usuarioCon('venta.cobrar')))
+        ->assertStatus(409)
+        ->assertJsonPath('errores', [])
+        ->assertJsonStructure(['mensaje']);
 
     expect($venta->fresh()->pagos()->count())->toBe(0);
 });
@@ -599,8 +725,7 @@ test('el cobro rechaza las columnas que acredita el webhook', function () {
     // `mp_payment_id` como clave de idempotencia, y este formulario lo rechaza. Se
     // rechaza en lugar de ignorarse, porque descartar en silencio un dato que alguien
     // mandó es la doctrina de M-31 al revés.
-    $this->actingAs(usuarioCon('venta.cobrar'))
-        ->post(route('pagos.store', $venta), [
+    $this->postJson("/api/v1/ventas/{$venta->id}/pagos", [
             'pagos' => [[
                 'metodo'          => 'efectivo',
                 'monto'           => '2000',
@@ -608,12 +733,13 @@ test('el cobro rechaza las columnas que acredita el webhook', function () {
                 'neto_acreditado' => '1900',
                 'usuario_id'      => 1,
             ]],
-        ])
-        ->assertSessionHasErrors([
+        ], bearer(usuarioCon('venta.cobrar')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([
             'pagos.0.mp_payment_id',
             'pagos.0.neto_acreditado',
             'pagos.0.usuario_id',
-        ]);
+        ], 'errores');
 
     expect($venta->fresh()->pagos()->count())->toBe(0);
 });
@@ -627,14 +753,14 @@ test('un campo prohibido en un medio sin monto se rechaza igual', function () {
     // en una fila sin monto habría desaparecido sin que nadie se enterara. Ahora no
     // se descarta nada acá —las filas sin monto las filtra el servicio— y el campo se
     // rechaza con su mensaje.
-    $this->actingAs(usuarioCon('venta.cobrar'))
-        ->post(route('pagos.store', $venta), [
+    $this->postJson("/api/v1/ventas/{$venta->id}/pagos", [
             'pagos' => [
                 ['metodo' => 'efectivo',      'monto' => '2000'],
                 ['metodo' => 'transferencia', 'monto' => '', 'mp_payment_id' => 'mp-inventado'],
             ],
-        ])
-        ->assertSessionHasErrors('pagos.1.mp_payment_id');
+        ], bearer(usuarioCon('venta.cobrar')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('pagos.1.mp_payment_id', 'errores');
 
     expect($venta->fresh()->pagos()->count())->toBe(0)
         ->and($venta->fresh()->estado)->toBe('presupuesto');
@@ -655,12 +781,19 @@ test('el formulario de cobro de una venta ya cobrada redirige con un aviso', fun
 test('la ficha muestra los movimientos de dinero despues de cobrar', function () {
     $venta = ventaCobrada(productoConPrecios(contado: 1000), 2);
 
+    // Tramo H: los movimientos, de la API; la tarjeta, del shell (nace oculta y el JS la muestra).
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.pagos.0.metodo_texto', 'Efectivo')
+        ->assertJsonPath('datos.importes.pagado', '2000.00');
+
+    app('auth')->forgetGuards();
+
     $this->actingAs(usuarioCon('venta.ver'))
         ->get(route('ventas.show', $venta))
         ->assertOk()
         ->assertSee('Movimientos de dinero')
-        ->assertSee('Quedó cobrado')
-        ->assertSee('Efectivo');
+        ->assertSee('Quedó cobrado');
 });
 
 /*
@@ -669,22 +802,21 @@ test('la ficha muestra los movimientos de dinero despues de cobrar', function ()
 |--------------------------------------------------------------------------
 */
 
-test('la devolucion por la ruta repone stock, revierte el pago y deriva el estado', function () {
+test('la devolucion por la API repone stock, revierte el pago y deriva el estado', function () {
     $producto = productoConPrecios(contado: 1000);
     $venta    = ventaCobrada($producto, 5);
     $linea    = $venta->lineas()->firstOrFail();
 
     expect($producto->fresh()->stock)->toBe(45);
 
-    $this->actingAs(usuarioCon('venta.anular'))
-        ->post(route('ventas.devolver', $venta), [
+    $this->postJson("/api/v1/ventas/{$venta->id}/devoluciones", [
             'cantidades' => [$linea->id => 2],
             'metodo'     => 'qr',
             'motivo'     => 'Vino fallado',
-        ])
-        ->assertRedirect(route('ventas.show', $venta))
-        ->assertSessionHasNoErrors()
-        ->assertSessionHas('exito');
+        ], bearer(usuarioCon('venta.anular')))
+        ->assertCreated()
+        ->assertJsonPath('datos.estado', 'devuelta_parcial')
+        ->assertJsonPath('mensaje', fn (string $mensaje) => str_contains($mensaje, 'Devolución parcial'));
 
     expect($venta->fresh()->estado)->toBe('devuelta_parcial')
         ->and($linea->fresh()->cantidad_devuelta)->toBe(2)
@@ -704,14 +836,14 @@ test('la devolucion rechaza el monto y el estado que vengan del formulario', fun
     // Los dos campos que definen el hallazgo: cuánta plata vuelve lo calcula el
     // servidor, y que la devolución sea parcial o total se deriva de las líneas. Si
     // el operador pudiera escribir el monto, podría devolver más de lo que entró.
-    $this->actingAs(usuarioCon('venta.anular'))
-        ->post(route('ventas.devolver', $venta), [
+    $this->postJson("/api/v1/ventas/{$venta->id}/devoluciones", [
             'cantidades' => [$linea->id => 1],
             'metodo'     => 'efectivo',
             'monto'      => '999999',
             'estado'     => 'devuelta',
-        ])
-        ->assertSessionHasErrors(['monto', 'estado']);
+        ], bearer(usuarioCon('venta.anular')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['monto', 'estado'], 'errores');
 
     expect($linea->fresh()->cantidad_devuelta)->toBe(0)
         ->and($venta->fresh()->pagos()->count())->toBe(1);
@@ -726,16 +858,16 @@ test('el formulario de devolucion de un presupuesto redirige con un aviso', func
         ->assertSessionHas('error');
 });
 
-test('entregar por la ruta deja la venta entregada sin mover stock', function () {
+test('entregar por la API deja la venta entregada sin mover stock', function () {
     $producto = productoConPrecios(contado: 1000);
     $venta    = ventaCobrada($producto, 2);
 
     $stockPrevio = $producto->fresh()->stock;
 
-    $this->actingAs(usuarioCon('venta.entregar'))
-        ->post(route('ventas.entregar', $venta))
-        ->assertRedirect(route('ventas.show', $venta))
-        ->assertSessionHas('exito');
+    $this->postJson("/api/v1/ventas/{$venta->id}/entregas", [], bearer(usuarioCon('venta.entregar')))
+        ->assertCreated()
+        ->assertJsonPath('datos.estado', 'entregada')
+        ->assertJsonCount(1, 'datos.entregas');
 
     expect($venta->fresh()->estado)->toBe('entregada')
         ->and($producto->fresh()->stock)->toBe($stockPrevio);
@@ -750,7 +882,7 @@ test('entregar por la ruta deja la venta entregada sin mover stock', function ()
 test('descargar el documento es una lectura y no cambia nada', function () {
     $venta = ventaCobrada(productoConPrecios(contado: 1000), 3);
 
-    $respuesta = $this->actingAs(usuarioCon('venta.ver'))->get(route('ventas.pdf', $venta));
+    $respuesta = $this->get(($this->enlace)("/api/v1/ventas/{$venta->id}/pdf", usuarioCon('venta.ver')));
 
     $respuesta->assertOk();
 
@@ -761,13 +893,34 @@ test('descargar el documento es una lectura y no cambia nada', function () {
         ->and($venta->fresh()->estado)->toBe('pagada');
 });
 
+test('el presupuesto tambien se imprime por su enlace, y no por el de la tienda', function () {
+    $presupuesto = Venta::factory()->conLinea(productoConPrecios(contado: 1000), 2)->create();
+
+    // HL-129: la ruta firmada de la tienda exige lo cobrado; la de la administración, no.
+    $respuesta = $this->get(($this->enlace)("/api/v1/ventas/{$presupuesto->id}/pdf", usuarioCon('venta.ver')));
+
+    $respuesta->assertOk();
+    expect($respuesta->headers->get('content-disposition'))->toContain('presupuesto-');
+});
+
+test('el enlace del documento deja de servir si quien lo pidio pierde el permiso', function () {
+    $venta   = ventaCobrada(productoConPrecios(contado: 1000), 1);
+    $usuario = usuarioCon('venta.ver');
+    $enlace  = ($this->enlace)("/api/v1/ventas/{$venta->id}/pdf", $usuario);
+
+    $usuario->forceFill(['activo' => false])->save();
+
+    $this->get($enlace)->assertForbidden();
+    // Y tocado, tampoco: la firma cubre quién lo pidió.
+    $this->get(str_replace('pedido_por=', 'pedido_por=9', $enlace))->assertForbidden();
+});
+
 test('una venta cancelada no tiene documento que entregar', function () {
     $venta = Venta::factory()->cancelada()->conLinea(productoConPrecios(contado: 1000), 2)->create();
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.pdf', $venta))
-        ->assertRedirect(route('ventas.show', $venta))
-        ->assertSessionHas('error');
+    $this->getJson("/api/v1/ventas/{$venta->id}/pdf", bearer(usuarioCon('venta.ver')))
+        ->assertStatus(409)
+        ->assertJsonPath('mensaje', fn (string $mensaje) => str_contains($mensaje, 'no hay documento'));
 });
 
 test('la ficha ofrece descargar el documento salvo que este cancelada', function () {
@@ -776,13 +929,10 @@ test('la ficha ofrece descargar el documento salvo que este cancelada', function
     $viva   = Venta::factory()->conLinea($producto, 2)->create();
     $muerta = Venta::factory()->cancelada()->conLinea($producto, 2)->create();
 
-    $usuario = usuarioCon('venta.ver');
+    $credencial = bearer(usuarioCon('venta.ver'));
 
-    $this->actingAs($usuario)->get(route('ventas.show', $viva))
-        ->assertSee(route('ventas.pdf', $viva));
-
-    $this->actingAs($usuario)->get(route('ventas.show', $muerta))
-        ->assertDontSee(route('ventas.pdf', $muerta));
+    $this->getJson("/api/v1/ventas/{$viva->id}", $credencial)->assertJsonPath('datos.acciones.imprimir', true);
+    $this->getJson("/api/v1/ventas/{$muerta->id}", $credencial)->assertJsonPath('datos.acciones.imprimir', false);
 });
 
 test('el presupuesto declara su validez y el comprobante de venta no', function () {
@@ -841,7 +991,7 @@ test('el documento imprime lo congelado y no el estado ni los pagos ni lo devuel
 test('exportar el listado devuelve un PDF y no cambia nada', function () {
     $venta = ventaCobrada(productoConPrecios(contado: 1000), 3);
 
-    $respuesta = $this->actingAs(usuarioCon('venta.ver'))->get(route('ventas.exportar'));
+    $respuesta = $this->get(($this->enlace)('/api/v1/ventas/impresion', usuarioCon('venta.ver')));
 
     $respuesta->assertOk();
 
@@ -940,11 +1090,11 @@ test('una venta con cliente dice su razon social', function () {
 test('la ficha de la venta muestra sin identificar y no consumidor final', function () {
     $venta = Venta::factory()->create(['cliente_id' => null]);
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.show', $venta))
+    $respuesta = $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertSee('Sin identificar')
-        ->assertDontSee('Consumidor final');
+        ->assertJsonPath('datos.cliente_texto', 'Sin identificar');
+
+    expect($respuesta->getContent())->not->toContain('Consumidor final');
 });
 
 test('la condicion fiscal consumidor_final no se renombro', function () {
@@ -1026,11 +1176,11 @@ test('la pantalla de cobro avisa del faltante con el conteo del modelo', functio
     $venta = presupuestoSinStock(cantidad: 5, stock: 2);
 
     // El texto es el de la Fase 6 y no cambia: lo que cambió es de dónde sale el
-    // número. Cadena corta a propósito, que el formateador de Blade no parte.
-    $this->actingAs(usuarioCon('venta.cobrar'))
-        ->get(route('pagos.create', $venta))
+    // número. Desde el tramo H llega en la ficha y el JS lo pone en el aviso.
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertSee('y hay 2 disponible(s)');
+        ->assertJsonCount(1, 'datos.cobro.problemas')
+        ->assertJsonPath('datos.cobro.problemas.0', fn (string $texto) => str_contains($texto, 'y hay 2 disponible(s)'));
 });
 
 test('el aviso del cobro prefiere la baja del producto antes que el faltante', function () {
@@ -1041,11 +1191,11 @@ test('el aviso del cobro prefiere la baja del producto antes que el faltante', f
 
     // Un renglón, un mensaje. Los dos problemas se arreglan en pantallas distintas
     // —el catálogo y el depósito— y el de la baja hace fallar el cobro igual.
-    $this->actingAs(usuarioCon('venta.cobrar'))
-        ->get(route('pagos.create', $venta))
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertSee('dado de baja en el cat')
-        ->assertDontSee('y hay 2 disponible(s)');
+        ->assertJsonCount(1, 'datos.cobro.problemas')
+        ->assertJsonPath('datos.cobro.problemas.0', fn (string $texto) => str_contains($texto, 'dado de baja en el cat')
+            && ! str_contains($texto, 'y hay 2 disponible(s)'));
 });
 
 /*
@@ -1069,10 +1219,11 @@ test('el alta de un presupuesto que supera el disponible avisa en azul y no en v
 
     // Se emite igual. Lo que no puede pasar es que un verde afirme que quedó todo
     // listo: lo que quedó es un presupuesto que hoy no se puede cobrar.
-    $this->actingAs(usuarioCon('venta.crear'))
-        ->post(route('ventas.store'), datosDeVenta([lineaDeVenta($producto, 5)]))
-        ->assertSessionMissing('exito')
-        ->assertSessionHas('aviso', fn (string $aviso) => str_contains($aviso, 'Un renglón supera el disponible'));
+    // Desde el tramo H el tono lo decide la pantalla con `sin_stock` de la ficha.
+    $this->postJson('/api/v1/ventas', datosDeVenta([lineaDeVenta($producto, 5)]), bearer(usuarioCon('venta.crear')))
+        ->assertCreated()
+        ->assertJsonPath('datos.sin_stock', true)
+        ->assertJsonPath('mensaje', fn (string $aviso) => str_contains($aviso, 'Un renglón supera el disponible'));
 
     expect(Venta::latest('id')->first()->estado)->toBe('presupuesto');
 });
@@ -1081,12 +1232,12 @@ test('el aviso del alta cuenta los renglones en plural', function () {
     $uno = Producto::factory()->conStock(1)->create(['precio_contado' => '1000.00']);
     $dos = Producto::factory()->conStock(1)->create(['precio_contado' => '2000.00']);
 
-    $this->actingAs(usuarioCon('venta.crear'))
-        ->post(route('ventas.store'), datosDeVenta([
+    $this->postJson('/api/v1/ventas', datosDeVenta([
             lineaDeVenta($uno, 4),
             lineaDeVenta($dos, 4),
-        ]))
-        ->assertSessionHas('aviso', fn (string $aviso) => str_contains($aviso, '2 renglones superan el disponible'));
+        ]), bearer(usuarioCon('venta.crear')))
+        ->assertCreated()
+        ->assertJsonPath('mensaje', fn (string $aviso) => str_contains($aviso, '2 renglones superan el disponible'));
 });
 
 test('la edicion que deja un renglon sin stock avisa en azul', function () {
@@ -1096,21 +1247,20 @@ test('la edicion que deja un renglon sin stock avisa en azul', function () {
     // El alta de este presupuesto no avisó nada: entraba en el disponible. Lo que
     // avisa es la edición que lo saca de rango, y el mensaje de la edición conserva
     // lo que decía sobre los precios congelados.
-    $this->actingAs(usuarioCon('venta.editar'))
-        ->put(route('ventas.update', $venta), datosDeVenta([lineaDeVenta($producto, 9)]))
-        ->assertSessionMissing('exito')
-        ->assertSessionHas('aviso', fn (string $aviso) => str_contains($aviso, 'conservan el precio')
+    $this->patchJson("/api/v1/ventas/{$venta->id}", datosDeVenta([lineaDeVenta($producto, 9)]), bearer(usuarioCon('venta.editar')))
+        ->assertOk()
+        ->assertJsonPath('datos.sin_stock', true)
+        ->assertJsonPath('mensaje', fn (string $aviso) => str_contains($aviso, 'conservan el precio')
             && str_contains($aviso, 'Un renglón supera el disponible'));
 });
 
 test('la ficha lo dice con la insignia y marca el renglon', function () {
     $venta = presupuestoSinStock(cantidad: 5, stock: 2);
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.show', $venta))
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertSee('insigniaSinStock')
-        ->assertSee('Hay 2 disponible(s)');
+        ->assertJsonPath('datos.sin_stock', true)
+        ->assertJsonPath('datos.lineas.0.faltante.disponible', 2);
 });
 
 test('la ficha de una venta cobrada no muestra la insignia aunque el stock ya no alcance', function () {
@@ -1122,30 +1272,29 @@ test('la ficha de una venta cobrada no muestra la insignia aunque el stock ya no
     // avisar de un faltante ahí sería avisar de un problema que no existe.
     expect($producto->fresh()->stock_disponible)->toBe(0);
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.show', $venta))
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertDontSee('insigniaSinStock');
+        ->assertJsonPath('datos.sin_stock', false)
+        ->assertJsonPath('datos.lineas.0.faltante', null);
 });
 
 test('el listado marca el presupuesto sin stock y no la venta cobrada', function () {
     $presupuesto = presupuestoSinStock(cantidad: 5, stock: 2);
 
     $cobrado = Producto::factory()->conStockYCosto(5, 500)->create(['precio_contado' => '1000.00']);
-    ventaCobrada($cobrado, 5);
+    $venta   = ventaCobrada($cobrado, 5);
 
-    $respuesta = $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index'))
+    $filas = collect($this->getJson('/api/v1/ventas', bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertSee('Sin stock suficiente');
-
-    $ventas = $respuesta->viewData('ventas');
+        ->json('datos'))->keyBy('id');
 
     // Las dos tienen un renglón que supera el disponible de hoy; sólo una es un
-    // presupuesto. El conteo lo trae la subconsulta para las dos y la pantalla
+    // presupuesto. El conteo lo trae la subconsulta para las dos y el servidor
     // decide a cuál le corresponde la insignia.
-    expect((int) $ventas->firstWhere('id', $presupuesto->id)->faltantes_count)->toBe(1)
-        ->and($ventas->filter(fn (Venta $venta) => $venta->esPresupuesto()))->toHaveCount(1);
+    expect($filas[$presupuesto->id]['renglones_sin_stock'])->toBe(1)
+        ->and($filas[$presupuesto->id]['sin_stock'])->toBeTrue()
+        ->and($filas[$venta->id]['sin_stock'])->toBeFalse()
+        ->and($filas->where('sin_stock', true))->toHaveCount(1);
 });
 
 test('el conteo del listado llega a la pantalla con el mismo numero que la ficha', function () {
@@ -1153,12 +1302,9 @@ test('el conteo del listado llega a la pantalla con el mismo numero que la ficha
 
     // El segundo nivel de A-24: que el scope cuente bien ya lo fija el test de la
     // sección anterior; esto fija que el `withCount` esté cableado y que su alias
-    // llegue a la vista con ese nombre.
-    $contadoPorLaBase = (int) $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index'))
-        ->viewData('ventas')
-        ->firstWhere('id', $venta->id)
-        ->faltantes_count;
+    // llegue a la respuesta.
+    $contadoPorLaBase = collect($this->getJson('/api/v1/ventas', bearer(usuarioCon('venta.ver')))->json('datos'))
+        ->firstWhere('id', $venta->id)['renglones_sin_stock'];
 
     expect($contadoPorLaBase)->toBe($venta->load('lineas.producto')->faltantesDeStock()->count());
 });
@@ -1171,8 +1317,9 @@ test('el conteo del listado llega a la pantalla con el mismo numero que la ficha
 | Un solo buscador arriba de la tabla, y el renglón nace con el producto puesto.
 | Lo que se puede probar desde el servidor es lo que el servidor rinde: que el
 | buscador esté, que el renglón lleve su producto en un campo oculto y su nombre
-| como texto, y que los ya cargados salgan en `data-buscable-excluir` desde la
-| primera carga y no cuando el JavaScript corra.
+| como texto. Desde el tramo H el formulario es un shell: los renglones guardados,
+| su rótulo, su precio de hoy y su disponible llegan en la ficha de la API, y el
+| JS los pone en la plantilla y en `data-buscable-excluir` al cargar.
 |
 | El pendiente #30 deja de existir acá, y no por una validación nueva: no hay
 | selector que mantener, así que no hay dónde elegir dos veces lo mismo. El
@@ -1202,14 +1349,22 @@ test('el formulario de edicion rinde el producto como texto y lo excluye del bus
     $venta    = presupuestoSinStock(cantidad: 5, stock: 2);
     $producto = $venta->lineas->first()->producto;
 
+    // El id y el rótulo del renglón, de la API: el JS los pone como campo oculto y como texto, y el id
+    // va a `data-buscable-excluir`.
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.lineas.0.producto.id', $producto->id)
+        ->assertJsonPath('datos.lineas.0.producto.rotulo', 'ESC-00001 — Teclado escaso');
+
+    app('auth')->forgetGuards();
+
+    // El renglón se quita, no se cambia: la plantilla lleva el producto en un campo oculto, no un selector.
     $this->actingAs(usuarioCon('venta.editar', 'producto.ver', 'cliente.ver'))
         ->get(route('ventas.edit', $venta))
         ->assertOk()
-        // El id en un campo oculto y el nombre como texto: el renglón se quita, no se
-        // cambia, así que no queda selector que mantener.
-        ->assertSee('name="lineas[0][producto_id]"', false)
-        ->assertSee('ESC-00001 — Teclado escaso')
-        ->assertSee('data-buscable-excluir="'.$producto->id.'"', false);
+        ->assertSee('type="hidden" value="" data-producto data-campo-linea="producto_id"', false)
+        ->assertSee('data-buscable-excluir=""', false)
+        ->assertDontSee('Teclado escaso');
 });
 
 test('el renglon publica el precio de hoy y el disponible que conto el servidor', function () {
@@ -1219,12 +1374,28 @@ test('el renglon publica el precio de hoy y el disponible que conto el servidor'
 
     // Es lo que reemplaza al objeto de la opción de Tom Select: con el producto en
     // texto fijo ya no hay opción donde colgar el precio y el disponible, y el
-    // JavaScript los lee de la fila. El disponible es 8 − 6, no 8.
+    // JavaScript los lee de la fila. El disponible es 8 − 6, no 8. Desde el tramo H
+    // los cuenta la API y el JS los escribe en los data- de la plantilla.
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.lineas.0.cotizacion_hoy.precio', '1234.00')
+        ->assertJsonPath('datos.lineas.0.cotizacion_hoy.disponible', 2);
+
+    app('auth')->forgetGuards();
+
     $this->actingAs(usuarioCon('venta.editar', 'producto.ver', 'cliente.ver'))
         ->get(route('ventas.edit', $venta))
         ->assertOk()
-        ->assertSee('data-precio-hoy="1234.00"', false)
-        ->assertSee('data-disponible="2"', false);
+        ->assertSee('data-precio-hoy="" data-disponible=""', false);
+});
+
+test('cobrada, la ficha ya no trae la cotizacion de hoy', function () {
+    // Lo de hoy sirve para editar, y sólo un presupuesto se edita.
+    $venta = ventaCobrada(productoConPrecios(), 1);
+
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.lineas.0.cotizacion_hoy', null);
 });
 
 test('un error de validacion devuelve los renglones con su producto legible', function () {
@@ -1236,22 +1407,17 @@ test('un error de validacion devuelve los renglones con su producto legible', fu
 
     $usuario = usuarioCon('venta.crear', 'producto.ver', 'cliente.ver');
 
-    $this->actingAs($usuario)
-        ->from(route('ventas.create'))
-        ->post(route('ventas.store'), datosDeVenta([
-            ['producto_id' => $producto->id, 'cantidad' => 0],
-        ]))
-        ->assertRedirect(route('ventas.create'))
-        ->assertSessionHasErrors('lineas.0.cantidad');
+    // Tramo H: el 422 marca sólo la cantidad del renglón y no su producto, así que la fila sigue con
+    // su rótulo: la pantalla no se recarga, el JS conserva lo cargado y pinta el error en esa fila.
+    // Antes la fila volvía de `old()` y el servidor tenía que volver a resolver el rótulo.
+    $this->postJson('/api/v1/ventas', datosDeVenta([
+        ['producto_id' => $producto->id, 'cantidad' => 0],
+    ]), bearer($usuario))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('lineas.0.cantidad', 'errores')
+        ->assertJsonMissingValidationErrors(['lineas.0.producto_id'], 'errores');
 
-    // La fila vuelve de `old()`, y con el producto en texto el servidor tiene que
-    // volver a resolver su rótulo: si no, el usuario vería un renglón sin nombre y
-    // sin forma de saber cuál era.
-    $this->actingAs($usuario)
-        ->get(route('ventas.create'))
-        ->assertOk()
-        ->assertSee('CBL-00009 — Cable corto')
-        ->assertSee('data-buscable-excluir="'.$producto->id.'"', false);
+    expect(Venta::count())->toBe(0);
 });
 
 /*
@@ -1281,57 +1447,70 @@ test('el filtro por canal llega al scope y el listado muestra el canal', functio
     $this->service->crear(datosDeVenta([lineaDeVenta(productoConPrecios(), 1)]), admin());
     $pedido = ($this->tiendaPedido)(productoConPrecios(), 1);
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['canal' => 'online']))
-        ->assertOk()
-        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1 && $ventas->first()->id === $pedido->id)
-        ->assertSee('data-canal="online"', false)
-        ->assertSee('Canal: Tienda online');
+    $credencial = bearer(usuarioCon('venta.ver'));
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['canal' => 'mostrador']))
-        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1 && $ventas->first()->id !== $pedido->id);
+    $this->getJson('/api/v1/ventas?canal=online', $credencial)
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.id', $pedido->id)
+        ->assertJsonPath('datos.0.canal', 'online')
+        ->assertJsonPath('datos.0.canal_texto', 'Tienda online')
+        ->assertJsonPath('criterios.canal', 'online');
+
+    $this->getJson('/api/v1/ventas?canal=mostrador', $credencial)
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.canal', 'mostrador');
 });
 
-test('un canal desconocido vuelve al listado limpio con un aviso', function () {
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.index', ['canal' => 'telefono']))
-        ->assertRedirect(route('ventas.index'))
-        ->assertSessionHas('error');
+test('un canal desconocido se rechaza con su campo', function () {
+    $this->getJson('/api/v1/ventas?canal=telefono', bearer(usuarioCon('venta.ver')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('canal', 'errores');
 });
 
 test('el selector de estado ofrece pendiente de pago y filtra los pedidos', function () {
     $pedido = ($this->tiendaPedido)(productoConPrecios(), 1);
     $this->service->crear(datosDeVenta([lineaDeVenta(productoConPrecios(), 1)]), admin());
 
+    // El selector es estructura del shell; el filtro, del endpoint.
     $this->actingAs(usuarioCon('venta.ver'))
         ->get(route('ventas.index', ['estado' => 'pendiente_pago']))
         ->assertOk()
-        ->assertSee('<option value="pendiente_pago" selected', false)
-        ->assertViewHas('ventas', fn ($ventas) => $ventas->total() === 1 && $ventas->first()->id === $pedido->id);
+        ->assertSee('<option value="pendiente_pago" selected', false);
+
+    $this->getJson('/api/v1/ventas?estado=pendiente_pago', bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.id', $pedido->id);
 });
 
 test('la ficha del pedido ofrece cancelar el pedido y avisa que libera la reserva', function () {
     $pedido = ($this->tiendaPedido)(productoConPrecios(), 1);
 
+    // Tramo H: que es un pedido y que se puede cancelar lo dice la API; el texto del botón
+    // («Cancelar el pedido») y la confirmación que avisa que vuelve al disponible los arma el JS con eso.
+    $this->getJson("/api/v1/ventas/{$pedido->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.es_online', true)
+        ->assertJsonPath('datos.acciones.cancelar', true);
+
+    app('auth')->forgetGuards();
+
     $this->actingAs(usuarioCon('venta.ver', 'venta.editar'))
         ->get(route('ventas.show', $pedido))
         ->assertOk()
-        ->assertSee('Cancelar el pedido')
-        ->assertDontSee('Cancelar el presupuesto')
-        ->assertSee('vuelven al disponible');
+        ->assertSee('data-accion="cancelar"', false);
 });
 
-test('cancelar el pedido en la web libera la reserva y lo dice', function () {
+test('cancelar el pedido desde la gestion libera la reserva y lo dice', function () {
     $producto = productoConPrecios();   // 50 en stock
     $pedido   = ($this->tiendaPedido)($producto, 3);
 
     expect($producto->fresh()->stock_reservado)->toBe(3);
 
-    $this->actingAs(usuarioCon('venta.editar'))
-        ->post(route('ventas.cancelar', $pedido))
-        ->assertRedirect(route('ventas.show', $pedido))
-        ->assertSessionHas('exito', fn (string $texto) => str_contains($texto, 'Pedido')
+    $this->postJson("/api/v1/ventas/{$pedido->id}/cancelar", [], bearer(usuarioCon('venta.editar')))
+        ->assertOk()
+        ->assertJsonPath('mensaje', fn (string $texto) => str_contains($texto, 'Pedido')
             && str_contains($texto, 'volvieron al disponible'));
 
     expect($pedido->fresh()->estado)->toBe('cancelada')
@@ -1346,8 +1525,75 @@ test('la pantalla de cobro no avisa faltantes falsos para un pedido reservado', 
     ]);
     $pedido = ($this->tiendaPedido)($producto, 2);
 
-    $this->actingAs(usuarioCon('venta.cobrar'))
-        ->get(route('pagos.create', $pedido))
+    $this->getJson("/api/v1/ventas/{$pedido->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertViewHas('problemas', []);
+        ->assertJsonPath('datos.cobro.problemas', []);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Las rutas web retiradas (tramo H)
+|--------------------------------------------------------------------------
+|
+| La web sólo entrega las pantallas: emitir, editar, recotizar, cancelar, cobrar,
+| entregar, devolver y las cuatro descargas van por `/api/v1/ventas`. Cada URL vieja se
+| prueba literal, con todos los permisos del módulo, para que no la salve un 403.
+|
+*/
+
+dataset('rutas web retiradas de ventas', [
+    'emitir'                    => ['post', '/ventas'],
+    'guardar la edicion'        => ['put',  '/ventas/{venta}'],
+    'recotizar'                 => ['post', '/ventas/{venta}/recotizar'],
+    'cancelar'                  => ['post', '/ventas/{venta}/cancelar'],
+    'registrar el cobro'        => ['post', '/ventas/{venta}/cobro'],
+    'entregar'                  => ['post', '/ventas/{venta}/entregar'],
+    'registrar la devolucion'   => ['post', '/ventas/{venta}/devolucion'],
+    'exportar el listado'       => ['get',  '/ventas/exportar'],
+    'documento de la venta'     => ['get',  '/ventas/{venta}/pdf'],
+    'comprobante de entrega'    => ['get',  '/ventas/{venta}/entregas/1/pdf'],
+    'comprobante transferencia' => ['get',  '/ventas/{venta}/comprobantes-transferencia/1'],
+]);
+
+test('la ruta web retirada de ventas ya no existe', function (string $metodo, string $url) {
+    $producto = productoConPrecios(contado: 1000);
+    $venta    = $this->service->crear(datosDeVenta([lineaDeVenta($producto, 2)]), admin());
+    $antes    = Venta::count();
+
+    $respuesta = pedirRuta(
+        $this->actingAs(usuarioCon(...permisosDelModulo('venta'))),
+        $metodo,
+        str_replace('{venta}', (string) $venta->id, $url),
+        ['pagos' => [['metodo' => 'efectivo', 'monto' => '2000,00']]] + datosDeVenta([lineaDeVenta($producto, 1)]),
+    );
+
+    expect($respuesta->status())->toBeIn([404, 405])
+        ->and($venta->fresh()->estado)->toBe('presupuesto')
+        ->and($venta->fresh()->total)->toBe($venta->total)
+        ->and($venta->pagos()->count())->toBe(0)
+        ->and(Venta::count())->toBe($antes);
+})->with('rutas web retiradas de ventas');
+
+test('los shells de cobro, entrega y devolucion no traen datos de negocio', function () {
+    // Regla 37: la página llega con su estructura; los renglones, los importes y el cliente, por la API.
+    $cliente  = Cliente::factory()->create(['razon_social' => 'Panadería Los Tilos']);
+    $producto = productoConPrecios(contado: 1234);
+    $venta    = $this->service->crear(datosDeVenta([lineaDeVenta($producto, 3)], ['cliente_id' => $cliente->id]), admin());
+
+    $pantallas = [route('pagos.create', $venta)];
+
+    $cobrada    = ventaCobrada($producto, 3);
+    $pantallas[] = route('ventas.entrega', $cobrada);
+    $pantallas[] = route('ventas.devolucion', $cobrada);
+
+    foreach ($pantallas as $pantalla) {
+        $this->actingAs(usuarioCon('venta.ver', 'venta.cobrar', 'venta.entregar', 'venta.anular'))
+            ->get($pantalla)
+            ->assertOk()
+            ->assertDontSee('Panadería Los Tilos')
+            ->assertDontSee($producto->nombre)
+            ->assertDontSee($venta->numeroFormateado())
+            ->assertDontSee($cobrada->numeroFormateado())
+            ->assertDontSee('3.702,00');
+    }
 });

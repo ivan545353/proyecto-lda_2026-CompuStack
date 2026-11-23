@@ -41,8 +41,24 @@ beforeEach(function () {
 
 dataset('rutas de la entrega', [
     'pantalla de entrega parcial' => ['ventas.entrega', 'venta.entregar'],
-    'comprobante de entrega'      => ['ventas.entregas.pdf', 'venta.ver'],
 ]);
+
+// Tramo H: el comprobante de entrega se pide a la API, que da el enlace firmado (D-22, HL-130).
+test('ningun otro permiso de ventas habilita el enlace del comprobante de entrega', function () {
+    $entrega = $this->service->entregar($this->venta, admin(), [$this->mouse->id => 1])->entregas->last();
+    $otros   = array_values(array_diff(permisosDelModulo('venta'), ['venta.ver']));
+
+    $this->getJson("/api/v1/ventas/{$this->venta->id}/entregas/{$entrega->id}/pdf", bearer(usuarioCon(...$otros)))
+        ->assertForbidden();
+});
+
+test('venta.ver alcanza para el enlace del comprobante de entrega', function () {
+    $entrega = $this->service->entregar($this->venta, admin(), [$this->mouse->id => 1])->entregas->last();
+
+    $this->getJson("/api/v1/ventas/{$this->venta->id}/entregas/{$entrega->id}/pdf", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonStructure(['datos' => ['url', 'vence']]);
+});
 
 test('ningun otro permiso de ventas habilita las rutas de la entrega', function (string $ruta, string $permiso) {
     $entrega = $this->service->entregar($this->venta, admin(), [$this->mouse->id => 1])->entregas->last();
@@ -68,11 +84,22 @@ test('el permiso de la ruta alcanza para las rutas de la entrega', function (str
 */
 
 test('la pantalla ofrece un campo por renglon pendiente', function () {
+    // Tramo H: lo pendiente de cada renglón, de la API; el JS arma una fila por renglón con su campo
+    // `cantidades.{renglón}`, y un renglón completo lleva la insignia en lugar del campo.
+    $lineas = collect($this->getJson("/api/v1/ventas/{$this->venta->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->json('datos.lineas'))->keyBy('id');
+
+    expect($lineas[$this->mouse->id]['pendiente_de_entregar'])->toBeGreaterThan(0)
+        ->and($lineas[$this->fuente->id]['pendiente_de_entregar'])->toBeGreaterThan(0);
+
+    app('auth')->forgetGuards();
+
     $this->actingAs(usuarioCon('venta.entregar'))
         ->get(route('ventas.entrega', $this->venta))
         ->assertOk()
-        ->assertSee('name="cantidades['.$this->mouse->id.']"', false)
-        ->assertSee('name="cantidades['.$this->fuente->id.']"', false);
+        ->assertSee('data-plantilla-linea', false)
+        ->assertSee('data-cantidad', false);
 });
 
 test('un presupuesto no tiene pantalla de entrega', function () {
@@ -84,24 +111,24 @@ test('un presupuesto no tiene pantalla de entrega', function () {
         ->assertSessionHas('error');
 });
 
-test('una venta se entrega en dos veces por la ruta', function () {
-    $usuario = usuarioCon('venta.entregar');
+test('una venta se entrega en dos veces por la API', function () {
+    $usuario    = usuarioCon('venta.entregar');
+    $credencial = bearer($usuario);
 
-    $this->actingAs($usuario)
-        ->post(route('ventas.entregar', $this->venta), ['cantidades' => [
+    $this->postJson("/api/v1/ventas/{$this->venta->id}/entregas", ['cantidades' => [
             $this->mouse->id  => 2,
             $this->fuente->id => 1,
-        ]])
-        ->assertRedirect(route('ventas.show', $this->venta))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'Entrega parcial'));
+        ]], $credencial)
+        ->assertCreated()
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'Entrega parcial'));
 
     expect($this->venta->fresh()->estado)->toBe('entregada_parcial')
         ->and(Entrega::sole()->usuario_id)->toBe($usuario->id);
 
     // El botón de un clic de la ficha cierra lo que falta.
-    $this->actingAs($usuario)
-        ->post(route('ventas.entregar', $this->venta))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'entregada por completo'));
+    $this->postJson("/api/v1/ventas/{$this->venta->id}/entregas", [], $credencial)
+        ->assertCreated()
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'entregada por completo'));
 
     expect($this->venta->fresh()->estado)->toBe('entregada')
         ->and(Entrega::count())->toBe(2);
@@ -110,11 +137,9 @@ test('una venta se entrega en dos veces por la ruta', function () {
 test('la entrega rechaza lo que el servidor decide y las cantidades imposibles', function (array $datos, string $campo) {
     $datos = array_merge(['cantidades' => [$this->mouse->id => 1]], $datos);
 
-    $this->actingAs(usuarioCon('venta.entregar'))
-        ->from(route('ventas.entrega', $this->venta))
-        ->post(route('ventas.entregar', $this->venta), $datos)
-        ->assertRedirect(route('ventas.entrega', $this->venta))
-        ->assertSessionHasErrors($campo);
+    $this->postJson("/api/v1/ventas/{$this->venta->id}/entregas", $datos, bearer(usuarioCon('venta.entregar')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor($campo, 'errores');
 
     expect(Entrega::count())->toBe(0);
 })->with([
@@ -123,20 +148,17 @@ test('la entrega rechaza lo que el servidor decide y las cantidades imposibles',
 ]);
 
 test('una cantidad negativa se rechaza en su campo', function () {
-    $this->actingAs(usuarioCon('venta.entregar'))
-        ->from(route('ventas.entrega', $this->venta))
-        ->post(route('ventas.entregar', $this->venta), ['cantidades' => [$this->mouse->id => -1]])
-        ->assertSessionHasErrors("cantidades.{$this->mouse->id}");
+    $this->postJson("/api/v1/ventas/{$this->venta->id}/entregas", ['cantidades' => [$this->mouse->id => -1]], bearer(usuarioCon('venta.entregar')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor("cantidades.{$this->mouse->id}", 'errores');
 
     expect(Entrega::count())->toBe(0);
 });
 
 test('entregar mas de lo pendiente vuelve con el error y no entrega nada', function () {
-    $this->actingAs(usuarioCon('venta.entregar'))
-        ->from(route('ventas.entrega', $this->venta))
-        ->post(route('ventas.entregar', $this->venta), ['cantidades' => [$this->mouse->id => 5]])
-        ->assertRedirect(route('ventas.entrega', $this->venta))
-        ->assertSessionHas('error', fn ($mensaje) => str_contains($mensaje, 'quedan 2'));
+    $this->postJson("/api/v1/ventas/{$this->venta->id}/entregas", ['cantidades' => [$this->mouse->id => 5]], bearer(usuarioCon('venta.entregar')))
+        ->assertStatus(409)
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'quedan 2'));
 
     expect(Entrega::count())->toBe(0)
         ->and($this->venta->fresh()->estado)->toBe('pagada');
@@ -151,49 +173,60 @@ test('entregar mas de lo pendiente vuelve con el error y no entrega nada', funct
 test('la ficha lista las entregas con su comprobante', function () {
     $entrega = $this->service->entregar($this->venta, admin(), [$this->mouse->id => 2])->entregas->last();
 
+    // Tramo H: las entregas y lo que el estado admite, de la API; los botones, del shell con su @can.
+    $this->getJson("/api/v1/ventas/{$this->venta->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.entregas.0.numero', $entrega->numeroFormateado())
+        ->assertJsonPath('datos.acciones.entregar', true)
+        ->assertJsonPath('datos.acciones.entregar_parte', true)
+        ->assertJsonPath('datos.entregada_sin_comprobante', false);
+
+    app('auth')->forgetGuards();
+
     $this->actingAs(usuarioCon('venta.ver', 'venta.entregar'))
         ->get(route('ventas.show', $this->venta))
         ->assertOk()
-        ->assertSee($entrega->numeroFormateado())
-        ->assertSee(route('ventas.entregas.pdf', [$this->venta, $entrega]))
-        ->assertSee('Entregar lo que falta')
-        ->assertSee('Entregar una parte')
-        ->assertDontSee('id="entregaSinComprobante"', false);
+        ->assertSee('data-descargar-entrega', false)
+        ->assertSee('data-accion="entregar"', false)
+        ->assertSee('data-accion="entregar_parte"', false);
 });
 
 test('una venta entregada antes de las entregas dice que no tiene comprobante', function () {
     $vieja = Venta::factory()->entregada()->conLinea(productoConPrecios(), 2)->create();
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.show', $vieja))
+    $this->getJson("/api/v1/ventas/{$vieja->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertSee('id="entregaSinComprobante"', false);
+        ->assertJsonPath('datos.entregada_sin_comprobante', true)
+        ->assertJsonPath('datos.entregas', []);
 });
 
 test('con una sola unidad pendiente no se ofrece entregar una parte', function () {
     $this->service->entregar($this->venta, admin(), [$this->mouse->id => 2, $this->fuente->id => 2]);
 
-    $this->actingAs(usuarioCon('venta.ver', 'venta.entregar'))
-        ->get(route('ventas.show', $this->venta))
+    $this->getJson("/api/v1/ventas/{$this->venta->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        ->assertSee('Entregar lo que falta')
-        ->assertDontSee('Entregar una parte');
+        ->assertJsonPath('datos.unidades_pendientes_de_entregar', 1)
+        ->assertJsonPath('datos.acciones.entregar', true)
+        ->assertJsonPath('datos.acciones.entregar_parte', false);
 });
 
 test('el comprobante de otra venta no se descarga por esta', function () {
     $ajena   = ventaCobrada(productoConPrecios(), 1);
     $entrega = $this->service->entregar($ajena, admin())->entregas->last();
 
-    $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.entregas.pdf', [$this->venta, $entrega]))
+    $this->getJson("/api/v1/ventas/{$this->venta->id}/entregas/{$entrega->id}/pdf", bearer(usuarioCon('venta.ver')))
         ->assertNotFound();
 });
 
 test('el comprobante se descarga, es una lectura y declara lo que no es', function () {
     $entrega = $this->service->entregar($this->venta, admin(), [$this->mouse->id => 1])->entregas->last();
 
-    $respuesta = $this->actingAs(usuarioCon('venta.ver'))
-        ->get(route('ventas.entregas.pdf', [$this->venta, $entrega]));
+    $enlace = $this->getJson("/api/v1/ventas/{$this->venta->id}/entregas/{$entrega->id}/pdf", bearer(usuarioCon('venta.ver')))
+        ->json('datos.url');
+
+    app('auth')->forgetGuards();
+
+    $respuesta = $this->get($enlace);
 
     $respuesta->assertOk();
 

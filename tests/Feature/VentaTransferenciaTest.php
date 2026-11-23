@@ -51,20 +51,34 @@ beforeEach(function () {
 });
 
 test('el detalle muestra el comprobante cargado, con su enlace sólo para quien puede verlo', function () {
-    $venta       = ($this->tiendaPedido)();
-    $comprobante = $venta->comprobantesTransferencia()->sole();
-    $enlace      = route('ventas.comprobante_transferencia', [$venta, $comprobante]);
+    $venta = ($this->tiendaPedido)();
+
+    // Tramo H: el comprobante llega por la API; el enlace es un botón del shell, con su @can (regla 12).
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.medio_pago', 'transferencia')
+        ->assertJsonPath('datos.comprobantes_transferencia.0.nombre_original', 'transferencia.pdf');
+
+    app('auth')->forgetGuards();
 
     $this->actingAs(usuarioCon('venta.ver', 'venta.ver_comprobante_transferencia'))->get(route('ventas.show', $venta))
-        ->assertOk()->assertSee('data-transferencia', false)->assertSee('transferencia.pdf')->assertSee($enlace, false);
+        ->assertOk()->assertSee('data-transferencia', false)->assertSee('data-abrir-comprobante', false);
 
     $this->actingAs(usuarioCon('venta.ver'))->get(route('ventas.show', $venta))
-        ->assertOk()->assertSee('transferencia.pdf')->assertDontSee($enlace, false);
+        ->assertOk()->assertSee('data-transferencia', false)->assertDontSee('data-abrir-comprobante', false);
 });
 
 test('sin comprobante, el detalle dice que todavía no llegó', function () {
     $venta = ($this->tiendaPedido)('transferencia', null);
 
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.medio_pago', 'transferencia')
+        ->assertJsonPath('datos.comprobantes_transferencia', []);
+
+    app('auth')->forgetGuards();
+
+    // El texto es de la plantilla: el JS lo muestra cuando la lista viene vacía.
     $this->actingAs(usuarioCon('venta.ver'))->get(route('ventas.show', $venta))
         ->assertOk()->assertSee('todavía no cargó el comprobante');
 });
@@ -72,12 +86,19 @@ test('sin comprobante, el detalle dice que todavía no llegó', function () {
 test('el comprobante se abre con venta.ver_comprobante_transferencia y ningún otro permiso de ventas lo habilita', function () {
     $venta       = ($this->tiendaPedido)();
     $comprobante = $venta->comprobantesTransferencia()->sole();
-    $ruta        = route('ventas.comprobante_transferencia', [$venta, $comprobante]);
+    $ruta        = "/api/v1/ventas/{$venta->id}/comprobantes-transferencia/{$comprobante->id}";
     $otros       = array_values(array_diff(permisosDelModulo('venta'), ['venta.ver_comprobante_transferencia']));
 
-    $this->actingAs(usuarioCon(...$otros))->get($ruta)->assertForbidden();
+    // Tramo H: la API da el enlace firmado con el permiso, y el navegador lo abre (HL-130).
+    $this->getJson($ruta, bearer(usuarioCon(...$otros)))->assertForbidden();
 
-    $respuesta = $this->actingAs(usuarioCon('venta.ver_comprobante_transferencia'))->get($ruta)->assertOk();
+    app('auth')->forgetGuards();
+
+    $enlace = $this->getJson($ruta, bearer(usuarioCon('venta.ver_comprobante_transferencia')))->assertOk()->json('datos.url');
+
+    app('auth')->forgetGuards();
+
+    $respuesta = $this->get($enlace)->assertOk();
     expect($respuesta->headers->get('content-type'))->toContain('application/pdf')
         ->and($respuesta->headers->get('content-disposition'))->toContain('inline');
 });
@@ -86,20 +107,21 @@ test('el comprobante de un pedido no se abre desde otra venta', function () {
     $una  = ($this->tiendaPedido)();
     $otra = ($this->tiendaPedido)();
 
-    $this->actingAs(usuarioCon('venta.ver_comprobante_transferencia'))
-        ->get(route('ventas.comprobante_transferencia', [$otra, $una->comprobantesTransferencia()->sole()]))
+    $ajeno = $una->comprobantesTransferencia()->sole();
+
+    $this->getJson("/api/v1/ventas/{$otra->id}/comprobantes-transferencia/{$ajeno->id}", bearer(usuarioCon('venta.ver_comprobante_transferencia')))
         ->assertNotFound();
 });
 
 test('al cobrar un pedido por transferencia, el saldo se propone en transferencia y sin billetes', function () {
     $venta = ($this->tiendaPedido)();
 
-    $this->actingAs(usuarioCon('venta.ver', 'venta.cobrar'))->get(route('pagos.create', $venta))
+    // Tramo H: dónde se propone el saldo lo dice la ficha; el JS lo pone en el campo de transferencia,
+    // deja vacío el de efectivo y saca los billetes, que sólo van con el efectivo como principal.
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
         ->assertOk()
-        // El campo de transferencia trae el saldo; el de efectivo, vacío.
-        ->assertSeeInOrder(['id="monto-transferencia"', 'value="'.Importe::paraFormulario('54450.00').'"'], false)
-        ->assertSeeInOrder(['id="monto-efectivo"', 'value=""'], false)
-        ->assertDontSee('data-cobro-billetes', false);
+        ->assertJsonPath('datos.cobro.principal', 'transferencia')
+        ->assertJsonPath('datos.importes.saldo', '54450.00');
 });
 
 test('una venta de mostrador sigue proponiendo el efectivo', function () {
@@ -116,17 +138,26 @@ test('el filtro «Transferencias por revisar» trae sólo las que tienen comprob
     $sinComprobante = ($this->tiendaPedido)('transferencia', null);
     $contado = ($this->tiendaPedido)('contado');
 
+    // Tramo H: las filas, de la API; el chip, del shell con la URL.
+    $filas = $this->getJson('/api/v1/ventas?pago=transferencia_en_revision', bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('criterios.pago', 'transferencia_en_revision')
+        ->json('datos');
+
+    expect(array_column($filas, 'id'))->toBe([$porRevisar->id])
+        ->and(array_column($filas, 'id'))->not->toContain($sinComprobante->id, $contado->id);
+
+    app('auth')->forgetGuards();
+
     $this->actingAs(usuarioCon('venta.ver'))->get(route('ventas.index', ['pago' => 'transferencia_en_revision']))
         ->assertOk()
-        ->assertSee($porRevisar->numeroFormateado())
-        ->assertDontSee($sinComprobante->numeroFormateado())
-        ->assertDontSee($contado->numeroFormateado())
         ->assertSee('Pago: Transferencias por revisar');
 
     expect(Venta::query()->dePago('transferencia_en_revision')->pluck('id')->all())->toBe([$porRevisar->id]);
 });
 
 test('un filtro de pago que no existe no se acepta', function () {
-    $this->actingAs(usuarioCon('venta.ver'))->get(route('ventas.index', ['pago' => 'cheques']))
-        ->assertRedirect(route('ventas.index'));
+    $this->getJson('/api/v1/ventas?pago=cheques', bearer(usuarioCon('venta.ver')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('pago', 'errores');
 });

@@ -1,7 +1,5 @@
 @extends('layouts.app')
 
-@use('App\Support\Importe')
-
 @section('title', 'Ventas')
 
 @section('content')
@@ -22,6 +20,9 @@
         @endcan
     </div>
 
+    {{-- Shell (tramo H, regla 37): la tabla, el paginado y los vendedores del filtro llegan por la API.
+         Los chips arman su texto con la URL y con constantes; el nombre del cliente y del vendedor lo
+         pone el JS con lo que el servidor devuelve en `criterios`. --}}
     @php
         $hayFiltros = request()->hasAny(['q', 'estado', 'cliente_id', 'vendedor_id', 'canal', 'pago', 'desde', 'hasta']);
 
@@ -30,8 +31,6 @@
             'estado' => request('estado')
                 ? 'Estado: ' . (App\Models\Venta::ESTADOS[request('estado')] ?? request('estado'))
                 : null,
-            'cliente_id' => $clienteFiltrado ? 'Cliente: ' . Str::limit($clienteFiltrado->razon_social, 22) : null,
-            'vendedor_id' => $vendedorFiltrado ? 'Vendedor: ' . $vendedorFiltrado->nombre_completo : null,
             'canal' => request('canal')
                 ? 'Canal: ' . (App\Models\Venta::CANALES[request('canal')] ?? request('canal'))
                 : null,
@@ -41,9 +40,14 @@
             'desde' => request('desde') ? 'Desde: ' . request('desde') : null,
             'hasta' => request('hasta') ? 'Hasta: ' . request('hasta') : null,
         ])->filter();
+
+        $chipsConNombre = ['cliente_id' => 'Cliente', 'vendedor_id' => 'Vendedor'];
     @endphp
 
-    <form method="GET" action="{{ route('ventas.index') }}" class="card card-body border-0 shadow-sm mb-4">
+    <div data-pantalla="ventas">
+    <form method="GET" action="{{ route('ventas.index') }}" class="card card-body border-0 shadow-sm mb-4" data-filtros-ventas>
+        <p class="alert alert-danger" data-errores-formulario hidden></p>
+
         <div class="row g-3 align-items-end">
             <div class="col-12 col-lg-4">
                 <label for="q" class="form-label">Buscar</label>
@@ -70,13 +74,9 @@
 
             <div class="col-12 col-sm-6 col-lg-4">
                 <label for="vendedor_id" class="form-label">Vendedor</label>
-                <select class="form-select" id="vendedor_id" name="vendedor_id" data-buscable>
+                <select class="form-select" id="vendedor_id" name="vendedor_id" data-buscable data-buscable-diferido
+                    data-seleccionada="{{ request('vendedor_id') }}">
                     <option value="">Todos</option>
-                    @foreach ($vendedores as $vendedor)
-                        <option value="{{ $vendedor->id }}" @selected(request()->integer('vendedor_id') === $vendedor->id)>
-                            {{ $vendedor->nombre_completo }}
-                        </option>
-                    @endforeach
                 </select>
             </div>
 
@@ -112,8 +112,8 @@
 
             {{-- El filtro por cliente llega por enlace, desde la ficha del cliente.
                  No tiene campo acá, pero sí su chip, para que se pueda quitar. --}}
-            @if ($clienteFiltrado)
-                <input type="hidden" name="cliente_id" value="{{ $clienteFiltrado->id }}">
+            @if (request()->filled('cliente_id'))
+                <input type="hidden" name="cliente_id" value="{{ request('cliente_id') }}">
             @endif
 
             <div
@@ -130,12 +130,23 @@
                             </a>
 
                             @foreach ($chips as $parametro => $texto)
-                                <a href="{{ request()->fullUrlWithoutQuery([$parametro, 'page']) }}"
+                                <a href="{{ request()->fullUrlWithoutQuery([$parametro, 'pagina']) }}"
                                     class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
                                     title="Quitar este filtro">
                                     {{ $texto }}
                                     <i class="bi bi-x" aria-hidden="true"></i>
                                 </a>
+                            @endforeach
+
+                            @foreach ($chipsConNombre as $parametro => $rotulo)
+                                @if (request()->filled($parametro))
+                                    <a href="{{ request()->fullUrlWithoutQuery([$parametro, 'pagina']) }}"
+                                        class="badge rounded-pill bg-body-tertiary text-dark border text-decoration-none px-2 py-1 d-inline-flex align-items-center gap-1"
+                                        title="Quitar este filtro">
+                                        {{ $rotulo }}: <span data-nombre-filtro="{{ $parametro }}">el elegido</span>
+                                        <i class="bi bi-x" aria-hidden="true"></i>
+                                    </a>
+                                @endif
                             @endforeach
                         </div>
                     @else
@@ -151,7 +162,7 @@
                         </a>
                     @endif
 
-                    <x-imprimir ruta="ventas.exportar" :listado="new \App\Impresion\ListadoVentas()" class="flex-fill flex-sm-grow-0" />
+                    <x-imprimir api="/ventas/impresion" :listado="new \App\Impresion\ListadoVentas()" class="flex-fill flex-sm-grow-0" />
 
                     <button type="submit"
                         class="btn btn-sm btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1 flex-fill flex-sm-grow-0">
@@ -180,96 +191,56 @@
                         <th scope="col" class="text-end" style="min-width: 5rem;">Acciones</th>
                     </tr>
                 </thead>
-                <tbody>
-                    @forelse ($ventas as $venta)
-                        <tr>
-                            <td class="text-nowrap">
-
-                                <a href="{{ route('ventas.show', $venta) }}" class="fw-semibold link-dark">
-                                    {{ $venta->numeroFormateado() }}
-                                </a>
-                                <div class="small text-body-secondary">
-                                    {{ $venta->created_at->format('d/m/Y') }}
-                                </div>
-                            </td>
-
-                            <td>
-                                {{ $venta->clienteTexto() }}
-                            </td>
-
-                            <td class="d-none d-md-table-cell">
-                                {{ $venta->usuario?->nombre_completo ?? '—' }}
-                            </td>
-
-                            <td class="d-none d-md-table-cell" data-canal="{{ $venta->canal }}">
-                                {{ $venta->canalTexto() }}
-                            </td>
-
-                            <td>
-                                <span class="badge {{ $venta->estadoClase() }}">{{ $venta->estadoTexto() }}</span>
-                                @if ($venta->esPresupuesto() && (int) $venta->faltantes_count > 0)
-                                    <span class="badge text-bg-warning d-inline-block mt-1">
-                                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-                                        Sin stock suficiente
-                                    </span>
-                                @endif
-                            </td>
-
-                            <td class="text-center d-none d-lg-table-cell">{{ $venta->lineas_count }}</td>
-
-                            <td class="text-end text-nowrap">{{ Importe::pesos($venta->total) }}</td>
-
-                            <td class="text-end text-nowrap">
-                                <a href="{{ route('ventas.show', $venta) }}" class="btn btn-sm btn-outline-dark"
-                                    aria-label="Ver la venta {{ $venta->numeroFormateado() }}">
-                                    <i class="bi bi-eye" aria-hidden="true"></i>
-                                    <span class="d-none d-sm-inline">Ver</span>
-                                </a>
-
-                                {{-- Sólo un presupuesto se edita. No ofrecer el botón
-                                     es la mitad del trabajo; la otra la hacen el
-                                     controlador y el servicio. --}}
-                                @if ($venta->esPresupuesto())
-                                    @can('venta.editar')
-                                        <a href="{{ route('ventas.edit', $venta) }}"
-                                            class="btn btn-sm btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1"
-                                            aria-label="Editar la venta {{ $venta->numeroFormateado() }}">
-                                            <i class="bi bi-pencil" aria-hidden="true"></i>
-                                            <span class="d-none d-sm-inline">Editar</span>
-                                        </a>
-                                    @endcan
-                                @endif
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="8" class="text-center text-body-secondary py-4">
-                                @if ($hayFiltros)
-                                    Ninguna venta coincide con el filtro.
-                                    <a href="{{ route('ventas.index') }}">Ver todas</a>.
-                                @else
-                                    Todavía no hay ventas registradas.
-                                    @can('venta.crear')
-                                        <a href="{{ route('ventas.create') }}">Cargar la primera</a>.
-                                    @endcan
-                                @endif
-                            </td>
-                        </tr>
-                    @endforelse
+                <tbody data-listado-filas data-columnas="8" data-ver-todos="Ver todas"
+                    data-vacio="Todavía no hay ventas registradas."
+                    data-vacio-filtrado="Ninguna venta coincide con el filtro.">
+                    <tr>
+                        <td colspan="8" class="text-center text-body-secondary py-4">Cargando…</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
-    </div>
 
-    @if ($ventas->total() > 0)
-        <div class="d-flex flex-column flex-sm-row justify-content-between align-items-center flex-wrap gap-2 mt-3">
-            <p class="text-body-secondary small mb-0 text-center text-sm-start">
-                Mostrando {{ $ventas->firstItem() }}–{{ $ventas->lastItem() }} de {{ $ventas->total() }}.
-            </p>
+        <template data-listado-fila>
+            <tr>
+                <td class="text-nowrap">
+                    <a href="{{ route('ventas.show', '__ID__') }}" class="fw-semibold link-dark" data-campo="numero"></a>
+                    <div class="small text-body-secondary" data-campo="fecha"></div>
+                </td>
+                <td data-campo="cliente_texto"></td>
+                <td class="d-none d-md-table-cell" data-campo="vendedor"></td>
+                <td class="d-none d-md-table-cell" data-campo="canal_texto" data-canal></td>
+                <td>
+                    <span class="badge" data-campo="estado_texto"></span>
+                    <span class="badge text-bg-warning d-inline-block mt-1" data-sin-stock hidden>
+                        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                        Sin stock suficiente
+                    </span>
+                </td>
+                <td class="text-center d-none d-lg-table-cell" data-campo="productos"></td>
+                <td class="text-end text-nowrap" data-campo="total"></td>
+                <td class="text-end text-nowrap">
+                    <a href="{{ route('ventas.show', '__ID__') }}" class="btn btn-sm btn-outline-dark" data-ver>
+                        <i class="bi bi-eye" aria-hidden="true"></i>
+                        <span class="d-none d-sm-inline">Ver</span>
+                    </a>
 
-            <div class="d-flex justify-content-center">
-                {{ $ventas->links() }}
-            </div>
+                    {{-- Sólo un presupuesto se edita: lo dice `editable`, y la API lo vuelve a exigir. --}}
+                    @can('venta.editar')
+                        <a href="{{ route('ventas.edit', '__ID__') }}" hidden data-editar
+                            class="btn btn-sm btn-outline-dark d-inline-flex align-items-center justify-content-center gap-1">
+                            <i class="bi bi-pencil" aria-hidden="true"></i>
+                            <span class="d-none d-sm-inline">Editar</span>
+                        </a>
+                    @endcan
+                </td>
+            </tr>
+        </template>
+
+        <div class="card-body d-flex flex-column flex-sm-row justify-content-between align-items-center flex-wrap gap-2" data-listado-pie hidden>
+            <p class="text-body-secondary small mb-0 text-center text-sm-start" data-listado-resumen></p>
+            <div class="d-flex justify-content-center" data-listado-paginas></div>
         </div>
-    @endif
+    </div>
+    </div>
 @endsection

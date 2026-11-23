@@ -160,8 +160,8 @@ test('la ficha de la venta dice que el pago es del simulador', function () {
     $venta = ($this->tiendaPedido)(($this->tiendaProducto)(), 1);
     $this->pagos->acreditarIntento(($this->tiendaIntento)($venta));
 
-    $this->actingAs(admin())
-        ->get(route('ventas.show', $venta))
+    // Tramo H: la ficha es un shell; el medio del pago llega por la API.
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(admin()))
         ->assertOk()
-        ->assertSee('Simulador — no es cobro real');
+        ->assertJsonPath('datos.pagos.0.metodo_texto', 'Simulador — no es cobro real');
 });

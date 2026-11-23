@@ -1,11 +1,20 @@
-import { olvidarBusquedas } from './selects-buscables';
+import { api, ErrorDeApi } from '../api/cliente';
+import { cargando, completadoAlVolver, limpiarErrores } from '../api/estados';
+import { paraFormulario } from '../pantallas/formato';
+import { elegirOpcion, olvidarBusquedas } from './selects-buscables';
 
 /**
- * Las líneas de una venta: producto, cantidad, y el precio que pone el servidor.
- */ 
+ * Las líneas de una venta: producto, cantidad, y el precio que pone el servidor. Desde el tramo H es un
+ * cliente de la API: en la edición la venta llega por `GET /ventas/{venta}`; emitir es `POST /ventas` y
+ * guardar, `PATCH /ventas/{venta}`.
+ */
 export function iniciarLineasDeVenta(raiz = document) {
-    const armador = raiz.querySelector('[data-venta]');
+    const pantalla = raiz.querySelector('[data-pantalla="formulario-venta"]');
+    const armador = pantalla?.querySelector('[data-venta]');
     if (!armador) return;
+
+    const formulario = pantalla.querySelector('form[data-formulario-venta]');
+    const idVenta = pantalla.dataset.venta;
 
     const tabla = armador.querySelector('table');
     const cuerpo = armador.querySelector('tbody[data-lineas]');
@@ -21,17 +30,10 @@ export function iniciarLineasDeVenta(raiz = document) {
     const totalEl = armador.querySelector('[data-total-venta]');
     const campoDescuento = document.getElementById('descuento_porcentaje');
 
-    const leerJson = (id) => {
-        try {
-            return JSON.parse(document.getElementById(id)?.textContent ?? '{}');
-        } catch {
-            return {};
-        }
-    };
+    // El precio con que se cotizó cada renglón guardado, por producto: lo llena la ficha.
+    const congelados = {};
 
-    const congelados = leerJson('preciosCongelados');
-
-    let proximoIndice = Number(armador.dataset.proximoIndice ?? 0);
+    let proximoIndice = 0;
 
     const pesos = new Intl.NumberFormat('es-AR', {
         style: 'currency',
@@ -189,14 +191,31 @@ export function iniciarLineasDeVenta(raiz = document) {
         fila.dataset.precioHoy = datos.precio ?? '';
         fila.dataset.disponible = datos.disponible ?? '';
 
-        if (campoCantidad) campoCantidad.value = '1';
+        if (campoCantidad) campoCantidad.value = String(datos.cantidad ?? 1);
 
         cuerpo.appendChild(fila);
 
         refrescar();
 
+        if (datos.cantidad !== undefined) return fila;
+
         campoCantidad?.focus();
         campoCantidad?.select();
+
+        return fila;
+    };
+
+    /** Un renglón guardado, tal como lo trae la ficha: con su precio congelado y lo de hoy del producto. */
+    const agregarGuardada = (linea) => {
+        congelados[linea.producto.id] = linea.precio_unitario;
+
+        agregarProducto({
+            value: linea.producto.id,
+            text: `${linea.producto.rotulo ?? linea.descripcion}${linea.producto.activo ? '' : ' (dado de baja)'}`,
+            precio: linea.cotizacion_hoy?.precio ?? null,
+            disponible: linea.cotizacion_hoy?.disponible ?? null,
+            cantidad: linea.cantidad,
+        });
     };
 
     // Elegir en el buscador ES agregar el renglón: el buscador es un gesto y no un
@@ -241,5 +260,79 @@ export function iniciarLineasDeVenta(raiz = document) {
         buscador?.tomselect?.focus();
     });
 
+    // ------------------------------------------------------------------
+    // Guardar
+    // ------------------------------------------------------------------
+
+    // Los `name` se ponen al mandar, con el índice en que viaja cada fila: así un 422 de
+    // `lineas.2.cantidad` cae en el campo de la tercera fila de la pantalla.
+    const renglones = () => filas().map((fila, indice) => {
+        const renglon = {};
+
+        fila.querySelectorAll('[data-campo-linea]').forEach((campo) => {
+            campo.name = `lineas.${indice}.${campo.dataset.campoLinea}`;
+            renglon[campo.dataset.campoLinea] = campo.value;
+        });
+
+        return renglon;
+    });
+
+    formulario.addEventListener('submit', async (evento) => {
+        evento.preventDefault();
+        limpiarErrores(formulario);
+
+        const liberar = cargando(formulario.querySelector('button[type="submit"]'));
+        const datos = {
+            cliente_id: formulario.elements.namedItem('cliente_id')?.value ?? '',
+            descuento_porcentaje: campoDescuento?.value ?? '',
+            observaciones: formulario.elements.namedItem('observaciones')?.value ?? '',
+            lineas: renglones(),
+        };
+
+        try {
+            const respuesta = idVenta
+                ? await api.patch(`/ventas/${idVenta}`, datos, { formulario })
+                : await api.post('/ventas', datos, { formulario });
+
+            completadoAlVolver(respuesta.mensaje, pantalla.dataset.ficha.replace('__ID__', respuesta.datos.id));
+        } catch (error) {
+            // El módulo central ya marcó cada campo (422) o mostró el motivo (409, 403).
+            liberar();
+            if (!(error instanceof ErrorDeApi)) throw error;
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // Arranque: en la edición, la venta por la API
+    // ------------------------------------------------------------------
+
     refrescar();
+
+    if (!idVenta) return;
+
+    api.get(`/ventas/${idVenta}`).then(({ datos: venta }) => {
+        // El número va en el encabezado, fuera del formulario.
+        raiz.querySelectorAll('[data-numero-venta]').forEach((lugar) => {
+            lugar.textContent = venta.numero;
+        });
+        document.title = `Editar ${venta.numero}`;
+
+        if (venta.cliente) {
+            elegirOpcion(formulario.elements.namedItem('cliente_id'), { id: venta.cliente.id, texto: venta.cliente.texto });
+        }
+
+        const porcentaje = Number(venta.importes.descuento_porcentaje);
+        if (campoDescuento) campoDescuento.value = porcentaje > 0 ? paraFormulario(venta.importes.descuento_porcentaje) : '';
+        formulario.elements.namedItem('observaciones').value = venta.observaciones ?? '';
+
+        venta.lineas.forEach(agregarGuardada);
+        formulario.hidden = false;
+        refrescar();
+    }).catch((error) => {
+        // Un error de la API ya lo mostró el módulo central; uno de programación no se calla.
+        if (!(error instanceof ErrorDeApi)) throw error;
+    }).finally(() => {
+        pantalla.querySelector('[data-cargando]').hidden = true;
+        pantalla.removeAttribute('aria-busy');
+    });
 }

@@ -1576,3 +1576,30 @@ admite el permiso. Los mensajes pasaron tal cual de los controladores web a los 
   sirve, no rinden datos, y sus tests no cambiaron.
 - **La edición y la recepción leen la ficha** (`GET /compras/{id}`, `compra.ver`) en lugar de un endpoint propio. Los roles
   con `compra.editar` o `compra.recibir` tienen `compra.ver` (HL-128).
+
+### Tramo H — Ventas, panel e informes
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Api/V1/VentaController` + `VentaFiltroRequest`, `VentaRequest`, `CobroVentaRequest`, `EntregaRequest`, `DevolucionRequest` (en `Requests/Api`) | El listado con su impresión, los vendedores del filtro, la ficha, el alta, la edición, recotizar, cancelar, el cobro, la entrega, la devolución y los tres documentos | Nuevo |
+| `VentaResource`, `VentaFichaResource` | La fila del listado y la ficha, con `cobro`, `devolucion` y `acciones`, que decide el estado; la lectura de presentación que tenía el controlador web pasa acá (HL-131) | Nuevo |
+| `App\Impresion\DocumentosDeVenta` | La venta, el comprobante de entrega y el de transferencia por URL firmada propia (HL-129, HL-130): al abrirla, cuenta activa y su permiso | Nuevo |
+| `ListadoVentas`, `ImpresionFirmada::LISTADOS` | El listado se imprime por enlace firmado, con la misma consulta que lista la API | Modificado |
+| `Api/V1/PanelController` + `PanelFiltroRequest` (API), `PanelResource`, `PanelPropioResource`, `PanelGeneralResource` | Los dos paneles con el período, el anterior y la comparación de cada número, armada por `Comparacion` en el servidor | Nuevo |
+| `Api/V1/InformeController` + `InformeFiltroRequest`, `InformeVendedorResource`, `InformeProductoResource` | El ranking (con `totales`) y los más vendidos, paginados de a 15 | Nuevo |
+| `pantallas/ventas.js`, `operaciones-venta.js`, `panel.js`, `informes.js`; `componentes/lineas-venta.js`, `cobro.js`, `graficos.js`, `app.js` | El listado, la ficha con sus acciones, el alta y la edición, el cobro, la entrega parcial, la devolución, los paneles y los informes, como clientes de la API | Nuevo / Modificado |
+| Vistas de `ventas` (índice, ficha, formulario, cobro, entrega, devolución, informes y sus parciales) y de `panel` | Shells: la estructura, las plantillas y los `@can`, sin datos de negocio (regla 37) | Modificado |
+| Controladores web `VentaController`, `PagoController`, `PanelController`, `InformeVentasController` | Sólo shells, con las guardias de estado de la edición, el cobro, la entrega y la devolución. Se retiran 11 rutas; se borran los cinco Form Requests web de ventas, `PanelFiltroRequest`, el `ComprobanteTransferenciaController` web y el trait `ImprimeListados` | Modificado |
+| `VentaModuloTest`, `EntregaModuloTest`, `CobroPantallaTest`, `VentaImpresionTest`, `VentaTransferenciaTest`, `ClienteAltaRapidaTest`, `AcreditarIntentoTest`, `ImpresionDialogoTest`, `PanelModuloTest`, `PanelAtencionTest`, `PanelGraficoTest`, `InformeVentasModuloTest` | Las escrituras y las descargas migran al endpoint con su aserción; las lecturas de pantalla, al JSON; las 11 URLs retiradas dan 404 o 405 | Modificado |
+
+**La decisión que lo condicionó.** `/api/v1/ventas` y no `/pedidos`: `pedidos` es el alcance del cliente, con `tienda.*`, y
+cambiar su forma rompería la app (regla 40). Es el mismo modelo con otro alcance y otro permiso. Como en compras, cada
+operación devuelve la ficha entera con el mensaje que daba la web, y `VentaService`, `PagoService`, `PanelService` e
+`InformeVentasService` no cambiaron.
+- **El cobro, la entrega y la devolución leen la ficha** (HL-128): `cobro` y `devolucion` traen lo que esas pantallas
+  necesitaban del controlador web (los problemas que harán fallar el cobro, el medio principal, el sugerido), sólo cuando
+  el estado las admite.
+- **La frase de la comparación del panel la arma el servidor**: la regla de cuándo hay porcentaje es el invariante 16 y
+  no se duplica en el cliente.
+- **Lo que se dejó de poder sin JavaScript**: guardar una venta, el diálogo de impresión del listado y los números
+  plegados del panel. Es el mismo precio que pagaron D a G (HL-111): la credencial viaja como Bearer y sólo la manda el JS.

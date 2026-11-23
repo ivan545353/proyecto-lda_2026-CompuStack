@@ -346,6 +346,28 @@ una regla nueva (D-34): queda anotado.
 tienen esos permisos tienen `compra.*`; un rol armado a mano con `compra.editar` suelto vería un 403 al cargar, que el
 módulo central muestra. Aparte, la ficha suma `lineas.*.producto.activo`, para que la edición avise «(dado de baja)» como antes.
 
+### HL-129 — El comprobante de la venta necesita su propia ruta firmada
+
+*Registrado en el tramo H.* `ComprobanteVenta::firmado` es de la tienda y exige lo cobrado; la administración imprime
+también el presupuesto. Se suma una ruta firmada propia en `App\Impresion\DocumentosDeVenta`, con el molde de HL-126: la
+firma lleva quién lo pidió y, al abrirlo, se vuelve a exigir cuenta activa y `venta.ver`. La de la tienda no se toca
+(regla 40). Cancelada, no hay enlace: 409.
+
+### HL-130 — El remito de entrega y el comprobante de transferencia salían con sesión
+
+*Registrado en el tramo H.* Eran dos descargas web con la sesión de la administración. Pasan a URL firmada pedida por la
+API (D-22), con la misma reexigencia al abrir: `venta.ver` para el remito y `venta.ver_comprobante_transferencia` para el
+archivo del cliente, que se abre en línea. Una entrega o un comprobante de otra venta es 404.
+
+### HL-131 — La lectura de presentación del controlador web pasa a la ficha
+
+*Registrado en el tramo H.* El `VentaController` y el `PagoController` web calculaban para la vista los renglones que harán
+fallar el cobro, el medio principal, el medio sugerido de la devolución y el aviso de stock. Es lectura, no regla (D-34 no
+aplica): pasa a `VentaFichaResource` (`cobro`, `devolucion`, `lineas.*.cotizacion_hoy`, `faltante`) y al `mensaje` del alta
+y la edición. **Desvío del plan**: el `GET ventas/armador` del paso 2 no se construyó. El tope de descuento y si hay productos
+son configuración del rol y del catálogo, no datos de una venta, y quedaron en el shell como atributos; la venta que se edita
+se lee de la ficha.
+
 ---
 
 ## 4. Alcance

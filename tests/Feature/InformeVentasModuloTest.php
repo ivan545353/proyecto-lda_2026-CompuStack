@@ -15,6 +15,12 @@ dataset('informes de ventas', [
     'productos más vendidos' => ['ventas.productos'],
 ]);
 
+// Tramo H: las filas van por la API, con el mismo permiso que la pantalla.
+dataset('endpoints de informes', [
+    'ranking de vendedores'  => ['/api/v1/informes/vendedores'],
+    'productos más vendidos' => ['/api/v1/informes/productos'],
+]);
+
 /*
 |--------------------------------------------------------------------------
 | Permisos
@@ -40,6 +46,16 @@ test('el permiso del panel general alcanza para los informes', function (string 
     $this->actingAs(usuarioCon('panel.ver_global'))->get(route($ruta))->assertOk();
 })->with('informes de ventas');
 
+test('ningun otro permiso del modulo habilita los endpoints de informes', function (string $ruta) {
+    $otros = array_values(array_diff(permisosDelModulo('panel'), ['panel.ver_global']));
+
+    $this->getJson($ruta, bearer(usuarioCon('venta.ver', ...$otros)))->assertForbidden();
+})->with('endpoints de informes');
+
+test('el permiso del panel general alcanza para los endpoints de informes', function (string $ruta) {
+    $this->getJson($ruta, bearer(usuarioCon('panel.ver_global')))->assertOk();
+})->with('endpoints de informes');
+
 /*
 |--------------------------------------------------------------------------
 | El período llega de la URL a la consulta
@@ -58,12 +74,12 @@ test('el periodo de la URL llega al ranking', function () {
     ventaCobrada($producto, 1);
     $this->travelBack();
 
-    $this->actingAs(usuarioCon('panel.ver_global'))
-        ->get(route('ventas.vendedores', ['desde' => '2026-03-01', 'hasta' => '2026-03-31']))
+    // Tramo H: el shell pide a la API la consulta de su URL, tal cual.
+    $this->getJson('/api/v1/informes/vendedores?desde=2026-03-01&hasta=2026-03-31', bearer(usuarioCon('panel.ver_global')))
         ->assertOk()
-        ->assertViewHas('filas', fn ($filas) => $filas->total() === 1
-            && $filas->first()->usuario_id === $vendedor->id
-            && round((float) $filas->first()->facturado, 2) === 3000.0);
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.usuario_id', $vendedor->id)
+        ->assertJsonPath('datos.0.facturado', '3000.00');
 });
 
 test('el periodo de la URL llega a los mas vendidos', function () {
@@ -78,19 +94,19 @@ test('el periodo de la URL llega a los mas vendidos', function () {
     ventaCobrada($abril, 5);
     $this->travelBack();
 
-    $this->actingAs(usuarioCon('panel.ver_global'))
-        ->get(route('ventas.productos', ['desde' => '2026-03-01', 'hasta' => '2026-03-31']))
+    $this->getJson('/api/v1/informes/productos?desde=2026-03-01&hasta=2026-03-31', bearer(usuarioCon('panel.ver_global')))
         ->assertOk()
-        ->assertViewHas('filas', fn ($filas) => $filas->total() === 1
-            && $filas->first()->producto_id === $marzo->id);
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.producto_id', $marzo->id);
 });
 
-test('un periodo invalido vuelve al informe limpio con un aviso', function (string $ruta) {
-    $this->actingAs(usuarioCon('panel.ver_global'))
-        ->get(route($ruta, ['desde' => '2026-03-31', 'hasta' => '2026-03-01']))
-        ->assertRedirect(route($ruta))
-        ->assertSessionHas('error');
-})->with('informes de ventas');
+test('un periodo invalido se rechaza con el error en su campo', function (string $ruta) {
+    // Tramo H: antes redirigía al mes en curso con un aviso; por la API es un 422 que el
+    // filtro marca en su campo (patrón HL-120).
+    $this->getJson("{$ruta}?desde=2026-03-31&hasta=2026-03-01", bearer(usuarioCon('panel.ver_global')))
+        ->assertStatus(422)
+        ->assertJsonValidationErrorFor('hasta', 'errores');
+})->with('endpoints de informes');
 
 test('el informe pagina de a 15 y los enlaces conservan el periodo', function () {
     $vendedor = usuarioCon('venta.crear');
@@ -101,15 +117,20 @@ test('el informe pagina de a 15 y los enlaces conservan el periodo', function ()
     }
     $this->travelBack();
 
-    $html = $this->actingAs(usuarioCon('panel.ver_global'))
-        ->get(route('ventas.productos', ['desde' => '2026-03-01', 'hasta' => '2026-03-31']))
-        ->assertOk()
-        ->assertViewHas('filas', fn ($filas) => $filas->count() === 15 && $filas->total() === 16)
-        ->getContent();
+    $credencial = bearer(usuarioCon('panel.ver_global'));
 
-    // Sin withQueryString(), pasar a la página 2 volvería al mes en curso (A-25). Se mira
-    // el enlace de la página 2 y no la URL suelta, que también está en «Volver al panel».
-    expect($html)->toMatch('/href="[^"]*hasta=2026-03-31[^"]*page=2"/');
+    $this->getJson('/api/v1/informes/productos?desde=2026-03-01&hasta=2026-03-31', $credencial)
+        ->assertOk()
+        ->assertJsonCount(15, 'datos')
+        ->assertJsonPath('por_pagina', 15)
+        ->assertJsonPath('total', 16);
+
+    // Sin el período, pasar a la página 2 volvería al mes en curso (A-25). Tramo H: los enlaces
+    // de página los arma el JS sobre la consulta de la URL, así que la página 2 sigue siendo de marzo.
+    $this->getJson('/api/v1/informes/productos?desde=2026-03-01&hasta=2026-03-31&pagina=2', $credencial)
+        ->assertOk()
+        ->assertJsonCount(1, 'datos')
+        ->assertJsonPath('criterios.hasta', '2026-03-31');
 });
 
 /*
@@ -123,31 +144,52 @@ test('el ranking muestra el total del conjunto con su ticket promedio', function
     ventaCobrada($producto, 3);
     ventaCobrada($producto, 1);
 
-    // Ventas cobradas y ticket promedio salieron del panel: se leen acá.
-    $html = $this->actingAs(usuarioCon('panel.ver_global'))
+    // Ventas cobradas y ticket promedio salieron del panel: se leen acá. Tramo H: el total
+    // llega en `totales` y el shell trae su fila al pie.
+    $this->getJson('/api/v1/informes/vendedores', bearer(usuarioCon('panel.ver_global')))
+        ->assertOk()
+        ->assertJsonPath('totales.cantidad', 2)
+        ->assertJsonPath('totales.facturado', '4000.00')
+        ->assertJsonPath('totales.ticket', '2000.00');
+
+    app('auth')->forgetGuards();
+
+    $this->actingAs(usuarioCon('panel.ver_global'))
         ->get(route('ventas.vendedores'))
         ->assertOk()
         ->assertSeeText('Ticket promedio')
-        ->getContent();
-
-    preg_match('/<tfoot\b[^>]*data-total[^>]*>(.*?)<\/tfoot>/s', $html, $pie);
-
-    expect($pie[1] ?? '')->toContain('$ 4.000,00')
-        ->and($pie[1] ?? '')->toContain('$ 2.000,00');
+        ->assertSee('data-total hidden', false);
 });
 
 test('el vacio del mes y el vacio del periodo elegido dicen cosas distintas', function (string $ruta) {
     $usuario = usuarioCon('panel.ver_global');
 
-    $delMes = $this->actingAs($usuario)->get(route($ruta))->assertOk()->getContent();
-    $elegido = $this->actingAs($usuario)
-        ->get(route($ruta, ['desde' => '2026-03-01', 'hasta' => '2026-03-31']))
-        ->assertOk()
-        ->getContent();
+    // Tramo H: los dos textos son del shell; cuál se muestra lo decide el JS según la URL traiga
+    // período, que es lo mismo que la API informa en `criterios.elegido`.
+    $html = $this->actingAs($usuario)->get(route($ruta))->assertOk()->getContent();
 
-    preg_match('/data-vacio[^>]*>(.*?)<\/td>/s', $delMes, $vacioDelMes);
-    preg_match('/data-vacio[^>]*>(.*?)<\/td>/s', $elegido, $vacioElegido);
+    preg_match('/data-vacio="([^"]*)"/', $html, $vacioDelMes);
+    preg_match('/data-vacio-filtrado="([^"]*)"/', $html, $vacioElegido);
 
     expect($vacioDelMes[1] ?? '')->toMatch('/Todavía\s+no\s+hay/')
         ->and($vacioElegido[1] ?? '')->toMatch('/entre\s+esas\s+fechas/');
+
+    app('auth')->forgetGuards();
+
+    $endpoint = $ruta === 'ventas.vendedores' ? '/api/v1/informes/vendedores' : '/api/v1/informes/productos';
+
+    $this->getJson($endpoint, bearer($usuario))->assertJsonPath('criterios.elegido', false)->assertJsonPath('datos', []);
+    $this->getJson("{$endpoint}?desde=2026-03-01&hasta=2026-03-31", bearer($usuario))->assertJsonPath('criterios.elegido', true);
+})->with('informes de ventas');
+
+test('los shells de los informes no traen datos de negocio', function (string $ruta) {
+    // Regla 37: la página llega con su estructura; las filas, por la API.
+    $producto = productoConPrecios(contado: 1234);
+    ventaCobrada($producto, 3);
+
+    $this->actingAs(usuarioCon('panel.ver_global'))
+        ->get(route($ruta))
+        ->assertOk()
+        ->assertDontSee($producto->nombre)
+        ->assertDontSee('3.702,00');
 })->with('informes de ventas');

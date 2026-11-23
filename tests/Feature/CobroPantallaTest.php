@@ -21,6 +21,10 @@ beforeEach(function () {
 | value que rinde Blade, se retira cuando la pantalla vuelve de un rechazo, y nada
 | de lo que agrega el JavaScript —«Total», billetes, vuelto— viaja con el cobro.
 |
+| Desde el tramo H la pantalla es un shell: el saldo y el medio principal llegan en la
+| ficha de la API (`importes.saldo`, `cobro.principal`) y el JS los pone en el value. Lo
+| que el servidor fija es eso, y que el shell no traiga ningún importe propio.
+|
 */
 
 /** Un presupuesto de dos unidades, cobrable: el producto tiene stock de sobra. */
@@ -43,27 +47,34 @@ function pagosDelCobro(string $efectivo = '', string $transferencia = '', string
 }
 
 test('el efectivo llega con el saldo en el value que rinde el servidor', function () {
-    $venta     = presupuestoParaCobrar();
-    $propuesta = Importe::paraFormulario($venta->saldo());
+    $venta = presupuestoParaCobrar();
 
+    // El saldo y dónde se propone, de la API: el JS lo pone en el value del efectivo.
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.importes.saldo', Importe::json($venta->saldo()))
+        ->assertJsonPath('datos.cobro.principal', 'efectivo');
+
+    app('auth')->forgetGuards();
+
+    // El shell: los tres medios vacíos, con el `name` de la clave de error de la API.
     $this->actingAs(usuarioCon('venta.cobrar'))
         ->get(route('pagos.create', $venta))
         ->assertOk()
-        ->assertSee('name="pagos[0][monto]" value="'.$propuesta.'"', false)
-        ->assertSee('name="pagos[1][monto]" value=""', false)
-        ->assertSee('name="pagos[2][monto]" value=""', false)
-        ->assertSee('data-cobro-propuesto', false)
+        ->assertSee('name="pagos.0.monto" value=""', false)
+        ->assertSee('name="pagos.1.monto" value=""', false)
+        ->assertSee('name="pagos.2.monto" value=""', false)
+        ->assertDontSee(Importe::paraFormulario($venta->saldo()))
         ->assertSee('no se registra');
 });
 
 test('cobrar al total es enviar el formulario tal como llega', function () {
     $venta = presupuestoParaCobrar();
 
-    // Lo que manda el navegador si el cajero aprieta Enter sin tocar nada.
-    $this->actingAs(usuarioCon('venta.cobrar'))
-        ->post(route('pagos.store', $venta), pagosDelCobro(efectivo: Importe::paraFormulario($venta->saldo())))
-        ->assertRedirect(route('ventas.show', $venta))
-        ->assertSessionHas('exito');
+    // Lo que manda la pantalla si el cajero aprieta Enter sin tocar nada (tramo H: a la API).
+    $this->postJson("/api/v1/ventas/{$venta->id}/pagos", pagosDelCobro(efectivo: Importe::paraFormulario($venta->saldo())), bearer(usuarioCon('venta.cobrar')))
+        ->assertCreated()
+        ->assertJsonPath('datos.estado', 'pagada');
 
     expect($venta->fresh()->estado)->toBe('pagada');
 });
@@ -73,18 +84,15 @@ test('al volver de un rechazo muestra lo que se mando y no propone el saldo otra
 
     // El cajero vació el efectivo y cargó una transferencia que no alcanza: si la
     // pantalla re-propusiera el saldo, el próximo Enter cobraría de más.
-    $html = $this->actingAs(usuarioCon('venta.cobrar'))
-        ->from(route('pagos.create', $venta))
-        ->followingRedirects()
-        ->post(route('pagos.store', $venta), pagosDelCobro(transferencia: '1,00'))
-        ->assertOk()
-        ->assertSee('name="pagos[0][monto]" value=""', false)
-        ->assertSee('name="pagos[1][monto]" value="1', false)
-        ->assertDontSee('data-cobro-propuesto', false)
-        ->getContent();
+    //
+    // Tramo H, la mitad del servidor: el rechazo es un 409 sin errores por campo y la venta
+    // no se cobra. La otra mitad ya no la rinde Blade: la pantalla no se recarga, así que
+    // queda lo que el cajero cargó y no se vuelve a proponer el saldo, ni se pliega
+    // «dividir el pago». Eso lo hace el JS y lo cubre el recorrido manual del tramo.
+    $this->postJson("/api/v1/ventas/{$venta->id}/pagos", pagosDelCobro(transferencia: '1,00'), bearer(usuarioCon('venta.cobrar')))
+        ->assertStatus(409)
+        ->assertJsonPath('errores', []);
 
-    // Un importe ya cargado no se pliega: «dividir el pago» nace abierto.
-    expect($html)->toMatch('/<details[^>]*\bopen\b/');
     expect($venta->fresh()->estado)->not->toBe('pagada');
 });
 
@@ -101,11 +109,18 @@ test('dividir el pago nace plegado cuando no hay nada cargado en los otros medio
 test('con un aviso arriba el efectivo se propone igual pero no roba el foco', function () {
     $venta = presupuestoParaCobrar(cantidad: 60);   // el producto tiene 50
 
+    // El aviso y el saldo, de la API: el JS propone el saldo igual y, con un aviso, no le da el foco.
+    $this->getJson("/api/v1/ventas/{$venta->id}", bearer(usuarioCon('venta.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.cobro.problemas.0', fn (string $texto) => str_contains($texto, 'y hay 50 disponible(s)'))
+        ->assertJsonPath('datos.importes.saldo', Importe::json($venta->saldo()));
+
+    app('auth')->forgetGuards();
+
     $this->actingAs(usuarioCon('venta.cobrar'))
         ->get(route('pagos.create', $venta))
         ->assertOk()
         ->assertSee('va a ser rechazado')
-        ->assertSee('value="'.Importe::paraFormulario($venta->saldo()).'"', false)
         ->assertDontSee('autofocus', false);
 });
 

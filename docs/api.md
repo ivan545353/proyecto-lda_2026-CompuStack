@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 18** · tramo G de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
+**Revisión 19** · tramo H de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -18,7 +18,7 @@ principio). La 11 suma `GET /tienda` (§7.1), lo que la tienda ofrece, para el I
 transferencia como tercer medio (§7.7). La 13, con qué entregas vale cada medio (D-28): el efectivo, sólo con retiro. La 14 abre la Etapa 3: la sesión es
 común a la app y a la administración, con `GET /yo`, vigencia por ámbito y `401 sesion_expirada`. La 15 suma la
 gestión del catálogo (§7.8): marcas, categorías, productos y sus proveedores, por representación según el permiso,
-sin cambiar ninguna forma de la tienda. La 16, los terceros (§7.9): clientes, direcciones y proveedores. La 17, precios y stock (§7.10): la parametrización, el ajuste masivo con su historial, el kardex y el ajuste por conteo. La 18, las compras (§7.11): órdenes, armador, edición, transiciones, recepción y el pedido en PDF.
+sin cambiar ninguna forma de la tienda. La 16, los terceros (§7.9): clientes, direcciones y proveedores. La 17, precios y stock (§7.10): la parametrización, el ajuste masivo con su historial, el kardex y el ajuste por conteo. La 18, las compras (§7.11): órdenes, armador, edición, transiciones, recepción y el pedido en PDF. La 19, las ventas de la administración, los dos paneles y los dos informes (§7.12).
 
 ## 1. Reglas generales
 
@@ -2090,6 +2090,215 @@ aprobó. El pedido se imprime cuando alguien autoriza el gasto, no antes.»). De
 
 - Errores de la sección: 401, 403, 404, 409 `regla_de_negocio`, 422 `validacion`.
 
+### 7.12 Ventas, panel e informes (Etapa 3, tramo H, r19)
+
+Las ventas de la administración —presupuesto, edición, recotización, cobro, entrega, devolución, cancelación y sus
+documentos—, los dos paneles y los dos informes pasan a leerse y escribirse por acá, con la misma credencial y los mismos
+permisos que cualquier otro cliente (regla 35). **Todo es nuevo**: ninguna forma anterior cambia (regla 40). Los pedidos
+del cliente siguen en `/pedidos` (§7.4 a §7.7), con `tienda.*`: es el mismo modelo con otro alcance y otro permiso. Valen
+las reglas comunes de §7.8: un permiso por acción en la ruta (C-2), 403 `sin_permiso` sin él, un filtro o un período
+inválido es 422, una transición que la tabla no admite es **409 `regla_de_negocio`** con el mismo mensaje que daba la web.
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /ventas` | `venta.ver` | El listado, del más nuevo al más viejo. `q` (número o cliente), `estado`, `cliente_id`, `vendedor_id`, `canal`, `pago` (`transferencia_en_revision`, …), `desde`, `hasta` |
+| `GET /ventas/vendedores` | `venta.ver` | Las opciones del filtro: quienes cargaron ventas (`{ id, nombre }`, paginado) |
+| `GET /ventas/impresion` | `venta.ver` | URL firmada del listado, con los mismos filtros (D-22, §7.8) |
+| `GET /ventas/{id}` | `venta.ver` | La ficha: cliente, renglones congelados, entregas, comprobantes, pagos, `cobro`, `devolucion` y `acciones` |
+| `GET /ventas/{id}/pdf` | `venta.ver` | URL firmada del presupuesto o del comprobante (HL-129); cancelada, 409 |
+| `GET /ventas/{id}/entregas/{entrega}/pdf` | `venta.ver` | URL firmada del comprobante interno de una entrega (HL-130); de otra venta, 404 |
+| `GET /ventas/{id}/comprobantes-transferencia/{c}` | `venta.ver_comprobante_transferencia` | URL firmada del archivo que cargó el cliente (HL-130); se abre en línea |
+| `POST /ventas` | `venta.crear` | Emite el presupuesto: `cliente_id`, `descuento_porcentaje`, `observaciones`, `lineas[{producto_id, cantidad}]` (201) |
+| `PATCH /ventas/{id}` | `venta.editar` | Edita el presupuesto; los renglones que ya estaban conservan su precio. Cobrada, 409 |
+| `POST /ventas/{id}/recotizar` | `venta.editar` | Trae los precios de hoy a todos los renglones; `mensaje` dice qué cambió |
+| `POST /ventas/{id}/cancelar` | `venta.editar` | Cancela el presupuesto o el pedido sin cobrar; el pedido libera su reserva |
+| `POST /ventas/{id}/pagos` | `venta.cobrar` | Cobra: `pagos[{metodo, monto}]` por el saldo exacto; descuenta el stock (201) |
+| `POST /ventas/{id}/entregas` | `venta.entregar` | Sin cuerpo entrega todo lo pendiente; con `cantidades{renglón: n}`, una parte (201) |
+| `POST /ventas/{id}/devoluciones` | `venta.anular` | `cantidades{renglón: n}`, `metodo`, `motivo`; el monto lo calcula el servidor (201) |
+| `GET /panel` | `panel.ver_propio` | Lo que vendí y cobré en el período (`desde`, `hasta`), contra el anterior |
+| `GET /panel/general` | `panel.ver_global` | El conjunto del período, lo que requiere atención y las dos series |
+| `GET /informes/vendedores` | `panel.ver_global` | El ranking del período, de a 15, con `totales` |
+| `GET /informes/productos` | `panel.ver_global` | Los más vendidos del período por unidades netas, de a 15 |
+
+`GET /ventas`:
+
+```json
+{
+  "datos": [
+    {
+      "id": 10015, "numero": "V-10015", "fecha": "2026-11-22T23:39:00Z",
+      "cliente": { "id": 5005, "razon_social": "Herrera, Rodrigo" }, "cliente_texto": "Herrera, Rodrigo",
+      "vendedor": "Aguirre, Micaela", "canal": "mostrador", "canal_texto": "Mostrador",
+      "estado": "presupuesto", "estado_texto": "Presupuesto", "total": "1871500.00",
+      "editable": true, "productos": 4, "renglones_sin_stock": 0, "sin_stock": false
+    }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 501, "total": 10016,
+  "criterios": { "q": null, "estado": null, "cliente_id": null, "cliente": null, "vendedor_id": null, "vendedor": null,
+                 "canal": null, "pago": null, "desde": null, "hasta": null }
+}
+```
+
+- `cliente` y `vendedor` de `criterios` son los nombres del filtrado por id, para el chip de la pantalla.
+- `sin_stock` es la insignia: sólo un presupuesto con algún renglón que supera el disponible de hoy.
+- Sin cliente identificado, `cliente` es `null` y `cliente_texto` dice «Sin identificar».
+
+`GET /ventas/{id}` (la misma forma vuelve en `POST`, `PATCH`, las transiciones, el cobro, la entrega y la devolución, con
+`mensaje`):
+
+```json
+{
+  "datos": {
+    "id": 10015, "numero": "V-10015", "fecha": "2026-11-22T23:39:00Z",
+    "cliente": {
+      "id": 5005, "razon_social": "Herrera, Rodrigo", "texto": "Herrera, Rodrigo — DNI 90004997",
+      "tipo_doc_texto": "DNI", "nro_doc": "90004997", "condicion_iva_texto": "Consumidor final",
+      "telefono": "297-5004997", "email": "cliente4997@volumen.local"
+    },
+    "cliente_texto": "Herrera, Rodrigo", "vendedor": "Aguirre, Micaela",
+    "canal": "mostrador", "canal_texto": "Mostrador", "estado": "presupuesto", "estado_texto": "Presupuesto",
+    "total": "1871500.00", "editable": true, "productos": 4, "sin_stock": false,
+    "es_online": false, "medio_pago": null, "modificada": null, "observaciones": null,
+    "importes": {
+      "subtotal": "1871500.00", "descuento": "0.00", "descuento_porcentaje": "0.00",
+      "total": "1871500.00", "pagado": "0.00", "saldo": "1871500.00"
+    },
+    "unidades_pendientes_de_entregar": 10,
+    "lineas": [
+      {
+        "id": 25019,
+        "producto": { "id": 2033, "codigo": "VOL-02022", "rotulo": "VOL-02022 — Cableado Atomlux Patch cord MX-3022", "activo": true },
+        "cotizacion_hoy": { "precio": "112000.00", "disponible": 188 },
+        "descripcion": "Cableado Atomlux Patch cord MX-3022", "alicuota_iva": "21.00",
+        "cantidad": 4, "cantidad_entregada": 0, "cantidad_devuelta": 0,
+        "pendiente_de_entregar": 4, "pendiente_de_devolver": 4,
+        "precio_unitario": "112000.00", "neto": "370247.93", "iva": "77752.07", "impuestos": [], "total": "448000.00",
+        "faltante": null
+      }
+    ],
+    "comprobantes_transferencia": [],
+    "entregas": [],
+    "entregada_sin_comprobante": false,
+    "pagos": [],
+    "medios": [
+      { "metodo": "efectivo", "texto": "Efectivo" },
+      { "metodo": "transferencia", "texto": "Transferencia" },
+      { "metodo": "qr", "texto": "QR" }
+    ],
+    "cobro": { "principal": "efectivo", "problemas": [] },
+    "devolucion": null,
+    "acciones": {
+      "editar": true, "recotizar": true, "cobrar": true, "entregar": false, "entregar_parte": false,
+      "devolver": false, "cancelar": true, "imprimir": true
+    }
+  }
+}
+```
+
+- `acciones` dice qué admite **el estado** (la tabla de transiciones y lo pendiente), no el permiso: eso lo decide la ruta
+  en cada petición, y la pantalla lo refleja con un `@can` por botón (regla 12). `entregar_parte` es falso con una sola
+  unidad pendiente: no hay parte que elegir.
+- `cobro` viene sólo si se puede cobrar: `principal` es el medio donde se propone el saldo (transferencia si el pedido dijo
+  transferencia, D-27) y `problemas` los renglones que harán fallar el cobro, en palabras: la baja del producto antes que
+  el faltante. `devolucion` viene sólo si se puede devolver: `sugerido` es el medio del cobro más grande (HL-131).
+- `cotizacion_hoy` (precio de contado y disponible de hoy) y `faltante` viajan sólo en un presupuesto: son el aviso de
+  la edición y de la ficha, no el stock del producto. Cobrada, son `null`.
+- `entregas[]` trae `{ id, numero, fecha, quien, unidades }`; `pagos[]`, `{ id, fecha, metodo, metodo_texto, monto,
+  es_devolucion, registro }`, con la devolución en negativo; `comprobantes_transferencia[]`, `{ id, nombre_original,
+  fecha }`.
+- `mensaje` de cada operación es el texto que daba la web. El del alta y la edición suma, si hay renglones que superan
+  el disponible, cuántos son: avisar no es impedir, un presupuesto no compromete stock.
+- El cobro es por el saldo exacto: otra suma es 409 `regla_de_negocio` sin errores por campo, y la venta no se cobra.
+  Un renglón sin stock o dado de baja también es 409. Un importe mal escrito es 422 en `pagos.{i}.monto`.
+- Los tres documentos devuelven `{ "url", "vence" }` como la impresión de los listados (D-22). El enlace no lleva la
+  credencial y, al abrirlo, se vuelve a exigir que quien lo pidió siga activo y con el permiso; firma vencida o tocada,
+  403. El de la venta lleva su propia ruta y no la de la tienda, que exige lo cobrado (HL-129).
+
+`GET /panel`:
+
+```json
+{
+  "datos": {
+    "periodo": { "desde": "2026-11-01", "hasta": "2026-11-23", "texto": "Del 01/11/2026 al 23/11/2026" },
+    "vendi": { "cantidad": 1, "facturado": "360000.00", "ticket": "360000.00" },
+    "cobre": { "movimientos": 0, "neto": "0.00" },
+    "presupuestos_abiertos": 0,
+    "anterior": {
+      "desde": "2026-10-09", "hasta": "2026-10-31", "texto": "entre el 09/10 y el 31/10",
+      "vendi": { "cantidad": 0, "facturado": "0.00", "ticket": "0.00" },
+      "cobre": { "movimientos": 0, "neto": "0.00" }
+    },
+    "comparaciones": {
+      "vendi_cantidad": { "sentido": "sin_datos", "porcentaje": null, "texto": "Sin datos del período anterior" },
+      "vendi_facturado": { "sentido": "sin_datos", "porcentaje": null, "texto": "Sin datos del período anterior" },
+      "vendi_ticket": { "sentido": "sin_datos", "porcentaje": null, "texto": "Sin datos del período anterior" },
+      "cobre_neto": { "sentido": "sin_datos", "porcentaje": null, "texto": "Sin datos del período anterior" },
+      "cobre_movimientos": { "sentido": "sin_datos", "porcentaje": null, "texto": "Sin datos del período anterior" }
+    }
+  }
+}
+```
+
+`GET /panel/general`:
+
+```json
+{
+  "datos": {
+    "periodo": { "desde": "2026-11-01", "hasta": "2026-11-23", "texto": "Del 01/11/2026 al 23/11/2026" },
+    "cobrado": "426477552.00", "facturado": "440947552.00", "cantidad": 352, "ticket": "1252691.91",
+    "descuentos": "5965648.00", "margen_bruto": "165433602.16",
+    "por_metodo": [
+      { "metodo": "qr", "metodo_texto": "QR", "movimientos": 151, "neto": "159528430.00" },
+      { "metodo": "transferencia", "metodo_texto": "Transferencia", "movimientos": 149, "neto": "156599420.00" },
+      { "metodo": "efectivo", "metodo_texto": "Efectivo", "movimientos": 116, "neto": "110349702.00" }
+    ],
+    "por_dia": [
+      { "dia": "2026-11-01", "cantidad": 17, "facturado": "22326420.00" },
+      { "dia": "2026-11-02", "cantidad": 15, "facturado": "23005700.00" }
+    ],
+    "stock_critico": 276, "compras_abiertas": 755, "borradores_de_reposicion": 18,
+    "anterior": { "desde": "2026-10-09", "hasta": "2026-10-31", "texto": "entre el 09/10 y el 31/10",
+                  "cobrado": "0.00", "facturado": "0.00", "margen_bruto": "0.00" },
+    "comparaciones": {
+      "cobrado": { "sentido": "sin_datos", "porcentaje": null, "texto": "Sin datos del período anterior" },
+      "facturado": { "sentido": "sin_datos", "porcentaje": null, "texto": "Sin datos del período anterior" },
+      "margen_bruto": { "sentido": "sin_datos", "porcentaje": null, "texto": "Sin datos del período anterior" }
+    }
+  }
+}
+```
+
+- Por omisión, del primero del mes a hoy; el anterior es del mismo largo y pegado. Una fecha final anterior a la inicial
+  es 422 en `hasta`.
+- La frase de cada comparación la arma el servidor (`Comparacion`): sin base no hay porcentaje (invariante 16), y la
+  regla no se repite en el cliente. `sentido` es `mas`, `menos`, `igual` o `sin_datos`.
+- `por_dia` y `por_metodo` vienen agregados por la base (A-26): el gráfico y las tablas los dibujan, no cuentan. Un medio
+  puede quedar negativo si volvió por ahí más de lo que entró. `margen_bruto` es antes del descuento de cabecera, que se
+  informa al lado en `descuentos`.
+- Lo que requiere atención (`stock_critico`, `compras_abiertas`, `borradores_de_reposicion`) es de hoy y no se compara.
+- El panel propio no trae ninguna clave del conjunto.
+
+`GET /informes/vendedores` (`/informes/productos` tiene la misma forma, sin `totales`, con filas `{ producto_id, codigo,
+nombre, unidades, importe }`):
+
+```json
+{
+  "datos": [
+    { "usuario_id": 10, "vendedor": "Luna, Sofía", "cantidad": 64, "facturado": "103666200.00", "ticket": "1619784.38" }
+  ],
+  "pagina": 1, "por_pagina": 15, "ultima_pagina": 1, "total": 9,
+  "criterios": { "desde": "2026-11-01", "hasta": "2026-11-23", "texto": "Del 01/11/2026 al 23/11/2026", "elegido": false },
+  "totales": { "cantidad": 352, "facturado": "440947552.00", "ticket": "1252691.91" }
+}
+```
+
+- `totales` es la misma consulta sin agrupar: suma lo que listan todas las páginas, no sólo ésta. Es la única clave de
+  más sobre la forma de un listado (§2), y sólo en este endpoint.
+- `elegido` dice si la consulta traía fechas: el vacío del mes en curso y el de un período elegido dicen cosas distintas.
+- Las ventas online, sin vendedor, no entran al ranking; un producto que volvió entero no es de los más vendidos.
+
+- Errores de la sección: 401, 403, 404, 409 `regla_de_negocio`, 422 `validacion`.
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -2112,3 +2321,4 @@ aprobó. El pedido se imprime cuando alguien autoriza el gasto, no antes.»). De
 | 16 | E (Etapa 3) | §7.9, los terceros con la misma credencial (regla 35): clientes (listado con `condicion_iva` y `cuenta`, ficha con `direcciones`, alta, edición, baja, impresión por URL firmada y `acceso-tienda`, que devuelve el enlace de un solo uso, sin caché), direcciones de un cliente (alta, edición, baja; 404 si es ajena) y proveedores (listado con `canal` y conteos, ficha con `productos_activos`, alta, edición con cascada, baja que desactiva si hay productos u órdenes, impresión). Las claves nuevas van al final de `ClienteResource` y `ProveedorResource`: ninguna forma anterior cambia, y la fila del alta rápida sigue igual a la del listado. Las rutas pasan a 66 (64 con el simulador apagado) |
 | 17 | F (Etapa 3) | §7.10, precios y stock con la misma credencial (regla 35): impuestos y factores de costo (listado, uno, alta, edición, baja que desactiva la alícuota en uso; `productos` cuenta los que la usan), la política (`GET` y `PATCH /precios/politica`) y la simulación (`GET /precios/simulacion`, con el `calculo` de la ficha de gestión), el ajuste masivo (`vista-previa` con `conteos` y `criterio_texto`, aplicar, el historial con `reversible` y deshacer; «nada que hacer» es 409, HL-122), el kardex (`GET /stock/movimientos` de a 20, HL-119; filtro inválido 422, HL-120; impresión por URL firmada), `GET /stock/usuarios`, `GET /productos/{id}/stock` con `reservas` y `POST /productos/{id}/ajustes-stock`. `costo` y `costo_nuevo` de la vista previa, sólo con `precio.ver_costo`. Ninguna forma anterior cambia; las rutas pasan a 88 (86 con el simulador apagado) |
 | 18 | G (Etapa 3) | §7.11, las compras con la misma credencial (regla 35): el listado con sus filtros y su impresión por URL firmada, `GET /compras/proveedores` (con `activos=1` para elegir; HL-125), la ficha con `lineas`, `recepciones` (la forma del kardex) y `acciones` que decide el estado, el pedido en PDF por URL firmada propia (HL-126; sin aprobar, 409), los sugeridos con `grupos` y `sin_proveedor` (los costos, sólo con `precio.ver_costo`), `GET /compras/armador` (HL-124: los elegidos como renglones, con `descartados` y `aviso`), `POST /compras` (un borrador por proveedor, 201), `PATCH /compras/{id}`, aprobar, enviada, cancelar, cerrar y `POST /compras/{id}/recepciones` (201 con la ficha). Ninguna forma anterior cambia; las rutas pasan a 103 (101 con el simulador apagado) |
+| 19 | H (Etapa 3) | §7.12, las ventas, el panel y los informes con la misma credencial (regla 35): el listado de ventas con sus filtros, `GET /ventas/vendedores` (opciones del filtro) y la impresión por URL firmada; la ficha con `lineas` (con `cotizacion_hoy` y `faltante` sólo en un presupuesto), `entregas`, `comprobantes_transferencia`, `pagos`, `medios`, `cobro`, `devolucion` y `acciones` que decide el estado; `POST /ventas` (201), `PATCH`, recotizar y cancelar; `POST /ventas/{id}/pagos`, `/entregas` y `/devoluciones` (201 con la ficha); tres documentos por URL firmada propia (la venta, HL-129; el comprobante de entrega y el de transferencia, HL-130); `GET /panel` y `GET /panel/general` (período, anterior y `comparaciones` con la frase del servidor; período inválido, 422); `GET /informes/vendedores` (con `totales`) y `GET /informes/productos`, de a 15. Ninguna forma anterior cambia: `/pedidos` sigue igual. Las rutas pasan a 126 (124 con el simulador apagado) |
