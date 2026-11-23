@@ -203,18 +203,18 @@ script.)*
 
 | Operación | Rutas actuales | Entrada | Salida | Permiso | Interfaz | Endpoint | Tramo · Estado |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Consultar órdenes de compra | `GET compras` ·P — `CompraController@index` | `q`, `estado`, `origen`, `proveedor_id`, `desde`, `hasta`, `page` (`OrdenCompraFiltroRequest`) | Vista con `ordenes` y `proveedores` | `compra.ver` | Admin web | `GET /api/v1/compras` | G · Pendiente |
-| Imprimir órdenes | `GET compras/imprimir` ·D — `@imprimir` | Los filtros | Página imprimible | `compra.ver` | Admin web | `GET /api/v1/compras/impresion` → URL firmada | G · Pendiente |
-| Armar un pedido de compra | `GET compras/pedido` ·P · `POST compras/pedido` ·N — `@armar`, `@guardarPedido` | `productos` (precarga) · `lineas` (`PedidoCompraRequest`) | Armador con `lineas`, `productos`, `proveedores`; tras guardar, una orden por proveedor | `compra.crear` | Admin web: `lineas-pedido.js` | `POST /api/v1/compras` | G · Pendiente |
-| Consultar los sugeridos | `GET compras/sugeridos` ·P — `@sugeridos` | — | Vista con `sugeridos`, `grupos`, `estimado` | `compra.crear` | Admin web | `GET /api/v1/compras/sugeridos` | G · Pendiente |
-| Ver una orden | `GET compras/{orden}` ·P — `@show` | — | Vista con `orden` | `compra.ver` | Admin web | `GET /api/v1/compras/{orden}` | G · Pendiente |
-| Modificar una orden | `GET compras/{orden}/editar` ·P · `PUT compras/{orden}` ·N — `@edit`, `@update` | `proveedor_id`, `observaciones`, `lineas` (`OrdenCompraRequest`) | Formulario; redirección | `compra.editar` | Admin web | `PATCH /api/v1/compras/{orden}` | G · Pendiente |
-| Aprobar | `POST compras/{orden}/aprobar` ·N — `@aprobar` | — | Redirección | `compra.aprobar` | Admin web | `POST /api/v1/compras/{orden}/aprobar` | G · Pendiente |
-| Marcar enviada | `POST compras/{orden}/enviada` ·N — `@marcarEnviada` | — | Redirección | `compra.aprobar` | Admin web | `POST /api/v1/compras/{orden}/enviada` | G · Pendiente |
-| Cancelar | `POST compras/{orden}/cancelar` ·N — `@cancelar` | — | Redirección | `compra.aprobar` | Admin web | `POST /api/v1/compras/{orden}/cancelar` | G · Pendiente |
-| Cerrar incompleta | `POST compras/{orden}/cerrar` ·N — `@cerrarIncompleta` | — | Redirección | `compra.recibir` | Admin web | `POST /api/v1/compras/{orden}/cerrar` | G · Pendiente |
-| Recibir mercadería | `GET compras/{orden}/recepcion` ·P · `POST compras/{orden}/recepcion` ·N — `@recepcion`, `@recibir` | `cantidades`, `remito_numero`, `remito_fecha` (`RecepcionCompraRequest`) | Formulario con `orden`; redirección. Entra stock por `StockService` | `compra.recibir` | Admin web | `POST /api/v1/compras/{orden}/recepciones` | G · Pendiente |
-| Descargar la orden en PDF | `GET compras/{orden}/pdf` ·D — `@pdf` | — | PDF (dompdf) | `compra.ver` | Admin web | `GET /api/v1/compras/{orden}/pdf` → URL firmada | G · Pendiente |
+| Consultar órdenes de compra | `GET compras` ·P — `CompraController@index` | `q`, `estado`, `origen`, `proveedor_id`, `desde`, `hasta`, `page` (`OrdenCompraFiltroRequest`) | Vista con `ordenes` y `proveedores` | `compra.ver` | Admin web | `GET /api/v1/compras` | G · Finalizado *(los proveedores del filtro, por `GET /api/v1/compras/proveedores`: HL-125)* |
+| Imprimir órdenes | `GET compras/imprimir` ·D — `@imprimir` | Los filtros | Página imprimible | `compra.ver` | Admin web | `GET /api/v1/compras/impresion` → URL firmada | G · Finalizado |
+| Armar un pedido de compra | `GET compras/pedido` ·P · `POST compras/pedido` ·N — `@armar`, `@guardarPedido` | `productos` (precarga) · `lineas` (`PedidoCompraRequest`) | Armador con `lineas`, `productos`, `proveedores`; tras guardar, una orden por proveedor | `compra.crear` | Admin web: `lineas-pedido.js` | `POST /api/v1/compras` | G · Finalizado *(la precarga de los sugeridos, por `GET /api/v1/compras/armador`: HL-124)* |
+| Consultar los sugeridos | `GET compras/sugeridos` ·P — `@sugeridos` | — | Vista con `sugeridos`, `grupos`, `estimado` | `compra.crear` | Admin web | `GET /api/v1/compras/sugeridos` | G · Finalizado |
+| Ver una orden | `GET compras/{orden}` ·P — `@show` | — | Vista con `orden` | `compra.ver` | Admin web | `GET /api/v1/compras/{orden}` | G · Finalizado |
+| Modificar una orden | `GET compras/{orden}/editar` ·P · `PUT compras/{orden}` ·N — `@edit`, `@update` | `proveedor_id`, `observaciones`, `lineas` (`OrdenCompraRequest`) | Formulario; redirección | `compra.editar` | Admin web | `PATCH /api/v1/compras/{orden}` | G · Finalizado *(la pantalla lee la ficha y los proveedores activos; la guardia de estado queda en el shell)* |
+| Aprobar | `POST compras/{orden}/aprobar` ·N — `@aprobar` | — | Redirección | `compra.aprobar` | Admin web | `POST /api/v1/compras/{orden}/aprobar` | G · Finalizado |
+| Marcar enviada | `POST compras/{orden}/enviada` ·N — `@marcarEnviada` | — | Redirección | `compra.aprobar` | Admin web | `POST /api/v1/compras/{orden}/enviada` | G · Finalizado |
+| Cancelar | `POST compras/{orden}/cancelar` ·N — `@cancelar` | — | Redirección | `compra.aprobar` | Admin web | `POST /api/v1/compras/{orden}/cancelar` | G · Finalizado |
+| Cerrar incompleta | `POST compras/{orden}/cerrar` ·N — `@cerrarIncompleta` | — | Redirección | `compra.recibir` | Admin web | `POST /api/v1/compras/{orden}/cerrar` | G · Finalizado |
+| Recibir mercadería | `GET compras/{orden}/recepcion` ·P · `POST compras/{orden}/recepcion` ·N — `@recepcion`, `@recibir` | `cantidades`, `remito_numero`, `remito_fecha` (`RecepcionCompraRequest`) | Formulario con `orden`; redirección. Entra stock por `StockService` | `compra.recibir` | Admin web | `POST /api/v1/compras/{orden}/recepciones` | G · Finalizado *(201 con la ficha; la guardia de estado queda en el shell)* |
+| Descargar la orden en PDF | `GET compras/{orden}/pdf` ·D — `@pdf` | — | PDF (dompdf) | `compra.ver` | Admin web | `GET /api/v1/compras/{orden}/pdf` → URL firmada | G · Finalizado *(ruta firmada propia, `compras/{orden}/pedido.pdf`: HL-126; sin aprobar, 409)* |
 
 ## 7. Ventas, pagos y panel — tramo H
 

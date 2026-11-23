@@ -1,13 +1,19 @@
 import { api } from '../api/cliente';
+import { avisar, cargando, completadoAlVolver, limpiarErrores } from '../api/estados';
+import { paraFormulario } from '../pantallas/formato';
 import { iniciarSelectsBuscables } from './selects-buscables';
 
 /**
- * El armador de pedido: líneas con su proveedor, agrupadas por proveedor.
- *
+ * El armador de pedido: líneas con su proveedor, agrupadas por proveedor. Desde el tramo G es un
+ * cliente de la API: los renglones con los que se entra vienen de `GET /compras/armador` (los
+ * sugeridos elegidos, en `?productos[]=`) y guardar es `POST /compras`.
  */
 export function iniciarArmadorDePedido(raiz = document) {
+    const pantalla = raiz.querySelector('[data-pantalla="armador"]');
     const armador = raiz.querySelector('[data-armador]');
-    if (!armador) return;
+    if (!pantalla || !armador) return;
+
+    const formulario = pantalla.querySelector('form[data-formulario-armador]');
 
     const tabla = armador.querySelector('table');
     const plantillaLinea = armador.querySelector('#plantillaLineaPedido');
@@ -27,13 +33,9 @@ export function iniciarArmadorDePedido(raiz = document) {
     // proveedores de su producto, y volver a elegir el mismo producto tampoco.
     const cacheProveedores = new Map();
 
-    // Los nombres salen de las opciones que el servidor puso en la plantilla, que
-    // trae todos los proveedores activos. Así el JS no necesita su propia lista.
-    const nombres = new Map(
-        [...plantillaLinea.content.querySelectorAll('[data-proveedor] option')]
-            .filter((opcion) => opcion.value !== '')
-            .map((opcion) => [opcion.value, opcion.textContent.trim()]),
-    );
+    // El nombre de cada proveedor, para la cabecera de su grupo: lo dice la API al contestar
+    // quién provee cada producto (el shell no trae la lista, regla 37).
+    const nombres = new Map();
 
     let proximoIndice = Number(armador.dataset.proximoIndice ?? 0);
 
@@ -69,6 +71,7 @@ export function iniciarArmadorDePedido(raiz = document) {
             // Tramo D: `GET /productos/{p}/proveedores`, ya en el orden en que conviene elegir.
             const cuerpo = await api.get(urlProveedores.replace('__ID__', productoId));
 
+            (cuerpo.datos ?? []).forEach((proveedor) => nombres.set(String(proveedor.id), proveedor.razon_social));
             cacheProveedores.set(productoId, cuerpo.datos ?? []);
 
             return cacheProveedores.get(productoId);
@@ -130,12 +133,12 @@ export function iniciarArmadorDePedido(raiz = document) {
     // Proveedores de la línea y sugerencia de costo
     // ------------------------------------------------------------------
 
-    const llenarProveedores = async (fila) => {
+    const llenarProveedores = async (fila, preferido = null) => {
         const select = fila.querySelector('[data-proveedor]');
         if (!select) return;
 
         const productoId = fila.querySelector('[data-producto]')?.value ?? '';
-        const elegido = select.value;
+        const elegido = preferido ?? select.value;
 
         if (productoId === '') {
             select.innerHTML = '';
@@ -299,24 +302,37 @@ export function iniciarArmadorDePedido(raiz = document) {
     // Eventos
     // ------------------------------------------------------------------
 
-    const agregar = () => {
+    /** Una fila nueva; con `linea` (un renglón de `/compras/armador`), ya cargada. */
+    const agregar = async (linea = null) => {
         const fila = plantillaLinea.content.firstElementChild.cloneNode(true);
 
         // El marcador se reemplaza sobre el HTML de la fila antes de insertarla, así
-        // los name, los id y los for quedan consistentes entre sí.
+        // los id y los for quedan consistentes entre sí.
         fila.innerHTML = fila.innerHTML.replaceAll('__INDICE__', String(proximoIndice));
         proximoIndice += 1;
+
+        if (linea) {
+            fila.querySelector('[data-producto]').append(
+                new Option(`${linea.producto.codigo} — ${linea.producto.nombre}`, String(linea.producto.id), true, true),
+            );
+            fila.querySelector('[data-cantidad]').value = String(linea.cantidad_pedida);
+            fila.querySelector('[data-costo-unitario]').value = paraFormulario(linea.costo_unitario);
+            // Lo que propuso el sistema se puede reemplazar por la sugerencia del proveedor que se elija.
+            fila.dataset.costoSugerido = paraFormulario(linea.costo_unitario);
+        }
 
         sinGrupo.appendChild(fila);
 
         // El selector con búsqueda se inicia en DOMContentLoaded: una fila creada
         // después tiene que pedirlo.
         iniciarSelectsBuscables(fila);
-        llenarProveedores(fila);
+        await llenarProveedores(fila, linea ? String(linea.proveedor.id) : null);
+        moverAlGrupo(fila);
+        limpiarGrupos();
         refrescar();
     };
 
-    botonAgregar?.addEventListener('click', agregar);
+    botonAgregar?.addEventListener('click', () => agregar());
 
     tabla.addEventListener('input', refrescar);
 
@@ -350,19 +366,63 @@ export function iniciarArmadorDePedido(raiz = document) {
         refrescar();
     });
 
-    // Las filas que vienen del servidor son las que el usuario mandó antes de un
-    // error de validación. 
-    Promise.all(filas().map(async (fila) => {
-        fila.dataset.costoSugerido = '';
-        await llenarProveedores(fila);
-        moverAlGrupo(fila);
-    })).then(() => {
-        limpiarGrupos();
-        refrescar();
+    // ------------------------------------------------------------------
+    // Guardar
+    // ------------------------------------------------------------------
+
+    // Los `name` se ponen al mandar, con el índice en que viaja cada fila: así un 422 de
+    // `lineas.2.costo_unitario` cae en el campo de la tercera fila de la pantalla.
+    const renglones = () => filas().map((fila, indice) => {
+        const renglon = {};
+
+        fila.querySelectorAll('[data-campo-linea]').forEach((campo) => {
+            campo.name = `lineas.${indice}.${campo.dataset.campoLinea}`;
+            renglon[campo.dataset.campoLinea] = campo.value;
+        });
+
+        return renglon;
     });
 
-    if (filas().length === 0) agregar();
+    formulario.addEventListener('submit', async (evento) => {
+        evento.preventDefault();
+        limpiarErrores(formulario);
 
-    limpiarGrupos();
-    refrescar();
+        const liberar = cargando(formulario.querySelector('button[type="submit"]'));
+
+        try {
+            const respuesta = await api.post('/compras', { lineas: renglones() }, { formulario });
+            completadoAlVolver(respuesta.mensaje, formulario.dataset.volver);
+        } catch {
+            // El módulo central ya marcó cada campo (422) o mostró el motivo.
+            liberar();
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // Arranque: los sugeridos elegidos, si se vino de esa pantalla
+    // ------------------------------------------------------------------
+
+    const elegidos = new URLSearchParams(window.location.search).getAll('productos[]');
+    const consulta = new URLSearchParams(elegidos.map((id) => ['productos[]', id]));
+
+    const mostrar = (hayPedibles) => {
+        pantalla.querySelector('[data-cargando]').hidden = true;
+        pantalla.querySelector('[data-sin-pedibles]').hidden = hayPedibles;
+        formulario.hidden = !hayPedibles;
+    };
+
+    api.get(`/compras/armador${elegidos.length ? `?${consulta}` : ''}`).then(async (sobre) => {
+        mostrar(sobre.hay_pedibles);
+        if (!sobre.hay_pedibles) return;
+
+        // Rechaza, no corrige (M-31): lo que dejó de hacer falta no entra, y se dice.
+        if (sobre.aviso) avisar('aviso', sobre.aviso);
+
+        for (const linea of sobre.datos) await agregar(linea);
+        if (filas().length === 0) await agregar();
+    }).catch(async () => {
+        // El módulo central ya lo mostró (una lista mal pedida es 422): se arma a mano.
+        mostrar(true);
+        await agregar();
+    });
 }

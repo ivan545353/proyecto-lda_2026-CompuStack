@@ -19,7 +19,6 @@ beforeEach(function () {
 
 dataset('listados con dialogo', [
     'ventas'      => ['ventas.index', 'ventas.exportar', 'venta.ver'],
-    'compras'     => ['compras.index', 'compras.imprimir', 'compra.ver'],
 ]);
 
 // Los migrados a la API (tramo D): el botón y el diálogo piden el enlace firmado al endpoint.
@@ -32,6 +31,8 @@ dataset('listados con dialogo por la API', [
     'clientes'   => ['clientes.index', '/clientes/impresion', 'cliente.ver'],
     // Tramo F.
     'kardex'     => ['stock.index', '/stock/movimientos/impresion', 'stock.ver'],
+    // Tramo G.
+    'compras'    => ['compras.index', '/compras/impresion', 'compra.ver'],
 ]);
 
 test('el dialogo vive afuera del formulario de filtros y apunta a la ruta de impresion', function (string $listado, string $imprimir, string $permiso) {

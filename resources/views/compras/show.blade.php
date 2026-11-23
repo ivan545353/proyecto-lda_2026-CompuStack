@@ -1,50 +1,38 @@
 @extends('layouts.app')
 
-@use('App\Support\Importe')
-@use('App\Support\MaquinaEstadosCompra')
+@section('title', 'Orden de compra')
 
-@php
-    $proveedor = $orden->proveedor;
-    $destinos = MaquinaEstadosCompra::destinosDesde($orden->estado);
-
-    $recibidas = (int) $orden->lineas->sum('cantidad_recibida');
-    $pendientes = $orden->lineas->sum(fn($linea) => $linea->cantidadPendiente());
-
-    // Cerrar incompleta sólo tiene sentido si entró algo y falta algo. El servicio
-    // rechaza los otros dos casos con su motivo; acá simplemente no se ofrece.
-    $sePuedeCerrar = in_array('recibida', $destinos, true) && $recibidas > 0 && $pendientes > 0;
-@endphp
-
-@section('title', "Orden {$orden->numeroFormateado()}")
-
+{{-- Shell (tramo G, regla 37): la orden llega por `GET /api/v1/compras/{orden}`. Cada acción tiene su
+     `@can` (regla 12) y nace oculta; la muestra el JS si `acciones` dice que el estado la admite. Ninguna
+     de las dos cosas es autoridad: la API vuelve a decidir en cada petición. --}}
 @section('content')
+    <div data-pantalla="orden-compra" data-orden="{{ $orden->id }}" aria-busy="true">
     <a href="{{ route('compras.index') }}" class="btn btn-link link-dark px-0 mb-3">
         <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver al listado
     </a>
 
+    <p class="text-body-secondary" data-cargando>Cargando la orden…</p>
+
+    <div data-ficha hidden>
     <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
         <div>
             <h1 class="h3 mb-1">
-                Orden {{ $orden->numeroFormateado() }}
+                Orden <span data-campo="numero"></span>
                 {{-- El estado nunca se comunica sólo con color: el badge lleva texto. --}}
-                <span class="badge {{ $orden->estadoClase() }} align-middle ms-2">{{ $orden->estadoTexto() }}</span>
+                <span class="badge align-middle ms-2" data-campo="estado_texto"></span>
             </h1>
             <p class="text-body-secondary small mb-0">
-                A <span class="fw-semibold">{{ $proveedor->razon_social }}</span>, por
-                {{ Importe::pesos($orden->total_estimado) }}.
-                @if ($orden->fueGeneradaPorElSistema())
-                    La generó la tarea de reposición.
-                @endif
+                A <span class="fw-semibold" data-campo="proveedor"></span>, por
+                <span data-campo="total_estimado"></span>.
+                <span data-generada hidden>La generó la tarea de reposición.</span>
             </p>
         </div>
 
-        @if ($orden->esEditable())
-            @can('compra.editar')
-                <a href="{{ route('compras.edit', $orden) }}" class="btn btn-outline-dark">
-                    <i class="bi bi-pencil" aria-hidden="true"></i> Editar el borrador
-                </a>
-            @endcan
-        @endif
+        @can('compra.editar')
+            <a href="{{ route('compras.edit', $orden->id) }}" class="btn btn-outline-dark" data-accion="editar" hidden>
+                <i class="bi bi-pencil" aria-hidden="true"></i> Editar el borrador
+            </a>
+        @endcan
     </div>
 
     <div class="row g-3 mb-4">
@@ -52,26 +40,20 @@
             <div class="card card-body border-0 shadow-sm h-100">
                 <h2 class="h6 text-body-secondary">Proveedor</h2>
 
-                <p class="mb-1 fw-semibold">{{ $proveedor->razon_social }}</p>
+                <p class="mb-1 fw-semibold" data-campo="proveedor"></p>
 
                 <dl class="row small mb-0">
-                    @if ($proveedor->cuit)
-                        <dt class="col-5 fw-normal text-body-secondary">CUIT</dt>
-                        <dd class="col-7 mb-1">{{ $proveedor->cuitFormateado() }}</dd>
-                    @endif
+                    <dt class="col-5 fw-normal text-body-secondary" data-si="cuit">CUIT</dt>
+                    <dd class="col-7 mb-1" data-si="cuit" data-campo="cuit"></dd>
 
-                    @if ($proveedor->contacto)
-                        <dt class="col-5 fw-normal text-body-secondary">Contacto</dt>
-                        <dd class="col-7 mb-1">{{ $proveedor->contacto }}</dd>
-                    @endif
+                    <dt class="col-5 fw-normal text-body-secondary" data-si="contacto">Contacto</dt>
+                    <dd class="col-7 mb-1" data-si="contacto" data-campo="contacto"></dd>
 
                     <dt class="col-5 fw-normal text-body-secondary">Cómo se le pide</dt>
-                    <dd class="col-7 mb-1">{{ $proveedor->canalPedidoTexto() }}</dd>
+                    <dd class="col-7 mb-1" data-campo="canal_pedido_texto"></dd>
 
-                    @if ($proveedor->plazo_entrega_dias)
-                        <dt class="col-5 fw-normal text-body-secondary">Plazo de entrega</dt>
-                        <dd class="col-7 mb-0">{{ $proveedor->plazo_entrega_dias }} días</dd>
-                    @endif
+                    <dt class="col-5 fw-normal text-body-secondary" data-si="plazo">Plazo de entrega</dt>
+                    <dd class="col-7 mb-0" data-si="plazo"><span data-campo="plazo"></span> días</dd>
                 </dl>
             </div>
         </div>
@@ -82,87 +64,43 @@
 
                 <dl class="row small mb-0">
                     <dt class="col-5 fw-normal text-body-secondary">Creada</dt>
-                    <dd class="col-7 mb-1">
-                        {{ $orden->created_at->format('d/m/Y H:i') }}
-                        @if ($orden->usuarioCreo)
-                            · {{ $orden->usuarioCreo->nombre }} {{ $orden->usuarioCreo->apellido }}
-                        @else
-                            {{-- null significa «la generó el sistema»: se dice con
-                                 palabras en lugar de mostrar una celda vacía. --}}
-                            · por el sistema
-                        @endif
-                    </dd>
+                    {{-- Sin quien la creara, «por el sistema»: se dice con palabras, no con una celda vacía. --}}
+                    <dd class="col-7 mb-1" data-campo="creada"></dd>
 
                     <dt class="col-5 fw-normal text-body-secondary">Aprobada</dt>
-                    <dd class="col-7 mb-1">
-                        @if ($orden->fecha_aprobacion)
-                            {{ $orden->fecha_aprobacion->format('d/m/Y H:i') }}
-                            @if ($orden->usuarioAprobo)
-                                · {{ $orden->usuarioAprobo->nombre }} {{ $orden->usuarioAprobo->apellido }}
-                            @endif
-                        @else
-                            <span class="text-body-secondary">todavía no</span>
-                        @endif
-                    </dd>
+                    <dd class="col-7 mb-1" data-campo="aprobada"></dd>
 
                     <dt class="col-5 fw-normal text-body-secondary">Enviada</dt>
-                    <dd class="col-7 mb-0">
-                        @if ($orden->fecha_envio)
-                            {{ $orden->fecha_envio->format('d/m/Y H:i') }}
-                        @else
-                            <span class="text-body-secondary">todavía no</span>
-                        @endif
-                    </dd>
+                    <dd class="col-7 mb-0" data-campo="enviada"></dd>
                 </dl>
             </div>
         </div>
     </div>
 
-    {{-- El canal de pedido es un dato descriptivo, no un despachador: el sistema no
-         manda nada. Acá se usa para decir cuál es el próximo paso, que es lo único
-         que cambia entre los tres canales. --}}
-    @if ($orden->estado === 'aprobada')
-        <div class="alert alert-info">
-            <h2 class="h6">Qué sigue</h2>
+    {{-- El canal de pedido es un dato descriptivo, no un despachador: el sistema no manda nada. Acá se
+         usa para decir cuál es el próximo paso, que es lo único que cambia entre los tres canales. --}}
+    <div class="alert alert-info" data-que-sigue hidden>
+        <h2 class="h6">Qué sigue</h2>
 
-            @switch($proveedor->canal_pedido)
-                @case('email')
-                    <p class="mb-0">
-                        Descargá el pedido y mandáselo por correo
-                        @if ($proveedor->email)
-                            a <strong>{{ $proveedor->email }}</strong>
-                        @endif
-                        . Después marcá la orden como enviada.
-                    </p>
-                @break
-
-                @case('portal_externo')
-                    <p class="mb-0">
-                        Descargá el pedido y cargalo en el portal del proveedor
-                        @if ($proveedor->portal_url)
-                            —<a href="{{ $proveedor->portal_url }}" target="_blank"
-                                rel="noopener noreferrer">{{ $proveedor->portal_url }}</a>—
-                        @endif
-                        . Después marcá la orden como enviada.
-                    </p>
-                @break
-
-                @default
-                    <p class="mb-0">
-                        Descargá el pedido y pasáselo por teléfono o WhatsApp
-                        @if ($proveedor->telefono)
-                            al <strong>{{ $proveedor->telefono }}</strong>
-                        @endif
-                        . Después marcá la orden como enviada.
-                    </p>
-            @endswitch
-        </div>
-    @endif
+        <p class="mb-0" data-canal="email" hidden>
+            Descargá el pedido y mandáselo por correo<span data-si="email"> a <strong data-campo="email"></strong></span>.
+            Después marcá la orden como enviada.
+        </p>
+        <p class="mb-0" data-canal="portal_externo" hidden>
+            Descargá el pedido y cargalo en el portal del proveedor<span data-si="portal_url">
+            —<a href="#" target="_blank" rel="noopener noreferrer" data-campo="portal_url" data-enlace-portal></a>—</span>.
+            Después marcá la orden como enviada.
+        </p>
+        <p class="mb-0" data-canal="otro" hidden>
+            Descargá el pedido y pasáselo por teléfono o WhatsApp<span data-si="telefono"> al <strong data-campo="telefono"></strong></span>.
+            Después marcá la orden como enviada.
+        </p>
+    </div>
 
     <div class="card border-0 shadow-sm mb-4">
         <div class="table-responsive">
             <table class="table align-middle mb-0">
-                <caption class="visually-hidden">Productos de la orden {{ $orden->numeroFormateado() }}</caption>
+                <caption class="visually-hidden">Productos de la orden</caption>
                 <thead class="table-light">
                     <tr>
                         <th scope="col">Producto</th>
@@ -173,203 +111,147 @@
                         <th scope="col" class="text-end">Subtotal</th>
                     </tr>
                 </thead>
-                <tbody>
-                    @foreach ($orden->lineas as $linea)
-                        <tr>
-                            <td>
-                                <span class="fw-semibold">{{ $linea->producto->nombre }}</span>
-                                <div class="small text-body-secondary">
-                                    {{ $linea->producto->codigo }}
-                                    {{-- El código del proveedor queda congelado en la
-                                         línea: el pedido se imprime con el código que
-                                         ese proveedor entiende, y sigue diciendo lo
-                                         mismo aunque después renumere su catálogo. --}}
-                                    @if ($linea->codigo_proveedor)
-                                        · para el proveedor: {{ $linea->codigo_proveedor }}
-                                    @endif
-                                </div>
-                            </td>
-                            <td class="text-end">{{ $linea->cantidad_pedida }}</td>
-                            <td class="text-end">{{ $linea->cantidad_recibida }}</td>
-                            <td class="text-end">
-                                @if ($linea->cantidadPendiente() > 0)
-                                    <span class="badge text-bg-warning">{{ $linea->cantidadPendiente() }}</span>
-                                @else
-                                    <span class="text-body-secondary">—</span>
-                                @endif
-                            </td>
-                            <td class="text-end text-nowrap">{{ Importe::pesos($linea->costo_unitario) }}</td>
-                            <td class="text-end text-nowrap">{{ Importe::pesos($linea->subtotalPedido()) }}</td>
-                        </tr>
-                    @endforeach
-                </tbody>
+                <tbody data-lineas></tbody>
                 <tfoot>
                     <tr>
                         <td colspan="5" class="text-end fw-semibold">Total estimado</td>
-                        <td class="text-end fw-semibold text-nowrap">{{ Importe::pesos($orden->total_estimado) }}</td>
+                        <td class="text-end fw-semibold text-nowrap" data-campo="total_estimado"></td>
                     </tr>
                 </tfoot>
             </table>
         </div>
     </div>
 
-    @if ($orden->observaciones)
-        <div class="card card-body border-0 shadow-sm mb-4">
-            <h2 class="h6 text-body-secondary">Observaciones</h2>
-            <p class="mb-0">{{ $orden->observaciones }}</p>
-        </div>
-    @endif
+    <template data-plantilla-linea>
+        <tr>
+            <td>
+                <span class="fw-semibold" data-campo="nombre"></span>
+                {{-- El código del proveedor queda congelado en la línea: el pedido se imprime con el código
+                     que ese proveedor entiende, aunque después renumere su catálogo. --}}
+                <div class="small text-body-secondary">
+                    <span data-campo="codigo"></span><span data-si="codigo_proveedor"> · para el proveedor:
+                    <span data-campo="codigo_proveedor"></span></span>
+                </div>
+            </td>
+            <td class="text-end" data-campo="cantidad_pedida"></td>
+            <td class="text-end" data-campo="cantidad_recibida"></td>
+            <td class="text-end">
+                <span class="badge text-bg-warning" data-si="pendiente" data-campo="cantidad_pendiente"></span>
+                <span class="text-body-secondary" data-si="completa">—</span>
+            </td>
+            <td class="text-end text-nowrap" data-campo="costo_unitario"></td>
+            <td class="text-end text-nowrap" data-campo="subtotal"></td>
+        </tr>
+    </template>
+
+    <div class="card card-body border-0 shadow-sm mb-4" data-si="observaciones">
+        <h2 class="h6 text-body-secondary">Observaciones</h2>
+        <p class="mb-0" data-campo="observaciones"></p>
+    </div>
 
     <div class="card card-body border-0 shadow-sm mb-4">
         <h2 class="h5 mb-3">Acciones</h2>
 
         <div class="d-grid d-sm-flex flex-wrap gap-2 mb-3">
-            @if ($orden->sePuedeImprimir())
-                @can('compra.ver')
-                    <a href="{{ route('compras.pdf', $orden) }}" class="btn btn-outline-dark">
-                        <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Descargar el pedido
-                    </a>
-                @endcan
-            @endif
+            {{-- La ruta ya exige compra.ver: no hace falta otro @can. El PDF va por enlace firmado (D-22). --}}
+            <button type="button" class="btn btn-outline-dark" data-accion="imprimir" hidden>
+                <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Descargar el pedido
+            </button>
         </div>
-        @if ($destinos === [])
-            {{-- Un estado final no tiene salidas en la tabla de transiciones, y la
-                 pantalla no inventa botones que el servidor va a rechazar. --}}
-            <p class="text-body-secondary mb-0">
-                Esta orden está «{{ $orden->estadoTexto() }}» y no admite más cambios de estado.
-            </p>
-        @else
-            <div class="d-grid d-sm-flex flex-wrap gap-2">
-                @if (in_array('aprobada', $destinos, true))
-                    @can('compra.aprobar')
-                        <form method="POST" action="{{ route('compras.aprobar', $orden) }}"
-                            onsubmit="return confirm(@js("¿Aprobar la orden {$orden->numeroFormateado()} por " . Importe::pesos($orden->total_estimado) . '? El monto queda comprometido y las líneas se congelan.'));">
-                            @csrf
-                            <button class="btn btn-acento w-100">
-                                <i class="bi bi-check2-circle" aria-hidden="true"></i> Aprobar
-                            </button>
-                        </form>
-                    @endcan
-                @endif
 
-                @if (in_array('enviada', $destinos, true))
-                    @can('compra.aprobar')
-                        <form method="POST" action="{{ route('compras.enviada', $orden) }}">
-                            @csrf
-                            <button class="btn btn-outline-dark w-100">
-                                <i class="bi bi-send" aria-hidden="true"></i> Marcar como enviada
-                            </button>
-                        </form>
-                    @endcan
-                @endif
+        {{-- Un estado final no tiene salidas en la tabla de transiciones, y la pantalla no inventa botones
+             que el servidor va a rechazar. --}}
+        <p class="text-body-secondary mb-0" data-sin-salidas hidden>
+            Esta orden está «<span data-campo="estado_texto"></span>» y no admite más cambios de estado.
+        </p>
 
-                @if (MaquinaEstadosCompra::puedeRecibir($orden->estado) && $pendientes > 0)
-                    @can('compra.recibir')
-                        <a href="{{ route('compras.recepcion', $orden) }}" class="btn btn-outline-dark">
-                            <i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> Recibir mercadería
-                        </a>
-                    @endcan
-                @endif
+        <div class="d-grid d-sm-flex flex-wrap gap-2" data-salidas>
+            @can('compra.aprobar')
+                <button type="button" class="btn btn-acento" data-accion="aprobar" hidden>
+                    <i class="bi bi-check2-circle" aria-hidden="true"></i> Aprobar
+                </button>
+            @endcan
 
-                @if ($sePuedeCerrar)
-                    @can('compra.recibir')
-                        <form method="POST" action="{{ route('compras.cerrar', $orden) }}"
-                            onsubmit="return confirm(@js("Quedan {$pendientes} unidad(es) sin recibir. ¿Cerrar la orden con lo que llegó? Las líneas van a seguir mostrando el saldo."));">
-                            @csrf
-                            <button class="btn btn-outline-dark w-100">
-                                <i class="bi bi-box-seam" aria-hidden="true"></i> Cerrar con lo que llegó
-                            </button>
-                        </form>
-                    @endcan
-                @endif
+            @can('compra.aprobar')
+                <button type="button" class="btn btn-outline-dark" data-accion="enviar" hidden>
+                    <i class="bi bi-send" aria-hidden="true"></i> Marcar como enviada
+                </button>
+            @endcan
 
-                @if (in_array('cancelada', $destinos, true))
-                    @can('compra.aprobar')
-                        <form method="POST" action="{{ route('compras.cancelar', $orden) }}"
-                            onsubmit="return confirm(@js("¿Cancelar la orden {$orden->numeroFormateado()}? No se puede deshacer."));">
-                            @csrf
-                            <button class="btn btn-outline-danger w-100">
-                                <i class="bi bi-x-circle" aria-hidden="true"></i> Cancelar la orden
-                            </button>
-                        </form>
-                    @endcan
-                @endif
-            </div>
+            @can('compra.recibir')
+                <a href="{{ route('compras.recepcion', $orden->id) }}" class="btn btn-outline-dark" data-accion="recibir" hidden>
+                    <i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> Recibir mercadería
+                </a>
+            @endcan
 
-        @endif
+            @can('compra.recibir')
+                <button type="button" class="btn btn-outline-dark" data-accion="cerrar" hidden>
+                    <i class="bi bi-box-seam" aria-hidden="true"></i> Cerrar con lo que llegó
+                </button>
+            @endcan
+
+            @can('compra.aprobar')
+                <button type="button" class="btn btn-outline-danger" data-accion="cancelar" hidden>
+                    <i class="bi bi-x-circle" aria-hidden="true"></i> Cancelar la orden
+                </button>
+            @endcan
+        </div>
     </div>
 
-    @if ($orden->movimientos->isNotEmpty())
-        <div class="card border-0 shadow-sm">
-            <div class="card-body pb-3">
-                <div class="d-flex align-items-center gap-2">
-                    <h2 class="h5 mb-0">Lo que entró por esta orden</h2>
-                    <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
-                        data-bs-toggle="tooltip" data-bs-placement="top"
-                        data-bs-title="Movimientos del kardex con fecha, unidades y usuario responsable."
-                        aria-label="Información sobre movimientos de stock de la orden">
-                        <i class="bi bi-info-circle" aria-hidden="true"></i>
-                    </button>
-                </div>
-            </div>
-
-            <div class="table-responsive">
-                <table class="table align-middle mb-0">
-                    <caption class="visually-hidden">Movimientos de stock generados por esta orden</caption>
-                    <thead class="table-light">
-                        <tr>
-                            <th scope="col">Cuándo</th>
-                            <th scope="col" class="d-none d-md-table-cell">Remito</th>
-                            <th scope="col">Producto</th>
-                            <th scope="col" class="text-end">Unidades</th>
-                            <th scope="col" class="text-end">Stock</th>
-                            <th scope="col">Quién</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($orden->movimientos->sortByDesc('created_at') as $movimiento)
-                            <tr>
-                                <td class="text-nowrap">{{ $movimiento->created_at->format('d/m/Y H:i') }}</td>
-                                <td class="d-none d-md-table-cell text-nowrap">
-                                    @if ($movimiento->remito_numero !== null)
-                                        {{ $movimiento->remito_numero }}
-                                        <div class="small text-body-secondary">
-                                            del {{ $movimiento->remito_fecha->format('d/m/Y') }}
-                                        </div>
-                                    @else
-                                        <span class="text-body-secondary">No consta</span>
-                                    @endif
-                                </td>
-                                <td>
-                                    {{ $movimiento->producto->nombre }}
-                                    <div class="small text-body-secondary">{{ $movimiento->producto->codigo }}</div>
-                                </td>
-                                <td
-                                    class="text-end text-nowrap fw-semibold {{ $movimiento->esIngreso() ? 'text-success' : 'text-danger' }}">
-                                    +{{ $movimiento->cantidad }}</td>
-                                <td class="text-end text-nowrap">
-                                    <span aria-hidden="true">
-                                        <span class="text-body-secondary">{{ $movimiento->stock_anterior }}</span>
-                                        →
-                                        <span class="fw-semibold">{{ $movimiento->stock_resultante }}</span>
-                                    </span>
-                                    <span class="visually-hidden">
-                                        De {{ $movimiento->stock_anterior }} a {{ $movimiento->stock_resultante }}
-                                        unidades
-                                    </span>
-                                </td>
-                                <td>
-                                    @if ($movimiento->usuario)
-                                        {{ $movimiento->usuario->nombre }} {{ $movimiento->usuario->apellido }}
-                                    @else
-                                        <span class="text-body-secondary">—</span>
-                                    @endif
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
+    <div class="card border-0 shadow-sm" data-si="recepciones">
+        <div class="card-body pb-3">
+            <div class="d-flex align-items-center gap-2">
+                <h2 class="h5 mb-0">Lo que entró por esta orden</h2>
+                <button type="button" class="btn btn-link p-0 text-body-secondary border-0 align-baseline"
+                    data-bs-toggle="tooltip" data-bs-placement="top"
+                    data-bs-title="Movimientos del kardex con fecha, unidades y usuario responsable."
+                    aria-label="Información sobre movimientos de stock de la orden">
+                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                </button>
             </div>
         </div>
-    @endif
+
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <caption class="visually-hidden">Movimientos de stock generados por esta orden</caption>
+                <thead class="table-light">
+                    <tr>
+                        <th scope="col">Cuándo</th>
+                        <th scope="col" class="d-none d-md-table-cell">Remito</th>
+                        <th scope="col">Producto</th>
+                        <th scope="col" class="text-end">Unidades</th>
+                        <th scope="col" class="text-end">Stock</th>
+                        <th scope="col">Quién</th>
+                    </tr>
+                </thead>
+                <tbody data-recepciones></tbody>
+            </table>
+        </div>
+    </div>
+
+    <template data-plantilla-recepcion>
+        <tr>
+            <td class="text-nowrap" data-campo="cuando"></td>
+            <td class="d-none d-md-table-cell text-nowrap">
+                <span data-campo="remito_texto"></span>
+                <span class="text-body-secondary" data-si="sin_remito">No consta</span>
+            </td>
+            <td>
+                <span data-campo="producto"></span>
+                <div class="small text-body-secondary" data-campo="codigo"></div>
+            </td>
+            <td class="text-end text-nowrap fw-semibold text-success" data-campo="cantidad"></td>
+            <td class="text-end text-nowrap">
+                <span aria-hidden="true">
+                    <span class="text-body-secondary" data-campo="stock_anterior"></span>
+                    →
+                    <span class="fw-semibold" data-campo="stock_resultante"></span>
+                </span>
+                <span class="visually-hidden" data-campo="stock_leido"></span>
+            </td>
+            <td data-campo="registrado_por"></td>
+        </tr>
+    </template>
+    </div>
+    </div>
 @endsection

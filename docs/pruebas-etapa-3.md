@@ -319,3 +319,44 @@ alícuota; la ganancia global por omisión del simulador; los conteos y el crite
 - El JS de las pantallas (`precios.js`, `ajuste-masivo.js`, `stock.js`) no tiene test automático: lo cubre el recorrido
   manual del usuario, como en los tramos D y E.
 - Impuestos, factores y lotes no tienen fila en «listados de la API» de `EscalaTest`: no tienen factory (HL-123).
+
+## 11. Tramo G — Compras
+
+**Migradas las escrituras del módulo** (armador, edición, transiciones, recepción) y su impresión, más las lecturas de
+las seis pantallas. El inventario (§5) baja de 128 a **100 llamadas en 13 archivos**: las filas de `CompraModuloTest`,
+`PedidoCompraModuloTest` y `RemitoProveedorModuloTest` dan 0. Las URLs retiradas se prueban con un dataset y
+`pedirRuta`, así que el script no las cuenta. Ningún test se perdió: `CompraModuloTest` pasa de 51 a 57,
+`PedidoCompraModuloTest` de 24 a 26, `CompraImpresionTest` de 5 a 7; el resto conserva su número, y `Api/CompraApiTest`
+es nuevo (20). Las entradas que salieron de los datasets de rutas web volvieron como datasets o tests de endpoint, con
+las dos mitades del permiso: las combinaciones no bajaron.
+
+**Cómo se migró**: igual que en los tramos D a F. Lo que el `assertSee` buscaba en el HTML se busca en el JSON que pinta
+la pantalla, y en el shell queda la estructura (la plantilla, el botón, el `data-*`).
+
+| Test | Fijaba | Ahora | Por qué |
+| --- | --- | --- | --- |
+| `CompraModuloTest` › «rutas de la orden» (aprobar, enviada, cerrar, cancelar, recibir, pdf) | Las dos mitades del permiso sobre la ruta web | Dataset `endpoints de la orden del modulo` sobre `/api/v1/compras/{id}…`, las dos mitades | Las rutas ya no existen |
+| `CompraModuloTest` › «rutas del listado y la edición», `edicion` | `put compras.update` | `PATCH /api/v1/compras/{id}`, las dos mitades, en tests aparte | — |
+| `CompraModuloTest` › filtros inválidos (estado, origen, rango) | Redirección al listado limpio con aviso | 422 con el error en su campo | HL-120 |
+| `CompraModuloTest` › «el listado pagina de a 15» | 15 por página y los enlaces con el filtro | 20 por página y `criterios` con el filtro | HL-119 |
+| `CompraModuloTest` › el PDF (borrador, aprobada, recibida, cancelada) | `GET compras.pdf`: redirección o descarga | `GET /compras/{id}/pdf`: 409 o el enlace firmado y su descarga, con la misma aserción de que no cambia el estado | HL-126 |
+| `CompraModuloTest` › «el renglón rinde el producto como texto y lo excluye del buscador» | El `name`, el rótulo y `data-buscable-excluir` con el id | El shell, la plantilla (id oculto y rótulo) y el buscador una sola vez; el producto, `datos.lineas.0.producto.*` | El renglón lo arma el JS |
+| `CompraModuloTest` › «la pantalla de recepción muestra lo pendiente» | `assertSee` del nombre y del código del proveedor | El botón y la plantilla en el shell; nombre, `codigo_proveedor` y `cantidad_pendiente` en la ficha | — |
+| `CompraModuloTest` › la ficha y las transiciones | `assertSee` y `with('exito')` | `assertJsonPath` sobre la ficha y `mensaje`; la transición inválida, 409 | — |
+| `PedidoCompraModuloTest` › «rutas del armador», `guardar` | `post compras.pedido.store` | `POST /api/v1/compras`, las dos mitades | — |
+| `PedidoCompraModuloTest` › el armador y los sugeridos | `assertViewHas` y `assertSee` de los renglones | `GET /compras/armador` y `GET /compras/sugeridos`. Que sin `precio.ver_costo` las claves de costo no estén lo prueba `Api/CompraApiTest`, en las dos direcciones | Reglas 21 y 36 |
+| `RemitoProveedorModuloTest` › recibir con y sin remito, validaciones, la ficha | `post compras.recibir`, `assertSessionHasErrors`, `assertSee` | `POST /compras/{id}/recepciones` (201, `mensaje`), 422 en su campo, `datos.recepciones.*.remito_texto` | — |
+| `CompraImpresionTest` | `GET compras.imprimir` | El enlace de `GET /compras/impresion` y su descarga firmada; opción o filtro inválido, 422 | D-22 |
+| `ImpresionDialogoTest` › `compras` | Dataset de «ruta web» | Dataset de «listado migrado por la API» | HL-116 |
+| `PanelAtencionTest` › los destinos de compras | `assertViewHas('ordenes', total)` | `total` de `GET /api/v1/compras` con el mismo filtro | — |
+| `EscalaTest` › «listados de la API» | — | Suma `compras` | — |
+
+**Tests nuevos**: el shell de la edición sin datos de negocio (regla 37); las 9 URLs retiradas, que dan 404 o 405 con
+todos los permisos del módulo y sin cambiar la orden; `Api/CompraApiTest` (el listado y sus filtros, los proveedores, la
+ficha con `acciones`, el PDF firmado, el armador con `descartados`, cada escritura con su permiso, la edición de una
+aprobada es 409, el estado y el total no llegan desde el cuerpo).
+
+**Huecos**:
+- El JS de las pantallas (`compras.js`, `lineas-pedido.js`, `lineas-orden.js`, `recepcion.js`) no tiene test
+  automático: lo cubre el recorrido manual del usuario. Ese recorrido encontró que la edición y la recepción quedaban en
+  blanco (el encabezado se buscaba dentro del contenedor y el `catch` se tragaba el error); se corrigió antes de cerrar.

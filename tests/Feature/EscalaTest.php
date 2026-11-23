@@ -101,6 +101,8 @@ dataset('listados de la API', [
     // Tramo E: cada cliente trae su cuenta y su conteo de direcciones, cada proveedor sus conteos.
     'clientes'    => ['/api/v1/clientes', Cliente::class, ['cliente.ver', 'cliente.crear', 'cliente.editar', 'cliente.eliminar']],
     'proveedores' => ['/api/v1/proveedores', Proveedor::class, ['proveedor.ver', 'proveedor.crear', 'proveedor.editar', 'proveedor.eliminar']],
+    // Tramo G: cada orden trae su proveedor y su conteo de líneas.
+    'compras'     => ['/api/v1/compras', OrdenCompra::class, ['compra.ver', 'compra.crear', 'compra.editar']],
 ]);
 
 test('el listado de la API no hace mas consultas con mas filas', function (string $url, string $modelo, array $permisos) {

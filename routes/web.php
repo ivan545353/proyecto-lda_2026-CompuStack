@@ -187,18 +187,12 @@ Route::middleware(['auth', 'gestion'])->group(function () {
     Route::get('/stock/{producto}/ajuste', [StockController::class, 'crearAjuste'])
         ->middleware('can:stock.ajustar')->name('stock.ajuste.create');
 
-    // Compras
+    // Compras. Desde el tramo G sólo las pantallas: toda escritura y el PDF van por `/api/v1/compras`.
     Route::get('/compras', [CompraController::class, 'index'])
         ->middleware('can:compra.ver')->name('compras.index');
 
-    Route::get('/compras/imprimir', [CompraController::class, 'imprimir'])
-        ->middleware('can:compra.ver')->name('compras.imprimir');
-    
     Route::get('/compras/pedido', [CompraController::class, 'armar'])
         ->middleware('can:compra.crear')->name('compras.pedido');
-
-    Route::post('/compras/pedido', [CompraController::class, 'guardarPedido'])
-        ->middleware('can:compra.crear')->name('compras.pedido.store');
 
     Route::get('/compras/sugeridos', [CompraController::class, 'sugeridos'])
         ->middleware('can:compra.crear')->name('compras.sugeridos');
@@ -211,43 +205,10 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->whereNumber('orden')
         ->middleware('can:compra.editar')->name('compras.edit');
 
-    Route::put('/compras/{orden}', [CompraController::class, 'update'])
-        ->whereNumber('orden')
-        ->middleware('can:compra.editar')->name('compras.update');
-
-    // Acciones de estado. 
-    Route::post('/compras/{orden}/aprobar', [CompraController::class, 'aprobar'])
-        ->whereNumber('orden')
-        ->middleware('can:compra.aprobar')->name('compras.aprobar');
-
-    // Marcar enviada exige el mismo permiso que aprobar
-    Route::post('/compras/{orden}/enviada', [CompraController::class, 'marcarEnviada'])
-        ->whereNumber('orden')
-        ->middleware('can:compra.aprobar')->name('compras.enviada');
-
-    // Cerrar incompleta es parte del ciclo de recepción: el proveedor no va a
-    // entregar el resto y la orden se cierra con lo que llegó.
-    Route::post('/compras/{orden}/cerrar', [CompraController::class, 'cerrarIncompleta'])
-        ->whereNumber('orden')
-        ->middleware('can:compra.recibir')->name('compras.cerrar');
-
-    Route::post('/compras/{orden}/cancelar', [CompraController::class, 'cancelar'])
-        ->whereNumber('orden')
-        ->middleware('can:compra.aprobar')->name('compras.cancelar');
-
-    // Recepción de mercadería. Dos rutas con el mismo permiso
     Route::get('/compras/{orden}/recepcion', [CompraController::class, 'recepcion'])
         ->whereNumber('orden')
         ->middleware('can:compra.recibir')->name('compras.recepcion');
 
-    Route::post('/compras/{orden}/recepcion', [CompraController::class, 'recibir'])
-        ->whereNumber('orden')
-        ->middleware('can:compra.recibir')->name('compras.recibir');
-
-    Route::get('/compras/{orden}/pdf', [CompraController::class, 'pdf'])
-        ->whereNumber('orden')
-        ->middleware('can:compra.ver')->name('compras.pdf');
-        
     // Ventas
     Route::get('/ventas', [VentaController::class, 'index'])
         ->middleware('can:venta.ver')->name('ventas.index');

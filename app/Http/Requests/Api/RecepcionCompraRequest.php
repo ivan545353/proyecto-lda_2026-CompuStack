@@ -1,11 +1,12 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * Validación de una recepción de mercadería.
+ * Validación de una recepción de mercadería: la de la web, pasada a la API (tramo G) sin cambiar ninguna
+ * regla. `cantidades` es [id de línea => unidades que llegaron ahora]; el remito, los dos datos o ninguno.
  */
 class RecepcionCompraRequest extends FormRequest
 {

@@ -1,10 +1,20 @@
-import { olvidarBusquedas } from './selects-buscables';
+import { api, ErrorDeApi } from '../api/cliente';
+import { cargando, completadoAlVolver, limpiarErrores } from '../api/estados';
+import { paraFormulario } from '../pantallas/formato';
+import { todasLasPaginas } from '../pantallas/listado';
+import { iniciarSelectBuscable, olvidarBusquedas } from './selects-buscables';
+
 /**
- * Líneas repetibles de una orden de compra.
+ * La edición de un borrador de compra. Desde el tramo G es un cliente de la API: la orden llega por
+ * `GET /compras/{orden}`, los proveedores por `GET /compras/proveedores?activos=1` y guardar es
+ * `PATCH /compras/{orden}`.
  */
 export function iniciarLineasDeOrden(raiz = document) {
-    const tabla = raiz.querySelector('[data-lineas-orden]');
-    if (!tabla) return;
+    const pantalla = raiz.querySelector('[data-pantalla="editar-orden"]');
+    const tabla = pantalla?.querySelector('[data-lineas-orden]');
+    if (!pantalla || !tabla) return;
+
+    const formulario = pantalla.querySelector('form[data-formulario-orden]');
 
     const cuerpo = tabla.querySelector('tbody');
     const plantilla = tabla.querySelector('#plantillaLinea');
@@ -101,22 +111,15 @@ export function iniciarLineasDeOrden(raiz = document) {
         olvidarBusquedas(buscador);
     };
 
-    /** Un renglón nuevo, ya con su producto, la cantidad en 1 y el foco en la cantidad. */
-    const agregarProducto = (datos) => {
+    /** Una fila de la plantilla con su producto puesto: `{ id, nombre }`. */
+    const nuevaFila = ({ id, nombre }) => {
         const fila = plantilla.content.firstElementChild.cloneNode(true);
 
         fila.innerHTML = fila.innerHTML.replaceAll('__INDICE__', String(proximoIndice));
         proximoIndice += 1;
 
-        const campoProducto = fila.querySelector('[data-producto]');
-        const rotulo = fila.querySelector('[data-rotulo]');
-        const campoCantidad = fila.querySelector('[data-cantidad]');
-        const campoCosto = fila.querySelector('[data-costo-unitario]');
-
-        const nombre = datos.text ?? '';
-
-        if (campoProducto) campoProducto.value = String(datos.value ?? datos.id ?? '');
-        if (rotulo) rotulo.textContent = nombre;
+        fila.querySelector('[data-producto]').value = String(id);
+        fila.querySelector('[data-rotulo]').textContent = nombre;
 
         // Los dos textos que nombran el renglón para un lector de pantalla, los
         // mismos que el servidor escribe en las filas que rinde él.
@@ -126,6 +129,28 @@ export function iniciarLineasDeOrden(raiz = document) {
 
         fila.querySelector('[data-quitar-linea]')
             ?.setAttribute('aria-label', `Quitar ${nombre} de la orden`);
+
+        cuerpo.insertBefore(fila, plantilla);
+
+        return fila;
+    };
+
+    /** Un renglón que la orden ya tenía, tal como lo trae la ficha. */
+    const agregarGuardada = (linea) => {
+        const { producto } = linea;
+        const nombre = `${producto.codigo} — ${producto.nombre}${producto.activo === false ? ' (dado de baja)' : ''}`;
+        const fila = nuevaFila({ id: producto.id, nombre });
+
+        fila.querySelector('[data-cantidad]').value = String(linea.cantidad_pedida);
+        fila.querySelector('[data-costo-unitario]').value = paraFormulario(linea.costo_unitario);
+    };
+
+    /** Un renglón nuevo, ya con su producto, la cantidad en 1 y el foco en la cantidad. */
+    const agregarProducto = (datos) => {
+        const fila = nuevaFila({ id: datos.value ?? datos.id ?? '', nombre: datos.text ?? '' });
+
+        const campoCantidad = fila.querySelector('[data-cantidad]');
+        const campoCosto = fila.querySelector('[data-costo-unitario]');
 
         if (campoCantidad) campoCantidad.value = '1';
 
@@ -138,8 +163,6 @@ export function iniciarLineasDeOrden(raiz = document) {
                 ? ''
                 : decimal.format(Number(datos.costo));
         }
-
-        cuerpo.insertBefore(fila, plantilla);
 
         refrescar();
 
@@ -168,7 +191,7 @@ export function iniciarLineasDeOrden(raiz = document) {
 
     // El recorrido con teclado del renglón de compras tiene tres campos y no dos:
     // cantidad, costo, y de vuelta al buscador. Enter avanza en lugar de enviar el
-    // formulario; sin JavaScript, Enter sigue enviando como en cualquier formulario.
+    // formulario: para guardar está el botón.
     cuerpo.addEventListener('keydown', (evento) => {
         if (evento.key !== 'Enter') return;
 
@@ -196,6 +219,74 @@ export function iniciarLineasDeOrden(raiz = document) {
         buscador?.tomselect?.focus();
     });
 
-    seguirAlProveedor();
-    refrescar();
+    // ------------------------------------------------------------------
+    // Guardar
+    // ------------------------------------------------------------------
+
+    // Los `name` se ponen al mandar, con el índice en que viaja cada fila: así un 422 de
+    // `lineas.2.costo_unitario` cae en el campo de la tercera fila de la pantalla.
+    const renglones = () => filas().map((fila, indice) => {
+        const renglon = {};
+
+        fila.querySelectorAll('[data-campo-linea]').forEach((campo) => {
+            campo.name = `lineas.${indice}.${campo.dataset.campoLinea}`;
+            renglon[campo.dataset.campoLinea] = campo.value;
+        });
+
+        return renglon;
+    });
+
+    formulario.addEventListener('submit', async (evento) => {
+        evento.preventDefault();
+        limpiarErrores(formulario);
+
+        const liberar = cargando(formulario.querySelector('button[type="submit"]'));
+
+        try {
+            const respuesta = await api.patch(`/compras/${pantalla.dataset.orden}`, {
+                proveedor_id: campoProveedor?.value ?? '',
+                observaciones: formulario.elements.namedItem('observaciones')?.value ?? '',
+                lineas: renglones(),
+            }, { formulario });
+
+            completadoAlVolver(respuesta.mensaje, pantalla.dataset.volver);
+        } catch {
+            // El módulo central ya marcó cada campo (422) o mostró el motivo (409, 403).
+            liberar();
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // Arranque: la orden y los proveedores, por la API
+    // ------------------------------------------------------------------
+
+    const terminarCarga = () => {
+        pantalla.querySelector('[data-cargando]').hidden = true;
+        pantalla.removeAttribute('aria-busy');
+    };
+
+    Promise.all([
+        api.get(`/compras/${pantalla.dataset.orden}`),
+        todasLasPaginas('/compras/proveedores?activos=1'),
+    ]).then(([{ datos: orden }, proveedores]) => {
+        // El número va en el encabezado, fuera de la pantalla.
+        raiz.querySelector('[data-numero-orden]').textContent = orden.numero;
+
+        proveedores.forEach((proveedor) => {
+            const opcion = new Option(proveedor.razon_social, String(proveedor.id));
+            opcion.selected = proveedor.id === orden.proveedor.id;
+            campoProveedor.append(opcion);
+        });
+        iniciarSelectBuscable(campoProveedor);
+
+        formulario.elements.namedItem('observaciones').value = orden.observaciones ?? '';
+        orden.lineas.forEach(agregarGuardada);
+
+        formulario.hidden = false;
+        seguirAlProveedor();
+        refrescar();
+    }).catch((error) => {
+        // Un error de la API ya lo mostró el módulo central; uno de programación no se calla.
+        if (!(error instanceof ErrorDeApi)) throw error;
+    }).finally(terminarCarga);
 }

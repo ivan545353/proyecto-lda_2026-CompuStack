@@ -311,6 +311,41 @@ y un 201 afirmaría algo que no pasó (regla 16).
 conteo de uso del impuesto es una subconsulta (`scopeConUso`), no una consulta por fila, y el historial carga sus
 relaciones de una vez. El kardex sí se mide: su test pasó al endpoint con el mismo criterio.
 
+### HL-124 — La precarga del armador no tenía endpoint
+
+*Registrado en el tramo G.* La matriz lleva el armador a `POST /api/v1/compras`, pero la pantalla también **entra** con
+los sugeridos elegidos ya cargados (`CompraService::lineasSugeridas`, con su proveedor y su último costo) y avisa cuántos
+dejaron de hacer falta. Se suma `GET /api/v1/compras/armador?productos[]=` (`compra.crear`), que devuelve los renglones,
+`descartados`, `aviso` y `hay_pedibles`. El plan del tramo lo llamaba `sugeridos/lineas`; quedó `armador` porque es lo
+que la pantalla pide, no una vista de los sugeridos.
+
+### HL-125 — Los proveedores para elegir, con el permiso de compras
+
+*Registrado en el tramo G.* El filtro del listado, el armador y la edición necesitan la lista de proveedores, y
+`GET /proveedores` pide `proveedor.ver`: quien compra sin administrar proveedores se quedaba sin selector. Se suma
+`GET /api/v1/compras/proveedores` (`compra.ver`), con `activos=1` para elegir a quién pedirle; sin el filtro trae también
+los inactivos, porque una orden vieja puede ser de uno. Molde: `GET /stock/usuarios` (tramo F).
+
+### HL-126 — El pedido en PDF necesita su propia ruta firmada
+
+*Registrado en el tramo G.* `ImpresionFirmada` firma **listados** con filtros; el pedido es un documento de una orden.
+Va por su propia ruta firmada, `GET compras/{orden}/pedido.pdf` + `signed`, con el molde de `ComprobanteVenta`: la firma
+lleva quién lo pidió y, al abrirlo, se vuelve a exigir cuenta activa y `compra.ver`. Sin aprobar no hay enlace: 409.
+
+### HL-127 — El armador propone el último costo aun sin `precio.ver_costo`
+
+*Registrado en el tramo G.* El armador de la web precargaba el último costo del proveedor en cada renglón, sin mirar
+`precio.ver_costo`: es el costo del pedido que se está armando, no el costo promedio del producto. `GET /compras/armador`
+conserva esa conducta; los sugeridos sí ocultan `costo_ultimo` y los estimados sin el permiso (regla 36). Cambiarlo sería
+una regla nueva (D-34): queda anotado.
+
+### HL-128 — La edición y la recepción leen la ficha
+
+*Registrado en el tramo G.* Las dos pantallas piden `GET /compras/{id}`, que exige `compra.ver`, aunque sus rutas web piden
+`compra.editar` y `compra.recibir`. Un endpoint de lectura por pantalla duplicaría la ficha. Los roles del sistema que
+tienen esos permisos tienen `compra.*`; un rol armado a mano con `compra.editar` suelto vería un 403 al cargar, que el
+módulo central muestra. Aparte, la ficha suma `lineas.*.producto.activo`, para que la edición avise «(dado de baja)» como antes.
+
 ---
 
 ## 4. Alcance

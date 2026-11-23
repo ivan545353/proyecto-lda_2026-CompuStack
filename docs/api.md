@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 17** · tramo F de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
+**Revisión 18** · tramo G de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -18,7 +18,7 @@ principio). La 11 suma `GET /tienda` (§7.1), lo que la tienda ofrece, para el I
 transferencia como tercer medio (§7.7). La 13, con qué entregas vale cada medio (D-28): el efectivo, sólo con retiro. La 14 abre la Etapa 3: la sesión es
 común a la app y a la administración, con `GET /yo`, vigencia por ámbito y `401 sesion_expirada`. La 15 suma la
 gestión del catálogo (§7.8): marcas, categorías, productos y sus proveedores, por representación según el permiso,
-sin cambiar ninguna forma de la tienda. La 16, los terceros (§7.9): clientes, direcciones y proveedores. La 17, precios y stock (§7.10): la parametrización, el ajuste masivo con su historial, el kardex y el ajuste por conteo.
+sin cambiar ninguna forma de la tienda. La 16, los terceros (§7.9): clientes, direcciones y proveedores. La 17, precios y stock (§7.10): la parametrización, el ajuste masivo con su historial, el kardex y el ajuste por conteo. La 18, las compras (§7.11): órdenes, armador, edición, transiciones, recepción y el pedido en PDF.
 
 ## 1. Reglas generales
 
@@ -1926,6 +1926,170 @@ porcentaje de 0 o de −100, o una ganancia menor que 1 son 422.
   `producto_id` o `tipo` en el cuerpo son 422 (el producto es el de la ruta; el tipo lo pone el sistema).
 - Errores de la sección: 401, 403, 404, 409 `regla_de_negocio`, 422 `validacion`.
 
+### 7.11 Compras (Etapa 3, tramo G, r18)
+
+Las órdenes de compra, el armador de pedidos, la recepción con su remito y las transiciones pasan a escribirse por acá,
+con la misma credencial y los mismos permisos que cualquier otro cliente (regla 35). **Todo es nuevo**: ninguna forma
+anterior cambia (regla 40). Valen las reglas comunes de §7.8: un permiso por acción en la ruta (ver, crear, editar, aprobar
+y recibir son cinco permisos distintos, C-2), 403 `sin_permiso` sin él, listados de a 20, un filtro inválido es 422, una
+transición que la tabla no admite es **409 `regla_de_negocio`** con el mismo mensaje que daba la web.
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /compras` | `compra.ver` | El listado, del más nuevo al más viejo. `q` (número), `estado` (los del filtro, más `abiertas`), `origen` (`reposicion` · `manual`), `proveedor_id`, `desde`, `hasta` |
+| `GET /compras/impresion` | `compra.ver` | URL firmada del listado, con los mismos filtros (D-22, §7.8) |
+| `GET /compras/proveedores` | `compra.ver` | Los proveedores para elegir: todos, o con `activos=1` sólo los activos (HL-125) |
+| `GET /compras/{id}` | `compra.ver` | La ficha: proveedor, líneas, recepciones y `acciones` |
+| `GET /compras/{id}/pdf` | `compra.ver` | URL firmada del pedido formal (HL-126); sin aprobar, 409 |
+| `GET /compras/sugeridos` | `compra.crear` | Qué hay que reponer, con su proveedor; el sobre suma `grupos` y `sin_proveedor` |
+| `GET /compras/armador` | `compra.crear` | Los sugeridos elegidos (`productos[]`) como renglones del armador (HL-124) |
+| `POST /compras` | `compra.crear` | El pedido del armador: **un borrador por proveedor** (201, las órdenes creadas) |
+| `PATCH /compras/{id}` | `compra.editar` | Edición del borrador: `proveedor_id`, `observaciones`, `lineas[]`; aprobada, 409 |
+| `POST /compras/{id}/aprobar` | `compra.aprobar` | Compromete el monto y congela las líneas |
+| `POST /compras/{id}/enviada` | `compra.aprobar` | Anota que el pedido salió; el envío lo hace la persona |
+| `POST /compras/{id}/cancelar` | `compra.aprobar` | Cancela sin mover stock |
+| `POST /compras/{id}/recepciones` | `compra.recibir` | Recepción total o parcial: `cantidades{línea: n}`, `remito_numero`, `remito_fecha` (201) |
+| `POST /compras/{id}/cerrar` | `compra.recibir` | Cierra con lo que llegó: el resto no va a llegar |
+
+`GET /compras`:
+
+```json
+{
+  "datos": [
+    {
+      "id": 7, "numero": "OC-00007", "fecha": "2026-11-21T13:30:00Z",
+      "proveedor": { "id": 2, "razon_social": "Distribuidora Austral" },
+      "estado": "borrador", "estado_texto": "Borrador", "generada_por_el_sistema": false,
+      "total_estimado": "25000.00", "editable": true, "productos": 1
+    }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1,
+  "criterios": { "q": null, "estado": null, "origen": null, "proveedor_id": null, "desde": null, "hasta": null }
+}
+```
+
+- `editable` lo decide el modelo: sólo un borrador se edita. `generada_por_el_sistema` es que la creó la reposición
+  automática, sin una persona.
+- Un rango al revés es 422 en `hasta`; un estado u origen que no existe, 422.
+
+`GET /compras/{id}` (la misma forma vuelve en `PATCH`, en las transiciones y en la recepción):
+
+```json
+{
+  "datos": {
+    "id": 7, "numero": "OC-00007", "fecha": "2026-11-21T13:30:00Z",
+    "proveedor": {
+      "id": 2, "razon_social": "Distribuidora Austral", "activo": true, "cuit_formateado": "30-71234567-8",
+      "contacto": "Laura Benítez", "email": "pedidos@austral.com.ar", "telefono": "0381 4221100",
+      "canal_pedido": "email", "canal_pedido_texto": "Correo electrónico", "portal_url": null, "plazo_entrega_dias": 3
+    },
+    "estado": "recibida_parcial", "estado_texto": "Recibida parcial", "generada_por_el_sistema": false,
+    "total_estimado": "25000.00", "editable": false, "productos": 1,
+    "observaciones": "Entregar por la tarde",
+    "creada_por": "Ximena Vallejo", "fecha_aprobacion": "2026-11-21T14:00:00Z", "aprobada_por": "Ximena Vallejo",
+    "fecha_envio": "2026-11-21T14:10:00Z",
+    "unidades_recibidas": 4, "unidades_pendientes": 6,
+    "lineas": [
+      {
+        "id": 11,
+        "producto": { "id": 1, "codigo": "TEC-00123", "nombre": "Teclado mecánico", "activo": true },
+        "codigo_proveedor": "AUS-77",
+        "cantidad_pedida": 10, "cantidad_recibida": 4, "cantidad_pendiente": 6,
+        "costo_unitario": "2500.00", "subtotal": "25000.00"
+      }
+    ],
+    "recepciones": [
+      {
+        "id": 31, "fecha": "2026-11-22T12:00:00Z",
+        "producto": { "id": 1, "codigo": "TEC-00123", "nombre": "Teclado mecánico" },
+        "tipo": "compra", "tipo_texto": "Recepción de compra",
+        "cantidad": 4, "stock_anterior": 2, "stock_resultante": 6,
+        "motivo": null, "origen_texto": "Orden de compra OC-00007", "remito_texto": "Remito 0001-00001234 del 21/11/2026",
+        "registrado_por": "Ximena Vallejo"
+      }
+    ],
+    "acciones": {
+      "editar": false, "aprobar": false, "enviar": false, "recibir": true,
+      "cerrar": true, "cancelar": false, "imprimir": true
+    }
+  }
+}
+```
+
+- `acciones` dice qué admite **el estado** (la tabla de transiciones y lo que falta recibir), no qué admite el permiso: eso
+  lo decide la ruta en cada petición y el `@can` de cada botón. Ninguna pantalla lo calcula (regla 9). `cerrar` sólo vale si
+  entró algo y falta algo.
+- `recepciones` son los asientos del kardex con la forma de `GET /stock/movimientos` (§7.10), del más nuevo al más viejo.
+- `producto.activo` en cada línea: la edición del borrador avisa «(dado de baja)».
+
+`GET /compras/sugeridos`:
+
+```json
+{
+  "datos": [
+    {
+      "id": 1, "codigo": "TEC-00123", "nombre": "Teclado mecánico",
+      "disponible": 1, "stock_minimo": 5, "cantidad_reposicion": 10,
+      "proveedor": { "id": 2, "razon_social": "Distribuidora Austral" },
+      "costo_ultimo": "2500.00"
+    }
+  ],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1, "criterios": [],
+  "grupos": [
+    { "proveedor": { "id": 2, "razon_social": "Distribuidora Austral" }, "productos": [1], "estimado": "25000.00" }
+  ],
+  "sin_proveedor": 0,
+  "estimado_pagina": "25000.00"
+}
+```
+
+- `costo_ultimo`, `grupos[].estimado` y `estimado_pagina` son de `precio.ver_costo`: sin el permiso, **las claves no
+  están** (reglas 21 y 36). Los grupos son de la página, en orden alfabético. `sin_proveedor` cuenta los que hacen falta y
+  nadie provee.
+
+`GET /compras/armador?productos[]=1&productos[]=4`:
+
+```json
+{
+  "datos": [
+    {
+      "producto": { "id": 1, "codigo": "TEC-00123", "nombre": "Teclado mecánico" },
+      "proveedor": { "id": 2, "razon_social": "Distribuidora Austral" },
+      "cantidad_pedida": 10, "costo_unitario": "2500.00"
+    }
+  ],
+  "descartados": 1,
+  "aviso": "Uno de los productos que elegiste ya no hace falta pedirlo: le cargaron stock o ya tiene un pedido en curso. No se agregó.",
+  "hay_pedibles": true
+}
+```
+
+- Rechaza, no corrige (M-31): lo que dejó de hacer falta no entra, y `descartados` lo cuenta. El renglón propone el último
+  costo del proveedor aun sin `precio.ver_costo`, como lo hacía el armador de la web (HL-127). `hay_pedibles` es false si
+  ningún producto activo tiene un proveedor activo.
+
+`POST /compras` recibe `lineas[]` con `producto_id`, `proveedor_id`, `cantidad_pedida` y `costo_unitario` (hasta 50) y
+devuelve las órdenes creadas con la forma del listado, más «Se crearon 2 pedidos en borrador: OC-00008 a Distribuidora
+Austral, OC-00009 a Mayorista del Litoral. Hay que aprobar cada uno para poder enviarlo.». Un producto que ese proveedor no
+provee, o repetido, es 422 en su renglón (`lineas.2.producto_id`).
+
+`POST /compras/{id}/recepciones`:
+
+```json
+{ "cantidades": { "11": 4 }, "remito_numero": "0001-00001234", "remito_fecha": "2026-11-21" }
+```
+
+- Devuelve **201** con la ficha y «Se registraron 4 unidad(es) con el remito 0001-00001234. Quedan 6 pendientes, así que la
+  orden sigue parcial. …». Escribe hechos nuevos (los asientos, por `StockService::recibirCompra`), no pisa nada.
+- El número y la fecha del remito van juntos o ninguno (422). Recibir más de lo pendiente, o en un estado que no recibe, es
+  409 `regla_de_negocio`.
+
+`GET /compras/{id}/pdf` devuelve `{ "url", "vence" }` como la impresión de los listados; el enlace no lleva la credencial y,
+al abrirlo, se vuelve a exigir que quien lo pidió siga activo y con `compra.ver`. Un borrador es 409 («… todavía no se
+aprobó. El pedido se imprime cuando alguien autoriza el gasto, no antes.»). Descargar no cambia el estado.
+
+- Errores de la sección: 401, 403, 404, 409 `regla_de_negocio`, 422 `validacion`.
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -1947,3 +2111,4 @@ porcentaje de 0 o de −100, o una ganancia menor que 1 son 422.
 | 15 | D (Etapa 3) | §7.8, la gestión del catálogo, con la misma credencial (regla 35) y sin espacio `/admin` (regla 36): `forma=lista` en `GET /categorias` y `forma=gestion` en `GET /productos` y `GET /productos/{id}`, cada una con su permiso; altas, ediciones y bajas de marcas, categorías y productos; `recalcular`, `opciones` y `padres-posibles`; los proveedores de un producto (tres formas del listado, alta, edición, `preferido`, baja con 409 si hay un pedido vivo); `GET /proveedores` y `GET /clientes` mínimos; la impresión de los tres listados por URL firmada (`GET /<recurso>/impresion`, D-22). Con archivos, `POST` + `_method=PATCH` (HL-110). `GET /categorias` pasa al grupo «credencial si sirve» y `GET /productos` a la sesión opcional de los dos clientes (HL-108): para la app no cambia ninguna respuesta. Sin sesión, `forma=gestion` es 401 `sin_sesion`. Ninguna forma anterior cambia; las rutas pasan a 52 (50 con el simulador apagado) |
 | 16 | E (Etapa 3) | §7.9, los terceros con la misma credencial (regla 35): clientes (listado con `condicion_iva` y `cuenta`, ficha con `direcciones`, alta, edición, baja, impresión por URL firmada y `acceso-tienda`, que devuelve el enlace de un solo uso, sin caché), direcciones de un cliente (alta, edición, baja; 404 si es ajena) y proveedores (listado con `canal` y conteos, ficha con `productos_activos`, alta, edición con cascada, baja que desactiva si hay productos u órdenes, impresión). Las claves nuevas van al final de `ClienteResource` y `ProveedorResource`: ninguna forma anterior cambia, y la fila del alta rápida sigue igual a la del listado. Las rutas pasan a 66 (64 con el simulador apagado) |
 | 17 | F (Etapa 3) | §7.10, precios y stock con la misma credencial (regla 35): impuestos y factores de costo (listado, uno, alta, edición, baja que desactiva la alícuota en uso; `productos` cuenta los que la usan), la política (`GET` y `PATCH /precios/politica`) y la simulación (`GET /precios/simulacion`, con el `calculo` de la ficha de gestión), el ajuste masivo (`vista-previa` con `conteos` y `criterio_texto`, aplicar, el historial con `reversible` y deshacer; «nada que hacer» es 409, HL-122), el kardex (`GET /stock/movimientos` de a 20, HL-119; filtro inválido 422, HL-120; impresión por URL firmada), `GET /stock/usuarios`, `GET /productos/{id}/stock` con `reservas` y `POST /productos/{id}/ajustes-stock`. `costo` y `costo_nuevo` de la vista previa, sólo con `precio.ver_costo`. Ninguna forma anterior cambia; las rutas pasan a 88 (86 con el simulador apagado) |
+| 18 | G (Etapa 3) | §7.11, las compras con la misma credencial (regla 35): el listado con sus filtros y su impresión por URL firmada, `GET /compras/proveedores` (con `activos=1` para elegir; HL-125), la ficha con `lineas`, `recepciones` (la forma del kardex) y `acciones` que decide el estado, el pedido en PDF por URL firmada propia (HL-126; sin aprobar, 409), los sugeridos con `grupos` y `sin_proveedor` (los costos, sólo con `precio.ver_costo`), `GET /compras/armador` (HL-124: los elegidos como renglones, con `descartados` y `aviso`), `POST /compras` (un borrador por proveedor, 201), `PATCH /compras/{id}`, aprobar, enviada, cancelar, cerrar y `POST /compras/{id}/recepciones` (201 con la ficha). Ninguna forma anterior cambia; las rutas pasan a 103 (101 con el simulador apagado) |

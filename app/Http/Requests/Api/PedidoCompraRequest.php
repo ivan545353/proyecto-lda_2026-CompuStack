@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Support\Importe;
 use Closure;
@@ -10,7 +10,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
- * Validación del armador de pedido: una pantalla, varias órdenes.
+ * Validación del armador de pedido: una pantalla, varias órdenes. La de la web, pasada a la API (tramo G)
+ * sin cambiar ninguna regla.
+ *
  * Métodos:
  *   authorize()             true; la ruta exige compra.crear
  *   prepareForValidation()  descarta filas vacías y normaliza el costo

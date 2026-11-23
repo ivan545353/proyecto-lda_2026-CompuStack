@@ -4,13 +4,33 @@ namespace App\Impresion;
 
 use App\Models\OrdenCompra;
 use App\Models\Proveedor;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 
 /**
- * El listado de órdenes de compra, con el total estimado de todas las coincidencias.
+ * El listado de órdenes de compra, con el total estimado de todas las coincidencias. Desde el tramo G
+ * se imprime por enlace firmado (D-22), con la misma consulta que lista la API.
  */
-final class ListadoCompras extends Listado
+final class ListadoCompras extends Listado implements ImprimiblePorEnlace
 {
+    public function permiso(): string
+    {
+        return 'compra.ver';
+    }
+
+    /** La de la pantalla: de la más nueva a la más vieja. */
+    public function consulta(array $filtros): Builder
+    {
+        return OrdenCompra::query()
+            ->buscar($filtros['q'] ?? null)
+            ->conEstado($filtros['estado'] ?? null)
+            ->deOrigen($filtros['origen'] ?? null)
+            ->deProveedor($filtros['proveedor_id'] ?? null)
+            ->desde($filtros['desde'] ?? null)
+            ->hasta($filtros['hasta'] ?? null)
+            ->orderByDesc('id');
+    }
+
     public function titulo(): string
     {
         return 'Órdenes de compra';

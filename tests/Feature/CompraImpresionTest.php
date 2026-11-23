@@ -18,16 +18,25 @@ beforeEach(function () {
 
         return $orden->fresh();
     };
+
+    // El CSV o el PDF de compras por la API (tramo G): se pide el enlace firmado y se abre sin credencial.
+    $this->descargar = function (array $consulta = []) {
+        app('auth')->forgetGuards();
+        $url = $this->getJson('/api/v1/compras/impresion?'.http_build_query($consulta), bearer(usuarioCon('compra.ver')))
+            ->assertOk()->json('datos.url');
+
+        return $this->get($url)->assertOk();
+    };
 });
 
 test('imprimir las compras pide compra.ver y ningun otro permiso del modulo lo habilita', function () {
     $otros = array_values(array_diff(permisosDelModulo('compra'), ['compra.ver']));
 
-    $this->actingAs(usuarioCon(...$otros))->get(route('compras.imprimir'))->assertForbidden();
+    $this->getJson('/api/v1/compras/impresion', bearer(usuarioCon(...$otros)))
+        ->assertForbidden()->assertJsonPath('codigo', 'sin_permiso');
 
-    $respuesta = $this->actingAs(usuarioCon('compra.ver'))->get(route('compras.imprimir'));
+    $respuesta = ($this->descargar)();
 
-    $respuesta->assertOk();
     expect($respuesta->headers->get('content-type'))->toContain('application/pdf')
         ->and($respuesta->headers->get('content-disposition'))->toContain('compras-');
 });
@@ -38,10 +47,7 @@ test('la planilla de compras va de la mas nueva a la mas vieja, con el total de 
     $nueva     = ($this->orden)($proveedor, 2500.5);
     ($this->orden)(Proveedor::factory()->create(), 9999);
 
-    $csv = $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.imprimir', ['formato' => 'csv', 'proveedor_id' => $proveedor->id]))
-        ->assertOk()
-        ->streamedContent();
+    $csv = ($this->descargar)(['formato' => 'csv', 'proveedor_id' => $proveedor->id])->streamedContent();
 
     $filas = array_map(
         fn (string $linea) => str_getcsv($linea, ';', '"', ''),
@@ -56,35 +62,48 @@ test('la planilla de compras va de la mas nueva a la mas vieja, con el total de 
         ->and(end($filas))->toBe(['Total: 2 órdenes', '', '', '', '4000,50']);
 });
 
-test('una opcion mal pedida vuelve al listado de compras con sus filtros', function () {
+// Antes volvía al listado con «No se imprimió»; por la API, la opción mal pedida no firma nada: 422.
+test('una opcion mal pedida de compras es 422 y no da enlace', function () {
     $proveedor = Proveedor::factory()->create();
 
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.imprimir', ['proveedor_id' => $proveedor->id, 'agrupar' => 'proveedor']))
-        ->assertRedirect(route('compras.index', ['proveedor_id' => $proveedor->id]))
-        ->assertSessionHas('error', fn (string $mensaje) => str_contains($mensaje, 'No se imprimió'));
+    $this->getJson('/api/v1/compras/impresion?'.http_build_query(['proveedor_id' => $proveedor->id, 'agrupar' => 'proveedor']), bearer(usuarioCon('compra.ver')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('agrupar', 'errores')
+        ->assertJsonMissingPath('datos.url');
 });
 
-test('el boton de imprimir de compras lleva los filtros puestos y no la pagina', function () {
+test('el enlace de imprimir de compras lleva los filtros puestos y no la pagina', function () {
+    $url = $this->getJson('/api/v1/compras/impresion?estado=borrador&pagina=2', bearer(usuarioCon('compra.ver')))
+        ->assertOk()->json('datos.url');
+
+    expect($url)->toContain('estado=borrador')->not->toContain('pagina=');
+});
+
+test('un filtro invalido de compras impresas se rechaza en lugar de imprimir otra cosa', function () {
+    $this->getJson('/api/v1/compras/impresion?estado=telepatia', bearer(usuarioCon('compra.ver')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('estado', 'errores');
+});
+
+// Desde el tramo G el botón pide el enlace al endpoint con los filtros de la URL; que no lleve la página
+// lo prueba «el enlace de imprimir de compras lleva los filtros puestos y no la pagina», arriba.
+test('el boton de imprimir de compras pide el enlace al endpoint', function () {
     $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.index', ['estado' => 'borrador', 'page' => 2]))
+        ->get(route('compras.index', ['estado' => 'borrador', 'pagina' => 2]))
         ->assertOk()
-        ->assertSee(route('compras.imprimir', ['estado' => 'borrador']))
-        ->assertDontSee(route('compras.imprimir', ['estado' => 'borrador', 'page' => 2]));
+        ->assertSee('data-imprimir-api="/compras/impresion"', false)
+        ->assertDontSee('compras/imprimir', false);
 });
 
 
 test('la planilla de compras declara en su alcance las abiertas y el origen', function () {
     OrdenCompra::factory()->create(['usuario_creo_id' => null]);
 
-    $csv = $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.imprimir', [
-            'formato' => 'csv',
-            'estado'  => OrdenCompra::ABIERTAS,
-            'origen'  => 'reposicion',
-        ]))
-        ->assertOk()
-        ->streamedContent();
+    $csv = ($this->descargar)([
+        'formato' => 'csv',
+        'estado'  => OrdenCompra::ABIERTAS,
+        'origen'  => 'reposicion',
+    ])->streamedContent();
 
     // Sin la etiqueta, el papel diría «Estado: abiertas» con la clave cruda, o nada.
     expect($csv)->toContain('Alcance: Estado: Abiertas (sin recibir ni cancelar) · Origen: Generada por la reposición');

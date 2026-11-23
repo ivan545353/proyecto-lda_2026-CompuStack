@@ -38,9 +38,9 @@ function productoDe(Proveedor $proveedor, float $costo = 1000, ?string $codigo =
 |--------------------------------------------------------------------------
 */
 
+// Tramo G: guardar el armador es `POST /api/v1/compras` (abajo); la pantalla sigue en la web.
 dataset('rutas del armador', [
     'pantalla' => ['get',  'compras.pedido'],
-    'guardar'  => ['post', 'compras.pedido.store'],
 ]);
 
 test('ningun otro permiso del modulo habilita el armador', function (string $metodo, string $ruta) {
@@ -55,6 +55,17 @@ test('compra.crear alcanza para el armador', function (string $metodo, string $r
 
     expect($respuesta->status())->not->toBe(403);
 })->with('rutas del armador');
+
+test('ningun otro permiso del modulo habilita guardar el armador', function () {
+    $otros = array_values(array_diff(PERMISOS_COMPRA, ['compra.crear']));
+
+    $this->postJson('/api/v1/compras', ['lineas' => []], bearer(usuarioCon(...$otros)))->assertForbidden();
+});
+
+test('compra.crear alcanza para guardar el armador', function () {
+    expect($this->postJson('/api/v1/compras', ['lineas' => []], bearer(usuarioCon('compra.crear')))->status())
+        ->not->toBe(403);
+});
 
 test('quien solo puede ver compras no recibe el enlace al armador', function () {
     $this->actingAs(usuarioCon('compra.ver'))
@@ -94,10 +105,17 @@ test('solo ofrece productos activos que algun proveedor activo provea', function
 test('la pantalla avisa cuando no hay nada que se pueda pedir', function () {
     Producto::factory()->create();   // sin proveedores
 
+    // El shell trae el aviso oculto; lo muestra el JS cuando la API dice que no hay nada pedible.
     $this->actingAs(usuarioCon('compra.crear'))
         ->get(route('compras.pedido'))
         ->assertOk()
         ->assertSee('No hay ningún producto que se le pueda comprar');
+
+    app('auth')->forgetGuards();
+
+    $this->getJson('/api/v1/compras/armador', bearer(usuarioCon('compra.crear')))
+        ->assertOk()
+        ->assertJsonPath('hay_pedibles', false);
 });
 
 /*
@@ -107,9 +125,9 @@ test('la pantalla avisa cuando no hay nada que se pueda pedir', function () {
 */
 
 test('rechaza un pedido sin lineas', function () {
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->post(route('compras.pedido.store'), ['lineas' => []])
-        ->assertSessionHasErrors('lineas');
+    $this->postJson('/api/v1/compras', ['lineas' => []], bearer(usuarioCon('compra.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('lineas', 'errores');
 });
 
 test('rechaza una linea cuyo proveedor no provee el producto', function () {
@@ -117,11 +135,11 @@ test('rechaza una linea cuyo proveedor no provee el producto', function () {
     $noProvee = Proveedor::factory()->create();
     $producto = productoDe($provee);
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->post(route('compras.pedido.store'), ['lineas' => [
+    $this->postJson('/api/v1/compras', ['lineas' => [
             lineaDePedido($producto, $noProvee, 3, 1000),
-        ]])
-        ->assertSessionHasErrors('lineas.0.proveedor_id');
+        ]], bearer(usuarioCon('compra.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('lineas.0.proveedor_id', 'errores');
 
     expect(OrdenCompra::count())->toBe(0);
 });
@@ -130,13 +148,13 @@ test('rechaza el mismo par dos veces, senalando la linea', function () {
     $proveedor = Proveedor::factory()->create();
     $producto  = productoDe($proveedor);
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->post(route('compras.pedido.store'), ['lineas' => [
+    $this->postJson('/api/v1/compras', ['lineas' => [
             lineaDePedido($producto, $proveedor, 3, 1000),
             lineaDePedido($producto, $proveedor, 2, 1000),
-        ]])
+        ]], bearer(usuarioCon('compra.crear')))
         // El error se cuelga de la línea culpable, no del arreglo entero.
-        ->assertSessionHasErrors('lineas.1.producto_id');
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('lineas.1.producto_id', 'errores');
 
     expect(OrdenCompra::count())->toBe(0);
 });
@@ -151,12 +169,11 @@ test('acepta el mismo producto a dos proveedores distintos', function () {
         ->create();
 
     // Es el caso que camino D habilita: partir una compra entre dos proveedores.
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->post(route('compras.pedido.store'), ['lineas' => [
+    $this->postJson('/api/v1/compras', ['lineas' => [
             lineaDePedido($producto, $uno, 10, 1000),
             lineaDePedido($producto, $dos, 5, 900),
-        ]])
-        ->assertSessionHasNoErrors();
+        ]], bearer(usuarioCon('compra.crear')))
+        ->assertCreated();
 
     expect(OrdenCompra::count())->toBe(2);
 });
@@ -165,11 +182,11 @@ test('rechaza un producto dado de baja', function () {
     $proveedor = Proveedor::factory()->create();
     $inactivo  = Producto::factory()->inactivo()->conProveedor($proveedor)->create();
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->post(route('compras.pedido.store'), ['lineas' => [
+    $this->postJson('/api/v1/compras', ['lineas' => [
             lineaDePedido($inactivo, $proveedor, 1, 100),
-        ]])
-        ->assertSessionHasErrors('lineas.0.producto_id');
+        ]], bearer(usuarioCon('compra.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('lineas.0.producto_id', 'errores');
 });
 
 test('rechaza un proveedor dado de baja', function () {
@@ -177,22 +194,21 @@ test('rechaza un proveedor dado de baja', function () {
     $producto  = productoDe($proveedor);
 
     // Una orden es un compromiso de plata: no se compromete con alguien dado de baja.
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->post(route('compras.pedido.store'), ['lineas' => [
+    $this->postJson('/api/v1/compras', ['lineas' => [
             lineaDePedido($producto, $proveedor, 1, 100),
-        ]])
-        ->assertSessionHasErrors('lineas.0.proveedor_id');
+        ]], bearer(usuarioCon('compra.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('lineas.0.proveedor_id', 'errores');
 });
 
 test('el costo en formato argentino se entiende', function () {
     $proveedor = Proveedor::factory()->create();
     $producto  = productoDe($proveedor);
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->post(route('compras.pedido.store'), ['lineas' => [
+    $this->postJson('/api/v1/compras', ['lineas' => [
             lineaDePedido($producto, $proveedor, 2, '25.000,50'),
-        ]])
-        ->assertSessionHasNoErrors();
+        ]], bearer(usuarioCon('compra.crear')))
+        ->assertCreated();
 
     expect(OrdenCompra::first()->lineas->first()->costo_unitario)->toBe('25000.50');
 });
@@ -211,18 +227,19 @@ test('guardar crea un borrador por proveedor y vuelve al listado de borradores',
     $deAlfa = productoDe($alfa, codigo: 'ALF-1');
     $otroDeAlfa = productoDe($alfa);
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->post(route('compras.pedido.store'), ['lineas' => [
+    $this->postJson('/api/v1/compras', ['lineas' => [
             lineaDePedido($deZeta, $zeta, 1, 1000),
             lineaDePedido($deAlfa, $alfa, 2, 2000),
             lineaDePedido($otroDeAlfa, $alfa, 3, 500),
-        ]])
-        // El usuario cae en el listado filtrado a borradores, donde las nuevas son
-        // las primeras filas porque el listado ordena por id descendente.
-        ->assertRedirect(route('compras.index', ['estado' => 'borrador']))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, '2 pedidos')
+        ]], bearer(usuarioCon('compra.crear')))
+        // Vuelven las órdenes creadas, ordenadas por proveedor: la pantalla lleva al listado de
+        // borradores, donde las nuevas son las primeras filas porque ordena por id descendente.
+        ->assertCreated()
+        ->assertJsonPath('datos.*.proveedor.razon_social', ['Alfa Distribuciones', 'Zeta Insumos'])
+        ->assertJsonPath('datos.0.estado', 'borrador')
+        ->assertJson(fn ($json) => $json->where('mensaje', fn ($mensaje) => str_contains($mensaje, '2 pedidos')
             && str_contains($mensaje, 'Alfa Distribuciones')
-            && str_contains($mensaje, 'Zeta Insumos'));
+            && str_contains($mensaje, 'Zeta Insumos'))->etc());
 
     expect(OrdenCompra::count())->toBe(2);
 
@@ -241,12 +258,12 @@ test('una sola linea crea un solo pedido y el mensaje lo dice en singular', func
     $proveedor = Proveedor::factory()->create(['razon_social' => 'Austral']);
     $producto  = productoDe($proveedor);
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->post(route('compras.pedido.store'), ['lineas' => [
+    $this->postJson('/api/v1/compras', ['lineas' => [
             lineaDePedido($producto, $proveedor, 4, 1000),
-        ]])
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'Se creó el pedido')
-            && str_contains($mensaje, 'Austral'));
+        ]], bearer(usuarioCon('compra.crear')))
+        ->assertCreated()
+        ->assertJson(fn ($json) => $json->where('mensaje', fn ($mensaje) => str_contains($mensaje, 'Se creó el pedido')
+            && str_contains($mensaje, 'Austral'))->etc());
 
     expect(OrdenCompra::count())->toBe(1);
 });
@@ -276,10 +293,9 @@ test('los sugeridos son lo que hay que reponer y nada mas', function () {
 
     OrdenCompra::factory()->conLinea($enCamino, 10)->create(['proveedor_id' => $proveedor->id]);
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->get(route('compras.sugeridos'))
-        ->assertOk()
-        ->assertViewHas('sugeridos', fn ($sugeridos) => $sugeridos->pluck('id')->all() === [$aPedir->id]);
+    $respuesta = $this->getJson('/api/v1/compras/sugeridos', bearer(usuarioCon('compra.crear')))->assertOk();
+
+    expect(array_column($respuesta->json('datos'), 'id'))->toBe([$aPedir->id]);
 });
 
 test('el aviso dice cuantos no se pueden pedir y enlaza al catalogo filtrado', function () {
@@ -287,31 +303,36 @@ test('el aviso dice cuantos no se pueden pedir y enlaza al catalogo filtrado', f
 
     Producto::factory()->count(3)->conStock(0)->create(['stock_minimo' => 5]);
 
+    $this->getJson('/api/v1/compras/sugeridos', bearer(usuarioCon('compra.crear')))
+        ->assertOk()
+        ->assertJsonPath('sin_proveedor', 3);
+
+    app('auth')->forgetGuards();
+
+    // El enlace al catálogo filtrado es estructura del shell, con su @can.
     $this->actingAs(usuarioCon('compra.crear', 'producto.ver'))
         ->get(route('compras.sugeridos'))
         ->assertOk()
-        ->assertSee('data-sin-proveedor="3"', false)
         ->assertSee(route('productos.index', ['stock' => 'sin_proveedor']), false);
 });
 
 test('sin huerfanos el aviso no existe', function () {
     productoDe(Proveedor::factory()->create(), cambios: ['stock_minimo' => 5]);
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->get(route('compras.sugeridos'))
+    // El aviso nace oculto en el shell: el JS lo muestra sólo si `sin_proveedor` es mayor que cero.
+    $this->getJson('/api/v1/compras/sugeridos', bearer(usuarioCon('compra.crear')))
         ->assertOk()
-        ->assertDontSee('avisoSinProveedor', false);
+        ->assertJsonPath('sin_proveedor', 0);
 });
 
 test('la pantalla pagina y no rinde todo lo que hay que reponer', function () {
     Producto::factory()->count(21)->conProveedor(Proveedor::factory()->create())
         ->create(['stock_minimo' => 5]);
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->get(route('compras.sugeridos'))
+    $this->getJson('/api/v1/compras/sugeridos', bearer(usuarioCon('compra.crear')))
         ->assertOk()
-        ->assertViewHas('sugeridos', fn ($sugeridos) => $sugeridos->count() === 20
-            && $sugeridos->total() === 21);
+        ->assertJsonCount(20, 'datos')
+        ->assertJsonPath('total', 21);
 });
 
 test('el ultimo costo no se muestra sin el permiso de verlo', function () {
@@ -336,17 +357,16 @@ test('los sugeridos elegidos llegan al armador como renglones', function () {
         'cantidad_reposicion' => 7,
     ]);
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->get(route('compras.pedido', ['productos' => [$producto->id]]))
+    $this->getJson('/api/v1/compras/armador?'.http_build_query(['productos' => [$producto->id]]), bearer(usuarioCon('compra.crear')))
         ->assertOk()
         // El proveedor, la cantidad y el costo los pone el servidor: la pantalla
         // mandó un id y nada más.
-        ->assertViewHas('lineas', fn ($lineas) => count($lineas) === 1
-            && $lineas[0]['producto_id'] === $producto->id
-            && $lineas[0]['proveedor_id'] === $proveedor->id
-            && $lineas[0]['cantidad_pedida'] === 7
-            && (float) $lineas[0]['costo_unitario'] === 12000.0)
-        ->assertSee('FUE-001');
+        ->assertJsonCount(1, 'datos')
+        ->assertJsonPath('datos.0.producto.id', $producto->id)
+        ->assertJsonPath('datos.0.proveedor.id', $proveedor->id)
+        ->assertJsonPath('datos.0.cantidad_pedida', 7)
+        ->assertJsonPath('datos.0.costo_unitario', '12000.00')
+        ->assertJsonPath('datos.0.producto.codigo', 'FUE-001');
 });
 
 test('un sugerido que ya no hace falta no entra y el armador lo dice', function () {
@@ -355,19 +375,26 @@ test('un sugerido que ya no hace falta no entra y el armador lo dice', function 
     $sigue   = productoDe($proveedor, cambios: ['stock_minimo' => 5]);
     $cargado = Producto::factory()->conStock(50)->conProveedor($proveedor)->create(['stock_minimo' => 5]);
 
-    $this->actingAs(usuarioCon('compra.crear'))
-        ->get(route('compras.pedido', ['productos' => [$sigue->id, $cargado->id]]))
+    $respuesta = $this->getJson('/api/v1/compras/armador?'.http_build_query(['productos' => [$sigue->id, $cargado->id]]), bearer(usuarioCon('compra.crear')))
         ->assertOk()
-        ->assertViewHas('lineas', fn ($lineas) => count($lineas) === 1)
-        // Rechaza, no corrige: el renglón no se agrega y se dice por qué (M-31).
-        ->assertSee('ya no hace falta');
+        ->assertJsonCount(1, 'datos');
+
+    // Rechaza, no corrige: el renglón no se agrega y se dice por qué (M-31).
+    expect($respuesta->json('aviso'))->toContain('ya no hace falta');
 });
 
+// Por la API, la lista inválida es 422 y no una redirección (HL-120); la pantalla avisa y arma a mano.
 test('una lista de productos invalida devuelve el armador limpio con un error', function () {
+    $this->getJson('/api/v1/compras/armador?productos[]=99999', bearer(usuarioCon('compra.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('productos.0', 'errores');
+
+    app('auth')->forgetGuards();
+
+    // El shell ya no valida la consulta: abre igual y el JS arma el pedido a mano.
     $this->actingAs(usuarioCon('compra.crear'))
         ->get(route('compras.pedido', ['productos' => [99999]]))
-        ->assertRedirect(route('compras.pedido'))
-        ->assertSessionHas('error');
+        ->assertOk();
 });
 
 test('la insignia del menu cuenta los borradores para quien puede aprobar', function () {

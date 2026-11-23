@@ -484,3 +484,77 @@ Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
 GET {{base}}/stock/movimientos/impresion?formato=csv&tipo=ajuste
 Accept: application/json
 Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+### ── Tramo G — Compras ──────────────────────────────────────────────────────
+
+# Qué hay que reponer, agrupado por proveedor. El costo y los estimados viajan sólo con
+# `precio.ver_costo` (el Administrativo lo tiene); sin él, las claves no están.
+GET {{base}}/compras/sugeridos
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Los sugeridos elegidos, como renglones del armador. Lo que dejó de hacer falta no entra: `descartados`.
+GET {{base}}/compras/armador?productos[]=1
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# El armador guarda un borrador por proveedor (201). Un producto que ese proveedor no provee es 422.
+# @name pedidoCompra
+POST {{base}}/compras
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{ "lineas": [ { "producto_id": 1, "proveedor_id": 1, "cantidad_pedida": 10, "costo_unitario": "2500,00" } ] }
+
+###
+
+# La ficha: proveedor, líneas, recepciones y `acciones`, que dice qué admite el estado.
+# @name fichaCompra
+GET {{base}}/compras/{{pedidoCompra.response.body.datos.0.id}}
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# El PDF de un borrador no existe: 409. El pedido se imprime cuando alguien autoriza el gasto.
+GET {{base}}/compras/{{pedidoCompra.response.body.datos.0.id}}/pdf
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Aprobar compromete el monto y congela las líneas. Después, editar es 409.
+POST {{base}}/compras/{{pedidoCompra.response.body.datos.0.id}}/aprobar
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Recibir parte: entra stock por StockService, y el asiento sale en el kardex con su remito (201).
+POST {{base}}/compras/{{pedidoCompra.response.body.datos.0.id}}/recepciones
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+{ "cantidades": { "{{fichaCompra.response.body.datos.lineas.0.id}}": 4 }, "remito_numero": "0001-00001234", "remito_fecha": "2026-11-21" }
+
+###
+
+# Ahora sí: el enlace firmado del pedido, para abrirlo sin la credencial (D-22).
+GET {{base}}/compras/{{pedidoCompra.response.body.datos.0.id}}/pdf
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# El listado, con sus filtros: las abiertas de ese proveedor.
+GET {{base}}/compras?estado=abiertas&proveedor_id=1
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Support\Importe;
 use Illuminate\Foundation\Http\FormRequest;
@@ -8,21 +8,26 @@ use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
-
 /**
- * Validación del formulario de orden de compra. Alta y edición del borrador.
+ * Validación de la edición de un borrador de orden de compra (tramo G): la de la web, pasada a la API
+ * sin cambiar ninguna regla. La ruta exige compra.editar.
  *
  * `estado` y `total_estimado` se declaran **prohibited**. El estado lo mueve la
  * máquina de estados y el total se deriva de las líneas; omitirlos los ignoraría en
  * silencio, y el intento de aprobar una orden mandando `estado=aprobada` en el
  * cuerpo desaparecería sin dejar rastro.
+ *
+ * Se deja afuera `aceptables()`, que la versión web arrastraba sin usar: `provistos()` lo reemplazó
+ * (su docblock cuenta por qué).
+ *
+ * Métodos:
  *   loProvee()   el proveedor de la orden provee ese producto
  */
 class OrdenCompraRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;   // la ruta exige compra.crear o compra.editar
+        return true;   // la ruta exige compra.editar
     }
 
     protected function prepareForValidation(): void
@@ -82,47 +87,6 @@ class OrdenCompraRequest extends FormRequest
             'estado'         => ['prohibited'],
             'total_estimado' => ['prohibited'],
         ];
-    }
-
-    /** @var array<int, int>|null */
-    private ?array $aceptables = null;
-
-    /**
-     * Los productos que esta orden puede tener.
-     *
-     * Los que el proveedor provee —no se le compra a alguien algo que no vende—,
-     * **más** los que la orden ya tenía aunque el vínculo se haya quitado después.
-     * Esa excepción es el mismo criterio que `ProductoRequest::referenciaActiva()`:
-     * una referencia que cambió después no puede volver inválido un registro que ya
-     * existe. Sin ella, desvincular un proveedor dejaría sin poder editar las
-     * órdenes viejas que lo mencionan.
-     *
-     * Se calcula una vez por petición y no una por línea: una orden de cincuenta
-     * productos haría cien consultas de validación.
-     *
-     * @return array<int, int>  producto_id => posición, para buscar con isset
-     */
-    private function aceptables(): array
-    {
-        if ($this->aceptables !== null) {
-            return $this->aceptables;
-        }
-
-        $provee = DB::table('producto_proveedor')
-            ->where('proveedor_id', $this->integer('proveedor_id'))
-            ->pluck('producto_id')
-            ->map(fn ($id) => (int) $id);
-
-        $orden = $this->route('orden');
-
-        $mismoProveedor = $orden !== null
-            && (int) $orden->proveedor_id === $this->integer('proveedor_id');
-
-        $yaEstaban = $mismoProveedor
-            ? $orden->lineas()->pluck('producto_id')->map(fn ($id) => (int) $id)
-            : collect();
-
-        return $this->aceptables = $provee->merge($yaEstaban)->flip()->all();
     }
 
     /** @var array<int, int>|null */

@@ -32,14 +32,14 @@ test('la pantalla de recepcion ofrece el numero y la fecha del remito', function
 });
 
 test('recibir por la ruta con remito lo deja en el asiento y el mensaje lo nombra', function () {
-    $this->actingAs(usuarioCon('compra.recibir'))
-        ->post(route('compras.recibir', $this->orden), [
-            'cantidades'    => [$this->linea->id => 4],
-            'remito_numero' => '0001-00001234',
-            'remito_fecha'  => '2026-11-05',
-        ])
-        ->assertRedirect(route('compras.show', $this->orden))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'con el remito 0001-00001234'));
+    $respuesta = $this->postJson("/api/v1/compras/{$this->orden->id}/recepciones", [
+        'cantidades'    => [$this->linea->id => 4],
+        'remito_numero' => '0001-00001234',
+        'remito_fecha'  => '2026-11-05',
+    ], bearer(usuarioCon('compra.recibir')))
+        ->assertCreated();
+
+    expect($respuesta->json('mensaje'))->toContain('con el remito 0001-00001234');
 
     $asiento = MovimientoStock::sole();
 
@@ -48,19 +48,18 @@ test('recibir por la ruta con remito lo deja en el asiento y el mensaje lo nombr
 });
 
 test('recibir sin remito sigue funcionando y no lo inventa', function () {
-    $this->actingAs(usuarioCon('compra.recibir'))
-        ->post(route('compras.recibir', $this->orden), ['cantidades' => [$this->linea->id => 4]])
-        ->assertSessionHas('exito', fn ($mensaje) => ! str_contains($mensaje, 'remito'));
+    $respuesta = $this->postJson("/api/v1/compras/{$this->orden->id}/recepciones", ['cantidades' => [$this->linea->id => 4]], bearer(usuarioCon('compra.recibir')))
+        ->assertCreated();
+
+    expect($respuesta->json('mensaje'))->not->toContain('remito');
 
     expect(MovimientoStock::sole()->remito_numero)->toBeNull();
 });
 
 test('un remito incompleto o imposible se rechaza y no entra nada', function (array $remito, string $campo) {
-    $this->actingAs(usuarioCon('compra.recibir'))
-        ->from(route('compras.recepcion', $this->orden))
-        ->post(route('compras.recibir', $this->orden), ['cantidades' => [$this->linea->id => 4]] + $remito)
-        ->assertRedirect(route('compras.recepcion', $this->orden))
-        ->assertSessionHasErrors($campo);
+    $this->postJson("/api/v1/compras/{$this->orden->id}/recepciones", ['cantidades' => [$this->linea->id => 4]] + $remito, bearer(usuarioCon('compra.recibir')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors($campo, 'errores');
 
     expect(MovimientoStock::count())->toBe(0)
         ->and($this->producto->fresh()->stock)->toBe(0);
@@ -78,12 +77,10 @@ test('la ficha de la orden muestra el remito de cada recepcion', function () {
     $servicio->recibir($this->orden, [$this->linea->id => 4], admin(), ['numero' => 'A-0001', 'fecha' => '2026-11-02']);
     $servicio->recibir($this->orden->fresh(), [$this->linea->id => 6], admin());
 
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.show', $this->orden))
+    // La más nueva primero: la segunda recepción no trae remito, y el JSON no lo inventa (la pantalla dice «No consta»).
+    $this->getJson("/api/v1/compras/{$this->orden->id}", bearer(usuarioCon('compra.ver')))
         ->assertOk()
-        ->assertSee('A-0001')
-        ->assertSee('del 02/11/2026')
-        ->assertSee('No consta');
+        ->assertJsonPath('datos.recepciones.*.remito_texto', [null, 'Remito A-0001 del 02/11/2026']);
 });
 
 test('el kardex muestra el remito en el asiento de la recepcion', function () {

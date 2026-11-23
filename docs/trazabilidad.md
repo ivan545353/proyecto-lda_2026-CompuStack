@@ -1554,3 +1554,25 @@ aplica lo que previsualizó (la URL), no lo que el formulario tenga en ese momen
 que se puede deshacer, para que ninguna pantalla ofrezca lo que va a rechazar. Las reservas son un recurso del producto
 (`GET /productos/{id}/stock`), junto al ajuste: el panel del kardex y la referencia del conteo salen de ahí. Los mensajes
 pasaron tal cual de los controladores web a los de la API, y los servicios no cambiaron salvo una lectura (D-34).
+
+### Tramo G — Compras
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Api/V1/CompraController` + `OrdenCompraFiltroRequest`, `OrdenCompraRequest`, `PedidoCompraRequest`, `RecepcionCompraRequest`, `ProductosElegidosRequest` | El listado con su impresión, los proveedores para elegir (HL-125), la ficha, el PDF, los sugeridos, el armador (HL-124), el alta de un borrador por proveedor, la edición, las cuatro transiciones y la recepción | Nuevo |
+| `OrdenCompraResource`, `OrdenCompraFichaResource` | La fila del listado y la ficha, con `lineas`, `recepciones` (la forma del kardex) y `acciones`, que decide el estado y no la pantalla | Nuevo |
+| `App\Impresion\PedidoCompra` | El pedido formal por URL firmada propia (HL-126): al abrirla, se vuelve a exigir cuenta activa y `compra.ver`; sin aprobar, 409 | Nuevo |
+| `ListadoCompras`, `ImpresionFirmada::LISTADOS` | El listado se imprime por enlace firmado, con la misma consulta que lista la API | Modificado |
+| `pantallas/compras.js`, `componentes/lineas-pedido.js`, `lineas-orden.js`, `recepcion.js`, `app.js` | El listado, la ficha con sus acciones, los sugeridos, el armador, la edición del borrador y la recepción, como clientes de la API | Nuevo / Modificado |
+| Vistas de `compras` (índice, ficha, sugeridos, armador, edición, recepción y sus parciales) | Shells: la estructura, las plantillas y los `@can`, sin datos de negocio (regla 37) | Modificado |
+| Controlador web `CompraController` | Sólo los seis shells, con las guardias de estado de la edición y la recepción. Se retiran 9 rutas; se borran los cinco Form Requests web | Modificado |
+| `CompraModuloTest`, `PedidoCompraModuloTest`, `RemitoProveedorModuloTest`, `CompraImpresionTest`, `ImpresionDialogoTest`, `PanelAtencionTest`, `EscalaTest`; `Api/CompraApiTest` | Las escrituras y el PDF migran al endpoint con su aserción; las lecturas de pantalla, al JSON de la ficha; las 9 URLs retiradas dan 404 o 405 | Nuevo / Modificado |
+
+**La decisión que lo condicionó.** Un solo controlador de la API, como el web, porque compras es un solo recurso con sus
+transiciones. Las transiciones y la recepción devuelven la ficha entera, así la pantalla se vuelve a pintar con lo que dice
+el servidor y no calcula qué botón sigue (regla 9): `acciones` dice qué admite el estado, y el `@can` de cada botón, qué
+admite el permiso. Los mensajes pasaron tal cual de los controladores web a los de la API, y `CompraService` no cambió.
+- **Las guardias de la edición y la recepción** quedaron en el shell web: leen el estado para no abrir una pantalla que no
+  sirve, no rinden datos, y sus tests no cambiaron.
+- **La edición y la recepción leen la ficha** (`GET /compras/{id}`, `compra.ver`) en lugar de un endpoint propio. Los roles
+  con `compra.editar` o `compra.recibir` tienen `compra.ver` (HL-128).

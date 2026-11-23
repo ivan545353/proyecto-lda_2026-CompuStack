@@ -19,25 +19,23 @@
 
     @include('compras._pestanas-pedido', ['activa' => 'armar'])
 
-    @include('partials.errores')
-
-    {{-- La única advertencia de la pantalla, y sólo existe si el JS no corre. --}}
+    {{-- Shell (tramo G, regla 37): los renglones con los que se entra, si hay algo que pedir y los
+         proveedores de cada producto llegan por la API. Guardar es `POST /api/v1/compras`. --}}
     <noscript>
         <div class="alert alert-warning d-flex gap-2" role="alert">
             <i class="bi bi-exclamation-triangle flex-shrink-0 mt-1" aria-hidden="true"></i>
             <div>
-                <strong>Sin JavaScript no se puede elegir un producto en esta pantalla.</strong>
-                El buscador le pregunta al servidor mientras escribís: mandar el catálogo
-                completo en la página la hacía pesar seis megabytes y usar 392 MB de memoria,
-                y con el doble de productos dejaba de abrir del todo. Lo que sí funciona acá:
-                el selector de proveedor, que viene completo, y los renglones que ya estén
-                cargados.
+                <strong>Sin JavaScript esta pantalla no funciona.</strong>
+                Los productos, sus proveedores y el pedido van y vienen por la API: mandar el catálogo
+                completo en la página la hacía pesar seis megabytes y usar 392 MB de memoria.
             </div>
         </div>
     </noscript>
 
-    @if (!$hayPedibles)
-        <div class="card card-body border-0 shadow-sm">
+    <div data-pantalla="armador">
+    <p class="text-body-secondary" data-cargando>Cargando el armador…</p>
+
+        <div class="card card-body border-0 shadow-sm" data-sin-pedibles hidden>
             <p class="mb-0">
                 No hay ningún producto que se le pueda comprar a alguien. Para poder armar un
                 pedido, cargale al menos un proveedor activo a algún producto desde el
@@ -48,11 +46,11 @@
                 @endcan
             </p>
         </div>
-    @else
-        <form method="POST" novalidate action="{{ route('compras.pedido.store') }}">
-            @csrf
 
-            <div class="card border-0 shadow-sm mb-4" data-armador data-proximo-indice="{{ $proximoIndice }}"
+        <form novalidate data-formulario-armador data-volver="{{ route('compras.index', ['estado' => 'borrador']) }}" hidden>
+            <p class="alert alert-danger" data-errores-formulario hidden></p>
+
+            <div class="card border-0 shadow-sm mb-4" data-armador data-proximo-indice="0"
                 data-proveedores-url="/productos/__ID__/proveedores">
                 <div class="card-body">
                     <div
@@ -73,10 +71,6 @@
                             <i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar producto
                         </button>
                     </div>
-
-                    @error('lineas')
-                        <div class="alert alert-danger">{{ $message }}</div>
-                    @enderror
 
                     <table class="table align-middle mb-0" style="min-width: 48rem;">
                         <caption class="visually-hidden">
@@ -106,27 +100,13 @@
                                 </th>
                             </tr>
 
-                            @foreach ($lineas as $indice => $linea)
-                                @include('compras._linea-pedido', [
-                                    'indice' => $indice,
-                                    'linea' => $linea,
-                                    'productos' => $productos,
-                                    'proveedores' => $proveedores,
-                                ])
-                            @endforeach
-
                             {{-- La plantilla va DENTRO de un tbody: un <tr> dentro
                                     de un <template> suelto no sobrevive al parseo,
                                     porque una fila fuera de una tabla se descarta. Su
                                     contenido vive en un fragmento aparte, así que no
                                     aparece en los querySelectorAll('tr'). --}}
                             <template id="plantillaLineaPedido">
-                                @include('compras._linea-pedido', [
-                                    'indice' => '__INDICE__',
-                                    'linea' => null,
-                                    'productos' => $productos,
-                                    'proveedores' => $proveedores,
-                                ])
+                                @include('compras._linea-pedido', ['indice' => '__INDICE__'])
                             </template>
                         </tbody>
 
@@ -171,5 +151,5 @@
                 </button>
             </div>
         </form>
-    @endif
+    </div>
 @endsection

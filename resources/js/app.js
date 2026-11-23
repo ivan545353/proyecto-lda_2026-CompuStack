@@ -21,6 +21,7 @@ import { iniciarFormularioDeProveedor, iniciarListadoDeProveedores } from './pan
 import { iniciarFormularioDeFactor, iniciarFormularioDeImpuesto, iniciarPantallaDePrecios, iniciarSimulador } from './pantallas/precios';
 import { iniciarAjusteMasivo, iniciarHistorialDeAjustes } from './pantallas/ajuste-masivo';
 import { iniciarAjusteDeStock, iniciarKardex } from './pantallas/stock';
+import { iniciarFichaDeCompra, iniciarListadoDeCompras, iniciarSugeridos } from './pantallas/compras';
 import { iniciarSelecciones } from './componentes/seleccion';
 import { mostrarAvisoPendiente } from './api/estados';
 
@@ -253,8 +254,11 @@ document.addEventListener('DOMContentLoaded', () => {
 // El aviso que dejó la pantalla anterior (una alta que volvió al listado): ver api/estados.js
 document.addEventListener('DOMContentLoaded', () => mostrarAvisoPendiente());
 
-// Las pantallas migradas a la API (tramos D, E y F): ver pantallas/
+// Las pantallas migradas a la API (tramos D a G): ver pantallas/
 document.addEventListener('DOMContentLoaded', () => {
+    iniciarListadoDeCompras();
+    iniciarFichaDeCompra();
+    iniciarSugeridos();
     iniciarPantallaDePrecios();
     iniciarFormularioDeImpuesto();
     iniciarFormularioDeFactor();

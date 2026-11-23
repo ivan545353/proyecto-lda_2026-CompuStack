@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\CarritoLineaController;
 use App\Http\Controllers\Api\V1\CategoriaController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClienteController;
+use App\Http\Controllers\Api\V1\CompraController;
 use App\Http\Controllers\Api\V1\DireccionController;
 use App\Http\Controllers\Api\V1\FactorCostoController;
 use App\Http\Controllers\Api\V1\ImpresionController;
@@ -27,6 +28,7 @@ use App\Http\Controllers\Api\V1\TiendaController;
 use App\Http\Controllers\Api\V1\YoController;
 use App\Impresion\ComprobanteVenta;
 use App\Impresion\ImpresionFirmada;
+use App\Impresion\PedidoCompra;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -84,6 +86,11 @@ Route::prefix('v1')->group(function () {
         Route::get('impresiones/{listado}', [ImpresionController::class, 'descargar'])
             ->whereIn('listado', array_keys(ImpresionFirmada::LISTADOS))
             ->middleware('signed')->name(ImpresionFirmada::RUTA);
+
+        // El pedido formal de una orden de compra (tramo G, HL-126): igual que un listado, la firma cubre
+        // quién lo pidió y al abrirlo se vuelve a exigir `compra.ver`. Lo pide `GET compras/{orden}/pdf`.
+        Route::get('compras/{orden}/pedido.pdf', [CompraController::class, 'descargarPdf'])
+            ->whereNumber('orden')->middleware('signed')->name(PedidoCompra::RUTA);
     });
 
     // Sesión opcional, de los dos clientes (HL-108): qué ve cada uno lo decide el permiso.
@@ -169,6 +176,30 @@ Route::prefix('v1')->group(function () {
             Route::get('productos/{producto}/stock', [StockController::class, 'producto'])->whereNumber('producto');
         });
         Route::post('productos/{producto}/ajustes-stock', [StockController::class, 'ajustar'])->whereNumber('producto')->middleware('can:stock.ajustar');
+
+        // Las órdenes de compra (tramo G). Ver, crear, editar, aprobar y recibir son permisos distintos (C-2).
+        Route::middleware('can:compra.ver')->group(function () {
+            Route::get('compras', [CompraController::class, 'index']);
+            Route::get('compras/impresion', [CompraController::class, 'impresion']);
+            Route::get('compras/proveedores', [CompraController::class, 'proveedores']);
+            Route::get('compras/{orden}', [CompraController::class, 'show'])->whereNumber('orden');
+            Route::get('compras/{orden}/pdf', [CompraController::class, 'pdf'])->whereNumber('orden');
+        });
+        // El armador y sus sugeridos: `compra.crear`, como sus pantallas.
+        Route::middleware('can:compra.crear')->group(function () {
+            Route::get('compras/sugeridos', [CompraController::class, 'sugeridos']);
+            Route::get('compras/armador', [CompraController::class, 'armador']);
+            Route::post('compras', [CompraController::class, 'store']);
+        });
+        Route::post('compras/{orden}/recepciones', [CompraController::class, 'recibir'])->whereNumber('orden')->middleware('can:compra.recibir');
+        Route::patch('compras/{orden}', [CompraController::class, 'update'])->whereNumber('orden')->middleware('can:compra.editar');
+        Route::middleware('can:compra.aprobar')->group(function () {
+            Route::post('compras/{orden}/aprobar', [CompraController::class, 'aprobar'])->whereNumber('orden');
+            Route::post('compras/{orden}/enviada', [CompraController::class, 'enviada'])->whereNumber('orden');
+            Route::post('compras/{orden}/cancelar', [CompraController::class, 'cancelar'])->whereNumber('orden');
+        });
+        // Cerrar incompleta es del que recibe: es decir que el resto no va a llegar.
+        Route::post('compras/{orden}/cerrar', [CompraController::class, 'cerrar'])->whereNumber('orden')->middleware('can:compra.recibir');
 
         // El listado de categorías es `GET categorias?forma=lista`, arriba: el mismo recurso (regla 36).
         Route::middleware('can:categoria.ver')->group(function () {

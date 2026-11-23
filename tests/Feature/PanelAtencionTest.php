@@ -79,13 +79,15 @@ test('el numero de la tarjeta y el listado del enlace cuentan lo mismo', functio
         ->assertViewHas('metricas', fn (array $m) => $m['comprasAbiertas'] === 2
             && $m['borradoresDeReposicion'] === 1);
 
-    $this->actingAs($usuario)
-        ->get(route('compras.index', ['estado' => OrdenCompra::ABIERTAS]))
-        ->assertViewHas('ordenes', fn ($o) => $o->total() === 2);
+    // Desde el tramo G el listado del enlace es la API: el mismo filtro, el mismo número.
+    app('auth')->forgetGuards();
+    $credencial = bearer($usuario);
 
-    $this->actingAs($usuario)
-        ->get(route('compras.index', ['estado' => 'borrador', 'origen' => 'reposicion']))
-        ->assertViewHas('ordenes', fn ($o) => $o->total() === 1);
+    $this->getJson('/api/v1/compras?estado='.OrdenCompra::ABIERTAS, $credencial)
+        ->assertJsonPath('total', 2);
+
+    $this->getJson('/api/v1/compras?estado=borrador&origen=reposicion', $credencial)
+        ->assertJsonPath('total', 1);
 });
 
 test('sin borradores de la reposicion la tarjeta no agrega la nota', function () {

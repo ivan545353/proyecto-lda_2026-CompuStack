@@ -11,6 +11,17 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     $this->seed(RolPermisoSeeder::class);
+
+    // Tramo G: el PDF del pedido se pide a la API, que devuelve el enlace firmado (D-22).
+    $this->enlaceDelPedido = function (OrdenCompra $orden): string {
+        $url = $this->getJson("/api/v1/compras/{$orden->id}/pdf", bearer(usuarioCon('compra.ver')))
+            ->assertOk()
+            ->json('datos.url');
+
+        app('auth')->forgetGuards();
+
+        return $url;
+    };
 });
 
 /**
@@ -34,15 +45,19 @@ beforeEach(function () {
 |
 */
 
+// Tramo G: las pantallas siguen en la web; las acciones y el PDF, en la API (sufijo de `/api/v1/compras/{orden}`).
 dataset('rutas de la orden', [
     'ficha'             => ['get',  'compras.show',      'compra.ver'],
-    'aprobar'           => ['post', 'compras.aprobar',   'compra.aprobar'],
-    'marcar enviada'    => ['post', 'compras.enviada',   'compra.aprobar'],
-    'cerrar incompleta' => ['post', 'compras.cerrar',    'compra.recibir'],
-    'cancelar'          => ['post', 'compras.cancelar',  'compra.aprobar'],
     'pantalla de recepcion' => ['get',  'compras.recepcion', 'compra.recibir'],
-    'registrar recepcion'   => ['post', 'compras.recibir',   'compra.recibir'],
-    'pdf del pedido' => ['get', 'compras.pdf', 'compra.ver'],
+]);
+
+dataset('endpoints de la orden del modulo', [
+    'aprobar'           => ['post', '/aprobar',     'compra.aprobar'],
+    'marcar enviada'    => ['post', '/enviada',     'compra.aprobar'],
+    'cerrar incompleta' => ['post', '/cerrar',      'compra.recibir'],
+    'cancelar'          => ['post', '/cancelar',    'compra.aprobar'],
+    'registrar recepcion' => ['post', '/recepciones', 'compra.recibir'],
+    'pdf del pedido'    => ['get',  '/pdf',         'compra.ver'],
 ]);
 
 test('ningun otro permiso del modulo habilita la ruta de la orden', function (string $metodo, string $ruta, string $permiso) {
@@ -62,17 +77,43 @@ test('el permiso de la ruta alcanza para pasar', function (string $metodo, strin
     expect($respuesta->status())->not->toBe(403);
 })->with('rutas de la orden');
 
+test('ningun otro permiso del modulo habilita el endpoint de la orden', function (string $metodo, string $sufijo, string $permiso) {
+    $orden = OrdenCompra::factory()->conLinea(Producto::factory()->create(), 3)->create();
+
+    $otros = array_values(array_diff(PERMISOS_COMPRA, [$permiso]));
+
+    $this->json($metodo, "/api/v1/compras/{$orden->id}{$sufijo}", [], bearer(usuarioCon(...$otros)))
+        ->assertForbidden();
+})->with('endpoints de la orden del modulo');
+
+test('el permiso del endpoint alcanza para pasar', function (string $metodo, string $sufijo, string $permiso) {
+    $orden = OrdenCompra::factory()->conLinea(Producto::factory()->create(), 3)->create();
+
+    $respuesta = $this->json($metodo, "/api/v1/compras/{$orden->id}{$sufijo}", [], bearer(usuarioCon($permiso)));
+
+    expect($respuesta->status())->not->toBe(403);
+})->with('endpoints de la orden del modulo');
+
 test('quien solo puede ver no recibe los botones de accion', function () {
     $orden = OrdenCompra::factory()->conLinea(Producto::factory()->create(), 3)->create();
 
     // M-33: lo que no se puede hacer no se ofrece. El control real es la ruta, que
-    // ya se probó arriba.
+    // ya se probó arriba. Desde el tramo G el shell lleva el botón sólo si el @can deja
+    // (regla 12), y el JS lo muestra si el estado lo admite.
     $this->actingAs(usuarioCon('compra.ver'))
         ->get(route('compras.show', $orden))
         ->assertOk()
-        ->assertDontSee(route('compras.aprobar', $orden))
-        ->assertDontSee(route('compras.cancelar', $orden))
-        ->assertDontSee(route('compras.edit', $orden));
+        ->assertDontSee('data-accion="aprobar"', false)
+        ->assertDontSee('data-accion="cancelar"', false)
+        ->assertDontSee('data-accion="editar"', false);
+
+    // Y la otra dirección: con el permiso, el botón está en el shell.
+    $this->actingAs(usuarioCon('compra.ver', 'compra.aprobar', 'compra.editar'))
+        ->get(route('compras.show', $orden))
+        ->assertOk()
+        ->assertSee('data-accion="aprobar"', false)
+        ->assertSee('data-accion="cancelar"', false)
+        ->assertSee('data-accion="editar"', false);
 });
 
 /*
@@ -91,14 +132,13 @@ test('la ficha muestra el estado, las lineas y el codigo congelado del proveedor
 
     // El código del proveedor se congela en la línea: la ficha lo muestra porque es
     // con lo que el proveedor va a buscar el producto.
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.show', $orden))
+    $this->getJson("/api/v1/compras/{$orden->id}", bearer(usuarioCon('compra.ver')))
         ->assertOk()
-        ->assertSee($orden->numeroFormateado())
-        ->assertSee('Borrador')
-        ->assertSee('Distribuidora Austral')
-        ->assertSee($producto->nombre)
-        ->assertSee('AUS-77');
+        ->assertJsonPath('datos.numero', $orden->numeroFormateado())
+        ->assertJsonPath('datos.estado_texto', 'Borrador')
+        ->assertJsonPath('datos.proveedor.razon_social', 'Distribuidora Austral')
+        ->assertJsonPath('datos.lineas.0.producto.nombre', $producto->nombre)
+        ->assertJsonPath('datos.lineas.0.codigo_proveedor', 'AUS-77');
 });
 
 test('la ficha de una orden generada por el sistema lo dice con palabras', function () {
@@ -107,11 +147,11 @@ test('la ficha de una orden generada por el sistema lo dice con palabras', funct
         ->create();
 
     // usuario_creo_id null SIGNIFICA «la generó la tarea de reposición». No se
-    // muestra una celda vacía.
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.show', $orden))
+    // muestra una celda vacía: el JSON lo dice, y la pantalla escribe «por el sistema».
+    $this->getJson("/api/v1/compras/{$orden->id}", bearer(usuarioCon('compra.ver')))
         ->assertOk()
-        ->assertSee('por el sistema');
+        ->assertJsonPath('datos.generada_por_el_sistema', true)
+        ->assertJsonPath('datos.creada_por', null);
 });
 
 test('la ficha dice que sigue segun el canal del proveedor, y solo cuando esta aprobada', function () {
@@ -121,17 +161,20 @@ test('la ficha dice que sigue segun el canal del proveedor, y solo cuando esta a
     $borrador = OrdenCompra::factory()->conLinea($producto, 1)->create(['proveedor_id' => $proveedor->id]);
     $aprobada = OrdenCompra::factory()->aprobada()->conLinea($producto, 1)->create(['proveedor_id' => $proveedor->id]);
 
-    $usuario = usuarioCon('compra.ver');
+    $credencial = bearer(usuarioCon('compra.ver'));
 
-    // En borrador todavía no hay nada que mandar.
-    $this->actingAs($usuario)
-        ->get(route('compras.show', $borrador))
-        ->assertDontSee('https://pedidos.austral.test');
+    // En borrador todavía no hay nada que mandar: «Qué sigue» aparece cuando se puede marcar enviada.
+    $this->getJson("/api/v1/compras/{$borrador->id}", $credencial)
+        ->assertJsonPath('datos.acciones.enviar', false);
 
-    $this->actingAs($usuario)
+    $this->getJson("/api/v1/compras/{$aprobada->id}", $credencial)
+        ->assertJsonPath('datos.acciones.enviar', true)
+        ->assertJsonPath('datos.proveedor.canal_pedido', 'portal_externo')
+        ->assertJsonPath('datos.proveedor.portal_url', 'https://pedidos.austral.test');
+
+    $this->actingAs(usuarioCon('compra.ver'))
         ->get(route('compras.show', $aprobada))
-        ->assertSee('portal del proveedor')
-        ->assertSee('https://pedidos.austral.test');
+        ->assertSee('portal del proveedor');
 });
 
 /*
@@ -144,10 +187,11 @@ test('aprobar registra quien y cuando, y lo dice', function () {
     $orden   = OrdenCompra::factory()->conLinea(Producto::factory()->create(), 3, 1000)->create();
     $usuario = usuarioCon('compra.aprobar');
 
-    $this->actingAs($usuario)
-        ->post(route('compras.aprobar', $orden))
-        ->assertRedirect(route('compras.show', $orden))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'aprobada'));
+    $respuesta = $this->postJson("/api/v1/compras/{$orden->id}/aprobar", [], bearer($usuario))
+        ->assertOk()
+        ->assertJsonPath('datos.id', $orden->id);
+
+    expect($respuesta->json('mensaje'))->toContain('aprobada');
 
     $orden->refresh();
 
@@ -159,9 +203,10 @@ test('aprobar registra quien y cuando, y lo dice', function () {
 test('marcar enviada guarda la fecha y el mensaje no finge que el sistema lo mando', function () {
     $orden = OrdenCompra::factory()->aprobada()->conLinea(Producto::factory()->create(), 2)->create();
 
-    $this->actingAs(usuarioCon('compra.aprobar'))
-        ->post(route('compras.enviada', $orden))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'el sistema sólo lo anota'));
+    $respuesta = $this->postJson("/api/v1/compras/{$orden->id}/enviada", [], bearer(usuarioCon('compra.aprobar')))
+        ->assertOk();
+
+    expect($respuesta->json('mensaje'))->toContain('el sistema sólo lo anota');
 
     expect($orden->fresh()->fecha_envio)->not->toBeNull();
 });
@@ -169,14 +214,13 @@ test('marcar enviada guarda la fecha y el mensaje no finge que el sistema lo man
 test('una transicion que la maquina de estados no declara se rechaza con un aviso', function () {
     // Un borrador no se puede marcar como enviado sin aprobar. La
     // TransicionInvalidaException se traduce en bootstrap/app.php, sin try/catch en
-    // el controlador (M-30).
+    // el controlador (M-30). Por la API, el aviso es un 409 con su código.
     $orden = OrdenCompra::factory()->conLinea(Producto::factory()->create(), 1)->create();
 
-    $this->actingAs(usuarioCon('compra.aprobar'))
-        ->from(route('compras.show', $orden))
-        ->post(route('compras.enviada', $orden))
-        ->assertRedirect(route('compras.show', $orden))
-        ->assertSessionHas('error');
+    $this->postJson("/api/v1/compras/{$orden->id}/enviada", [], bearer(usuarioCon('compra.aprobar')))
+        ->assertStatus(409)
+        ->assertJsonPath('codigo', 'transicion_invalida')
+        ->assertJsonStructure(['mensaje']);
 
     expect($orden->fresh()->estado)->toBe('borrador');
 });
@@ -184,18 +228,20 @@ test('una transicion que la maquina de estados no declara se rechaza con un avis
 test('cancelar deja la orden cancelada y sin acciones', function () {
     $orden = OrdenCompra::factory()->aprobada()->conLinea(Producto::factory()->create(), 2)->create();
 
-    $this->actingAs(usuarioCon('compra.aprobar'))
-        ->post(route('compras.cancelar', $orden))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'cancelada'));
+    $respuesta = $this->postJson("/api/v1/compras/{$orden->id}/cancelar", [], bearer(usuarioCon('compra.aprobar')))
+        ->assertOk();
 
-    expect($orden->fresh()->estado)->toBe('cancelada');
+    expect($respuesta->json('mensaje'))->toContain('cancelada')
+        ->and($orden->fresh()->estado)->toBe('cancelada');
 
-    // Un estado final no tiene salidas, y la pantalla no inventa botones.
-    $this->actingAs(usuarioCon('compra.aprobar', 'compra.ver', 'compra.recibir'))
-        ->get(route('compras.show', $orden))
+    // Un estado final no tiene salidas, y la ficha no inventa acciones: la pantalla ofrece lo que dice `acciones`.
+    app('auth')->forgetGuards();
+    $this->getJson("/api/v1/compras/{$orden->id}", bearer(usuarioCon('compra.aprobar', 'compra.ver', 'compra.recibir')))
         ->assertOk()
-        ->assertSee('no admite más cambios de estado')
-        ->assertDontSee(route('compras.aprobar', $orden));
+        ->assertJsonPath('datos.acciones', [
+            'editar' => false, 'aprobar' => false, 'enviar' => false, 'recibir' => false,
+            'cerrar' => false, 'cancelar' => false, 'imprimir' => true,
+        ]);
 });
 
 test('cerrar incompleta se rechaza si no entro nada', function () {
@@ -203,10 +249,9 @@ test('cerrar incompleta se rechaza si no entro nada', function () {
 
     // Si el proveedor no va a entregar y no entró nada, lo que corresponde es
     // cancelar. El servicio lo explica y la pantalla no ofrece el botón.
-    $this->actingAs(usuarioCon('compra.recibir'))
-        ->from(route('compras.show', $orden))
-        ->post(route('compras.cerrar', $orden))
-        ->assertSessionHas('error');
+    $this->postJson("/api/v1/compras/{$orden->id}/cerrar", [], bearer(usuarioCon('compra.recibir')))
+        ->assertStatus(409)
+        ->assertJsonPath('codigo', 'regla_de_negocio');
 
     expect($orden->fresh()->estado)->toBe('enviada');
 });
@@ -214,10 +259,9 @@ test('cerrar incompleta se rechaza si no entro nada', function () {
 test('la ficha no ofrece cerrar con lo que llego si no llego nada', function () {
     $orden = OrdenCompra::factory()->enviada()->conLinea(Producto::factory()->create(), 5)->create();
 
-    $this->actingAs(usuarioCon('compra.ver', 'compra.recibir'))
-        ->get(route('compras.show', $orden))
+    $this->getJson("/api/v1/compras/{$orden->id}", bearer(usuarioCon('compra.ver', 'compra.recibir')))
         ->assertOk()
-        ->assertDontSee(route('compras.cerrar', $orden));
+        ->assertJsonPath('datos.acciones.cerrar', false);
 });
 
 test('la ruta de la ficha no se confunde con la del armador', function () {
@@ -252,12 +296,21 @@ test('la pantalla de recepcion muestra lo pendiente de cada linea', function () 
     $orden = OrdenCompra::factory()->enviada()->conLinea($producto, 10, 1000)
         ->create(['proveedor_id' => $proveedor->id]);
 
+    // Tramo G: el shell trae la estructura y el botón; las líneas no (regla 37).
     $this->actingAs(usuarioCon('compra.recibir'))
         ->get(route('compras.recepcion', $orden))
         ->assertOk()
-        ->assertSee($producto->nombre)
-        ->assertSee('AUS-5')
-        ->assertSee('Registrar la recepción');
+        ->assertSee('Registrar la recepción')
+        ->assertSee('data-plantilla-recepcion', false)
+        ->assertDontSee($producto->nombre);
+
+    // Lo que la pantalla muestra de cada línea llega con la orden.
+    $this->getJson("/api/v1/compras/{$orden->id}", bearer(usuarioCon('compra.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.lineas.0.producto.nombre', $producto->nombre)
+        ->assertJsonPath('datos.lineas.0.codigo_proveedor', 'AUS-5')
+        ->assertJsonPath('datos.lineas.0.cantidad_pendiente', 10)
+        ->assertJsonPath('datos.unidades_pendientes', 10);
 });
 
 test('recibir parte de lo pedido ingresa stock, deja la orden parcial y lo dice', function () {
@@ -269,10 +322,11 @@ test('recibir parte de lo pedido ingresa stock, deja la orden parcial y lo dice'
 
     $linea = $orden->lineas->first();
 
-    $this->actingAs(usuarioCon('compra.recibir'))
-        ->post(route('compras.recibir', $orden), ['cantidades' => [$linea->id => 4]])
-        ->assertRedirect(route('compras.show', $orden))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'Quedan 6 pendientes'));
+    $respuesta = $this->postJson("/api/v1/compras/{$orden->id}/recepciones", ['cantidades' => [$linea->id => 4]], bearer(usuarioCon('compra.recibir')))
+        ->assertCreated()
+        ->assertJsonPath('datos.id', $orden->id);
+
+    expect($respuesta->json('mensaje'))->toContain('Quedan 6 pendientes');
 
     expect($orden->fresh()->estado)->toBe('recibida_parcial')
         ->and($linea->fresh()->cantidad_recibida)->toBe(4)
@@ -286,9 +340,10 @@ test('recibir todo lo pendiente deja la orden recibida y el mensaje lo dice', fu
     $orden = OrdenCompra::factory()->aprobada()->conLinea($producto, 3, 1000)
         ->create(['proveedor_id' => $proveedor->id]);
 
-    $this->actingAs(usuarioCon('compra.recibir'))
-        ->post(route('compras.recibir', $orden), ['cantidades' => [$orden->lineas->first()->id => 3]])
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'recibida completa'));
+    $respuesta = $this->postJson("/api/v1/compras/{$orden->id}/recepciones", ['cantidades' => [$orden->lineas->first()->id => 3]], bearer(usuarioCon('compra.recibir')))
+        ->assertCreated();
+
+    expect($respuesta->json('mensaje'))->toContain('recibida completa');
 
     expect($orden->fresh()->estado)->toBe('recibida');
 });
@@ -305,8 +360,8 @@ test('la recepcion deja al dia el ultimo costo de ese proveedor', function () {
     $orden = OrdenCompra::factory()->enviada()->conLinea($producto, 2, 1150)
         ->create(['proveedor_id' => $proveedor->id]);
 
-    $this->actingAs(usuarioCon('compra.recibir'))
-        ->post(route('compras.recibir', $orden), ['cantidades' => [$orden->lineas->first()->id => 2]]);
+    $this->postJson("/api/v1/compras/{$orden->id}/recepciones", ['cantidades' => [$orden->lineas->first()->id => 2]], bearer(usuarioCon('compra.recibir')))
+        ->assertCreated();
 
     // El ciclo completo del plan de varios proveedores, visto desde la pantalla: se
     // compara, se le pide a uno, llega la mercadería, y la comparación queda al día.
@@ -323,11 +378,10 @@ test('recibir mas de lo pendiente se rechaza con el motivo y no mueve stock', fu
     $orden = OrdenCompra::factory()->enviada()->conLinea($producto, 5, 1000)
         ->create(['proveedor_id' => $proveedor->id]);
 
-    $this->actingAs(usuarioCon('compra.recibir'))
-        ->from(route('compras.recepcion', $orden))
-        ->post(route('compras.recibir', $orden), ['cantidades' => [$orden->lineas->first()->id => 9]])
-        ->assertRedirect(route('compras.recepcion', $orden))
-        ->assertSessionHas('error');
+    $this->postJson("/api/v1/compras/{$orden->id}/recepciones", ['cantidades' => [$orden->lineas->first()->id => 9]], bearer(usuarioCon('compra.recibir')))
+        ->assertStatus(409)
+        ->assertJsonPath('codigo', 'regla_de_negocio')
+        ->assertJson(fn ($json) => $json->where('mensaje', fn ($mensaje) => str_contains($mensaje, 'quedan 5 unidad(es) pendientes'))->etc());
 
     expect($producto->fresh()->stock)->toBe(0)
         ->and($orden->fresh()->estado)->toBe('enviada');
@@ -342,11 +396,11 @@ test('una recepcion sin ninguna unidad se rechaza', function () {
 
     // El formulario manda todas las líneas, y las que no llegaron viajan en cero:
     // eso no es un error de campo, es una regla sobre el conjunto, y se traduce a un
-    // aviso general.
-    $this->actingAs(usuarioCon('compra.recibir'))
-        ->from(route('compras.recepcion', $orden))
-        ->post(route('compras.recibir', $orden), ['cantidades' => [$orden->lineas->first()->id => 0]])
-        ->assertSessionHas('error');
+    // aviso general: por la API, un 409 y no un 422.
+    $this->postJson("/api/v1/compras/{$orden->id}/recepciones", ['cantidades' => [$orden->lineas->first()->id => 0]], bearer(usuarioCon('compra.recibir')))
+        ->assertStatus(409)
+        ->assertJsonPath('codigo', 'regla_de_negocio')
+        ->assertJsonPath('errores', []);
 
     expect($orden->fresh()->estado)->toBe('enviada');
 });
@@ -363,9 +417,9 @@ test('recibir contra la linea de otra orden responde 404', function () {
 
     // La línea se resuelve a través de la relación del padre: con el id suelto se
     // podría recibir mercadería contra la orden de otro proveedor.
-    $this->actingAs(usuarioCon('compra.recibir'))
-        ->post(route('compras.recibir', $propia), ['cantidades' => [$ajena->lineas->first()->id => 1]])
-        ->assertNotFound();
+    $this->postJson("/api/v1/compras/{$propia->id}/recepciones", ['cantidades' => [$ajena->lineas->first()->id => 1]], bearer(usuarioCon('compra.recibir')))
+        ->assertNotFound()
+        ->assertJsonPath('codigo', 'no_encontrado');
 });
 
 test('la ficha ofrece recibir solo cuando la orden puede recibir', function () {
@@ -375,15 +429,10 @@ test('la ficha ofrece recibir solo cuando la orden puede recibir', function () {
     $borrador = OrdenCompra::factory()->conLinea($producto, 5)->create(['proveedor_id' => $proveedor->id]);
     $enviada  = OrdenCompra::factory()->enviada()->conLinea($producto, 5)->create(['proveedor_id' => $proveedor->id]);
 
-    $usuario = usuarioCon('compra.ver', 'compra.recibir');
+    $credencial = bearer(usuarioCon('compra.ver', 'compra.recibir'));
 
-    $this->actingAs($usuario)
-        ->get(route('compras.show', $borrador))
-        ->assertDontSee(route('compras.recepcion', $borrador));
-
-    $this->actingAs($usuario)
-        ->get(route('compras.show', $enviada))
-        ->assertSee(route('compras.recepcion', $enviada));
+    $this->getJson("/api/v1/compras/{$borrador->id}", $credencial)->assertJsonPath('datos.acciones.recibir', false);
+    $this->getJson("/api/v1/compras/{$enviada->id}", $credencial)->assertJsonPath('datos.acciones.recibir', true);
 });
 
 test('la ficha muestra lo que entro por la orden, con su fecha y su usuario', function () {
@@ -393,17 +442,19 @@ test('la ficha muestra lo que entro por la orden, con su fecha y su usuario', fu
     $orden = OrdenCompra::factory()->enviada()->conLinea($producto, 4, 1000)
         ->create(['proveedor_id' => $proveedor->id]);
 
-    $usuario = usuarioCon('compra.ver', 'compra.recibir');
+    $usuario    = usuarioCon('compra.ver', 'compra.recibir');
+    $credencial = bearer($usuario);
 
-    $this->actingAs($usuario)
-        ->post(route('compras.recibir', $orden), ['cantidades' => [$orden->lineas->first()->id => 2]]);
+    $this->postJson("/api/v1/compras/{$orden->id}/recepciones", ['cantidades' => [$orden->lineas->first()->id => 2]], $credencial)
+        ->assertCreated();
 
     // Sale del kardex. Por eso no hay tabla de recepciones: sería una copia de esto.
-    $this->actingAs($usuario)
-        ->get(route('compras.show', $orden))
+    $this->getJson("/api/v1/compras/{$orden->id}", $credencial)
         ->assertOk()
-        ->assertSee('Lo que entró por esta orden')
-        ->assertSee($usuario->nombre);
+        ->assertJsonCount(1, 'datos.recepciones')
+        ->assertJsonPath('datos.recepciones.0.cantidad', 2)
+        ->assertJsonPath('datos.recepciones.0.fecha', fn ($fecha) => $fecha !== null)
+        ->assertJsonPath('datos.recepciones.0.registrado_por', fn ($quien) => str_contains($quien, $usuario->nombre));
 });
 /*
 |--------------------------------------------------------------------------
@@ -414,8 +465,22 @@ test('la ficha muestra lo que entro por la orden, con su fecha y su usuario', fu
 dataset('rutas del listado y la edicion', [
     'listado'            => ['get', 'compras.index',  'compra.ver',    false],
     'formulario edicion' => ['get', 'compras.edit',   'compra.editar', true],
-    'edicion'            => ['put', 'compras.update', 'compra.editar', true],
 ]);
+
+// Tramo G: guardar la edición es `PATCH /api/v1/compras/{orden}`; el permiso se prueba igual, en las dos mitades.
+test('ningun otro permiso del modulo habilita guardar la edicion', function () {
+    $orden = OrdenCompra::factory()->conLinea(Producto::factory()->create(), 2)->create();
+    $otros = array_values(array_diff(PERMISOS_COMPRA, ['compra.editar']));
+
+    $this->patchJson("/api/v1/compras/{$orden->id}", [], bearer(usuarioCon(...$otros)))->assertForbidden();
+});
+
+test('compra.editar alcanza para guardar la edicion', function () {
+    $orden = OrdenCompra::factory()->conLinea(Producto::factory()->create(), 2)->create();
+
+    expect($this->patchJson("/api/v1/compras/{$orden->id}", [], bearer(usuarioCon('compra.editar')))->status())
+        ->not->toBe(403);
+});
 
 test('ningun otro permiso del modulo habilita el listado ni la edicion', function (string $metodo, string $ruta, string $permiso, bool $conOrden) {
     $orden = OrdenCompra::factory()->conLinea(Producto::factory()->create(), 2)->create();
@@ -454,10 +519,10 @@ test('el parametro q llega al listado y filtra por numero de orden', function ()
     $buscada = OrdenCompra::factory()->conLinea($producto, 1)->create();
     OrdenCompra::factory()->count(2)->conLinea($producto, 1)->create();
 
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.index', ['q' => $buscada->numeroFormateado()]))
+    $this->getJson('/api/v1/compras?'.http_build_query(['q' => $buscada->numeroFormateado()]), bearer(usuarioCon('compra.ver')))
         ->assertOk()
-        ->assertViewHas('ordenes', fn ($o) => $o->total() === 1 && $o->first()->is($buscada));
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.id', $buscada->id);
 });
 
 test('el parametro q llega al listado y filtra por razon social del proveedor', function () {
@@ -469,9 +534,8 @@ test('el parametro q llega al listado y filtra por razon social del proveedor', 
     OrdenCompra::factory()->conLinea($producto, 1)->create(['proveedor_id' => $austral->id]);
     OrdenCompra::factory()->conLinea($producto, 1)->create(['proveedor_id' => $otro->id]);
 
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.index', ['q' => 'austral']))
-        ->assertViewHas('ordenes', fn ($o) => $o->total() === 1);
+    $this->getJson('/api/v1/compras?q=austral', bearer(usuarioCon('compra.ver')))
+        ->assertJsonPath('total', 1);
 });
 
 test('el parametro estado llega al listado y filtra', function () {
@@ -481,9 +545,8 @@ test('el parametro estado llega al listado y filtra', function () {
     OrdenCompra::factory()->aprobada()->conLinea($producto, 1)->create();
     OrdenCompra::factory()->cancelada()->conLinea($producto, 1)->create();
 
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.index', ['estado' => 'aprobada']))
-        ->assertViewHas('ordenes', fn ($o) => $o->total() === 1);
+    $this->getJson('/api/v1/compras?estado=aprobada', bearer(usuarioCon('compra.ver')))
+        ->assertJsonPath('total', 1);
 });
 
 test('el parametro proveedor_id llega al listado y filtra', function () {
@@ -495,9 +558,8 @@ test('el parametro proveedor_id llega al listado y filtra', function () {
     OrdenCompra::factory()->count(2)->conLinea($producto, 1)->create(['proveedor_id' => $uno->id]);
     OrdenCompra::factory()->conLinea($producto, 1)->create(['proveedor_id' => $dos->id]);
 
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.index', ['proveedor_id' => $uno->id]))
-        ->assertViewHas('ordenes', fn ($o) => $o->total() === 2);
+    $this->getJson("/api/v1/compras?proveedor_id={$uno->id}", bearer(usuarioCon('compra.ver')))
+        ->assertJsonPath('total', 2);
 });
 
 test('desde y hasta llegan al listado y recortan por fecha', function () {
@@ -514,47 +576,48 @@ test('desde y hasta llegan al listado y recortan por fecha', function () {
     // Volver al presente para ejecutar la petición HTTP de forma segura
     $this->travelBack();
 
-    $usuario = usuarioCon('compra.ver');
+    $credencial = bearer(usuarioCon('compra.ver'));
 
-    $this->actingAs($usuario)
-        ->get(route('compras.index', ['desde' => '2026-06-01']))
-        ->assertViewHas('ordenes', fn ($o) => $o->total() === 1 && $o->first()->is($nueva));
+    $this->getJson('/api/v1/compras?desde=2026-06-01', $credencial)
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.id', $nueva->id);
 
-    $this->actingAs($usuario)
-        ->get(route('compras.index', ['hasta' => '2026-03-31']))
-        ->assertViewHas('ordenes', fn ($o) => $o->total() === 1 && $o->first()->is($vieja));
+    $this->getJson('/api/v1/compras?hasta=2026-03-31', $credencial)
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.id', $vieja->id);
 });
 
 
-test('un estado inexistente vuelve al listado limpio con aviso', function () {
-    // El contrato de filtros está declarado en OrdenCompraFiltroRequest: un filtro
-    // inválido avisa en lugar de ignorarse, que es lo que hacía el original.
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.index', ['estado' => 'telepatia']))
-        ->assertRedirect(route('compras.index'))
-        ->assertSessionHas('error');
+// Por la API, el filtro inválido es 422 y no un listado limpio (HL-120): avisa en lugar de ignorarse,
+// que es lo que hacía el original. La pantalla lo marca en el formulario de filtros.
+test('un estado inexistente es 422 con aviso', function () {
+    // El contrato de filtros está declarado en OrdenCompraFiltroRequest.
+    $this->getJson('/api/v1/compras?estado=telepatia', bearer(usuarioCon('compra.ver')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('estado', 'errores');
 });
 
-test('una fecha hasta anterior a desde vuelve al listado limpio con aviso', function () {
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.index', ['desde' => '2026-06-01', 'hasta' => '2026-03-01']))
-        ->assertRedirect(route('compras.index'))
-        ->assertSessionHas('error');
+test('una fecha hasta anterior a desde es 422 con aviso', function () {
+    $this->getJson('/api/v1/compras?desde=2026-06-01&hasta=2026-03-01', bearer(usuarioCon('compra.ver')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('hasta', 'errores');
 });
 
-test('el listado pagina de a 15 y los enlaces conservan el filtro', function () {
+// Eran 15 en la web; la API pagina de a 20 como todos sus listados (HL-119).
+test('el listado pagina de a 20 y criterios conserva el filtro', function () {
     $proveedor = Proveedor::factory()->create();
     $producto  = Producto::factory()->create();
 
-    OrdenCompra::factory()->count(16)->conLinea($producto, 1)
+    OrdenCompra::factory()->count(21)->conLinea($producto, 1)
         ->create(['proveedor_id' => $proveedor->id]);
 
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.index', ['estado' => 'borrador']))
+    // `criterios` es lo que la pantalla repite al pedir la página siguiente: sin él, perdería el filtro (A-25).
+    $this->getJson('/api/v1/compras?estado=borrador', bearer(usuarioCon('compra.ver')))
         ->assertOk()
-        ->assertViewHas('ordenes', fn ($o) => $o->count() === 15 && $o->total() === 16)
-        // Sin withQueryString(), pasar a la página 2 perdería el filtro (A-25).
-        ->assertSee('estado=borrador', false);
+        ->assertJsonCount(20, 'datos')
+        ->assertJsonPath('total', 21)
+        ->assertJsonPath('ultima_pagina', 2)
+        ->assertJsonPath('criterios.estado', 'borrador');
 });
 
 /*
@@ -571,13 +634,13 @@ test('editar el borrador reemplaza las lineas y recalcula el total', function ()
 
     $orden = OrdenCompra::factory()->conLinea($uno, 2, 1000)->create(['proveedor_id' => $proveedor->id]);
 
-    $this->actingAs(usuarioCon('compra.editar'))
-        ->put(route('compras.update', $orden), datosDeOrdenCompra($proveedor, [
-            lineaDeOrden($uno, 3, 1000),
-            lineaDeOrden($dos, 1, 5000),
-        ]))
-        ->assertRedirect(route('compras.index'))
-        ->assertSessionHas('exito');
+    $this->patchJson("/api/v1/compras/{$orden->id}", datosDeOrdenCompra($proveedor, [
+        lineaDeOrden($uno, 3, 1000),
+        lineaDeOrden($dos, 1, 5000),
+    ]), bearer(usuarioCon('compra.editar')))
+        ->assertOk()
+        ->assertJsonPath('datos.total_estimado', '8000.00')
+        ->assertJsonPath('mensaje', "Orden {$orden->numeroFormateado()} actualizada.");
 
     $orden->refresh()->load('lineas');
 
@@ -611,9 +674,9 @@ test('la edicion rechaza un producto que ese proveedor no provee', function () {
 
     // La pantalla filtra el selector; esto es la barrera para una petición armada a
     // mano. Es el test que en 5.1 quedó esperando este archivo.
-    $this->actingAs(usuarioCon('compra.editar'))
-        ->put(route('compras.update', $orden), datosDeOrdenCompra($proveedor, [lineaDeOrden($ajeno, 3)]))
-        ->assertSessionHasErrors('lineas.0.producto_id');
+    $this->patchJson("/api/v1/compras/{$orden->id}", datosDeOrdenCompra($proveedor, [lineaDeOrden($ajeno, 3)]), bearer(usuarioCon('compra.editar')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('lineas.0.producto_id', 'errores');
 
     expect($orden->fresh('lineas')->lineas->first()->producto_id)->toBe($suyo->id);
 });
@@ -628,9 +691,9 @@ test('cambiar el proveedor del borrador revalida las lineas contra el nuevo', fu
 
     // Si se cambia el proveedor y se dejan las líneas, la orden terminaría
     // pidiéndole a alguien algo que no vende. Se rechaza.
-    $this->actingAs(usuarioCon('compra.editar'))
-        ->put(route('compras.update', $orden), datosDeOrdenCompra($nuevo, [lineaDeOrden($soloDelViejo, 2)]))
-        ->assertSessionHasErrors('lineas.0.producto_id');
+    $this->patchJson("/api/v1/compras/{$orden->id}", datosDeOrdenCompra($nuevo, [lineaDeOrden($soloDelViejo, 2)]), bearer(usuarioCon('compra.editar')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('lineas.0.producto_id', 'errores');
 
     expect($orden->fresh()->proveedor_id)->toBe($viejo->id);
 });
@@ -648,9 +711,8 @@ test('el producto que ya estaba en la orden no necesita una excepcion', function
         ->toThrow(App\Exceptions\ReglaDeNegocioException::class);
 
     // Y mientras el vínculo existe, la línea pasa sin ninguna excepción.
-    $this->actingAs(usuarioCon('compra.editar'))
-        ->put(route('compras.update', $orden), datosDeOrdenCompra($proveedor, [lineaDeOrden($producto, 4)]))
-        ->assertSessionHasNoErrors();
+    $this->patchJson("/api/v1/compras/{$orden->id}", datosDeOrdenCompra($proveedor, [lineaDeOrden($producto, 4)]), bearer(usuarioCon('compra.editar')))
+        ->assertOk();
 
     expect($orden->fresh('lineas')->lineas->first()->cantidad_pedida)->toBe(4);
 });
@@ -665,17 +727,16 @@ test('un borrador no se puede imprimir', function () {
     $orden = OrdenCompra::factory()->conLinea(Producto::factory()->create(), 3)->create();
 
     // Un borrador no es un compromiso: ofrecer su PDF invitaría a mandarle al
-    // proveedor un pedido que nadie autorizó.
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.pdf', $orden))
-        ->assertRedirect(route('compras.show', $orden))
-        ->assertSessionHas('error');
+    // proveedor un pedido que nadie autorizó. Tramo G: la API no da el enlace (409).
+    $this->getJson("/api/v1/compras/{$orden->id}/pdf", bearer(usuarioCon('compra.ver')))
+        ->assertStatus(409)
+        ->assertJsonPath('codigo', 'regla_de_negocio');
 });
 
 test('una orden aprobada descarga un PDF y no cambia de estado', function () {
     $orden = OrdenCompra::factory()->aprobada()->conLinea(Producto::factory()->create(), 3, 1000)->create();
 
-    $respuesta = $this->actingAs(usuarioCon('compra.ver'))->get(route('compras.pdf', $orden));
+    $respuesta = $this->get(($this->enlaceDelPedido)($orden));
 
     $respuesta->assertOk();
 
@@ -690,9 +751,7 @@ test('una orden ya recibida se sigue pudiendo imprimir', function () {
     // El administrativo necesita el papel para archivar, después de todo el ciclo.
     $orden = OrdenCompra::factory()->recibida()->conLinea(Producto::factory()->create(), 2)->create();
 
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.pdf', $orden))
-        ->assertOk();
+    $this->get(($this->enlaceDelPedido)($orden))->assertOk();
 });
 
 test('una cancelada que alcanzo a aprobarse se imprime, y una cancelada en borrador no', function () {
@@ -703,12 +762,13 @@ test('una cancelada que alcanzo a aprobarse se imprime, y una cancelada en borra
 
     $nuncaSalio = OrdenCompra::factory()->cancelada()->conLinea($producto, 2)->create();
 
-    $usuario = usuarioCon('compra.ver');
-
     // La condición es `fecha_aprobacion`, no el estado: una orden que tuvo
     // aprobación pudo haber salido, y el papel de lo que se pidió sigue valiendo.
-    $this->actingAs($usuario)->get(route('compras.pdf', $salio))->assertOk();
-    $this->actingAs($usuario)->get(route('compras.pdf', $nuncaSalio))->assertRedirect(route('compras.show', $nuncaSalio));
+    $this->get(($this->enlaceDelPedido)($salio))->assertOk();
+
+    app('auth')->forgetGuards();
+
+    $this->getJson("/api/v1/compras/{$nuncaSalio->id}/pdf", bearer(usuarioCon('compra.ver')))->assertStatus(409);
 });
 
 test('el pedido imprime lo pedido, el codigo del proveedor y la fecha de aprobacion', function () {
@@ -763,15 +823,10 @@ test('la ficha ofrece el PDF solo cuando la orden se puede imprimir', function (
     $borrador = OrdenCompra::factory()->conLinea($producto, 2)->create();
     $aprobada = OrdenCompra::factory()->aprobada()->conLinea($producto, 2)->create();
 
-    $usuario = usuarioCon('compra.ver');
+    $credencial = bearer(usuarioCon('compra.ver'));
 
-    $this->actingAs($usuario)
-        ->get(route('compras.show', $borrador))
-        ->assertDontSee(route('compras.pdf', $borrador));
-
-    $this->actingAs($usuario)
-        ->get(route('compras.show', $aprobada))
-        ->assertSee(route('compras.pdf', $aprobada));
+    $this->getJson("/api/v1/compras/{$borrador->id}", $credencial)->assertJsonPath('datos.acciones.imprimir', false);
+    $this->getJson("/api/v1/compras/{$aprobada->id}", $credencial)->assertJsonPath('datos.acciones.imprimir', true);
 });
 
 /*
@@ -804,16 +859,47 @@ test('el renglon de la orden rinde el producto como texto y lo excluye del busca
 
     $orden = OrdenCompra::factory()->conLinea($producto, 2, 1000)->create(['proveedor_id' => $proveedor->id]);
 
+    // Tramo G: el shell trae la plantilla del renglón, con el id en un campo oculto y
+    // el nombre como texto: no queda selector que mantener, así que no hay dónde
+    // elegir dos veces lo mismo. La exclusión la llena el JS con los ids cargados.
+    $pagina = $this->actingAs(usuarioCon('compra.editar'))
+        ->get(route('compras.edit', $orden))
+        ->assertOk()
+        ->assertSee('type="hidden" data-producto data-campo-linea="producto_id"', false)
+        ->assertSee('data-rotulo', false)
+        ->assertSee('data-buscable-excluir=""', false)
+        // Y el buscador existe una sola vez, arriba de la tabla.
+        ->assertSee('data-buscador-producto', false)
+        ->getContent();
+
+    expect(substr_count($pagina, 'data-buscador-producto'))->toBe(1);
+
+    // El producto y su rótulo, que antes rendía el renglón, llegan con la orden.
+    $this->getJson("/api/v1/compras/{$orden->id}", bearer(usuarioCon('compra.ver')))
+        ->assertOk()
+        ->assertJsonPath('datos.lineas.0.producto.id', $producto->id)
+        ->assertJsonPath('datos.lineas.0.producto.codigo', 'TEC-00123')
+        ->assertJsonPath('datos.lineas.0.producto.nombre', 'Teclado mecánico')
+        ->assertJsonPath('datos.lineas.0.producto.activo', true);
+});
+
+test('el shell de la edicion no trae datos de negocio', function () {
+    $proveedor = Proveedor::factory()->create(['razon_social' => 'Distribuidora Austral']);
+    $otro      = Proveedor::factory()->create(['razon_social' => 'Mayorista del Litoral']);
+    $producto  = productoDe($proveedor, cambios: ['nombre' => 'Teclado mecánico']);
+
+    $orden = OrdenCompra::factory()->conLinea($producto, 2, 1000)
+        ->create(['proveedor_id' => $proveedor->id, 'observaciones' => 'Entregar por la tarde']);
+
+    // Regla 37: ni las líneas, ni los proveedores del selector, ni las observaciones.
     $this->actingAs(usuarioCon('compra.editar'))
         ->get(route('compras.edit', $orden))
         ->assertOk()
-        // El id en un campo oculto y el nombre como texto: no queda selector que
-        // mantener, así que no hay dónde elegir dos veces lo mismo.
-        ->assertSee('name="lineas[0][producto_id]"', false)
-        ->assertSee('TEC-00123 — Teclado mecánico')
-        ->assertSee('data-buscable-excluir="'.$producto->id.'"', false)
-        // Y el buscador existe una sola vez, arriba de la tabla.
-        ->assertSee('data-buscador-producto', false);
+        ->assertDontSee('Teclado mecánico')
+        ->assertDontSee('Distribuidora Austral')
+        ->assertDontSee('Mayorista del Litoral')
+        ->assertDontSee('Entregar por la tarde')
+        ->assertSee('data-orden="'.$orden->id.'"', false);
 });
 
 test('el buscador de la orden recorta por el proveedor y publica la plantilla del elegido', function () {
@@ -874,11 +960,14 @@ test('el estado abiertas llega al listado y lista las que esperan algo', functio
     OrdenCompra::factory()->recibida()->conLinea($producto, 1)->create();
     OrdenCompra::factory()->cancelada()->conLinea($producto, 1)->create();
 
+    // El chip lo arma el shell con la URL; las filas, la API.
     $this->actingAs(usuarioCon('compra.ver'))
         ->get(route('compras.index', ['estado' => OrdenCompra::ABIERTAS]))
         ->assertOk()
-        ->assertSeeText('Estado: Abiertas')
-        ->assertViewHas('ordenes', fn ($o) => $o->total() === 2);
+        ->assertSeeText('Estado: Abiertas');
+
+    $this->getJson('/api/v1/compras?estado='.OrdenCompra::ABIERTAS, bearer(usuarioCon('compra.ver')))
+        ->assertJsonPath('total', 2);
 });
 
 test('el parametro origen llega al listado y separa lo que genero la reposicion', function () {
@@ -889,13 +978,50 @@ test('el parametro origen llega al listado y separa lo que genero la reposicion'
     $this->actingAs(usuarioCon('compra.ver'))
         ->get(route('compras.index', ['estado' => 'borrador', 'origen' => 'reposicion']))
         ->assertOk()
-        ->assertSeeText('Origen: Generada por la reposición')
-        ->assertViewHas('ordenes', fn ($o) => $o->total() === 1 && $o->first()->is($delSistema));
+        ->assertSeeText('Origen: Generada por la reposición');
+
+    $this->getJson('/api/v1/compras?estado=borrador&origen=reposicion', bearer(usuarioCon('compra.ver')))
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.id', $delSistema->id);
 });
 
-test('un origen inexistente vuelve al listado limpio con aviso', function () {
-    $this->actingAs(usuarioCon('compra.ver'))
-        ->get(route('compras.index', ['origen' => 'telepatia']))
-        ->assertRedirect(route('compras.index'))
-        ->assertSessionHas('error');
+test('un origen inexistente es 422 con aviso', function () {
+    $this->getJson('/api/v1/compras?origen=telepatia', bearer(usuarioCon('compra.ver')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('origen', 'errores');
 });
+/*
+|--------------------------------------------------------------------------
+| Las rutas web retiradas (tramo G)
+|--------------------------------------------------------------------------
+|
+| La web sólo entrega las seis pantallas: escribir, imprimir el listado y bajar el
+| pedido van por `/api/v1/compras`. Cada URL vieja se prueba literal, con todos los
+| permisos del módulo, para que no la salve un 403.
+|
+*/
+
+dataset('rutas web retiradas de compras', [
+    'guardar el armador'  => ['post', '/compras/pedido'],
+    'guardar la edicion'  => ['put',  '/compras/{orden}'],
+    'aprobar'             => ['post', '/compras/{orden}/aprobar'],
+    'marcar enviada'      => ['post', '/compras/{orden}/enviada'],
+    'cerrar incompleta'   => ['post', '/compras/{orden}/cerrar'],
+    'cancelar'            => ['post', '/compras/{orden}/cancelar'],
+    'registrar recepcion' => ['post', '/compras/{orden}/recepcion'],
+    'imprimir el listado' => ['get',  '/compras/imprimir'],
+    'pdf del pedido'      => ['get',  '/compras/{orden}/pdf'],
+]);
+
+test('la ruta web retirada de compras ya no existe', function (string $metodo, string $url) {
+    $orden = OrdenCompra::factory()->aprobada()->conLinea(Producto::factory()->create(), 2)->create();
+
+    $respuesta = pedirRuta(
+        $this->actingAs(usuarioCon(...PERMISOS_COMPRA)),
+        $metodo,
+        str_replace('{orden}', (string) $orden->id, $url),
+    );
+
+    expect($respuesta->status())->toBeIn([404, 405])
+        ->and($orden->fresh()->estado)->toBe('aprobada');
+})->with('rutas web retiradas de compras');
