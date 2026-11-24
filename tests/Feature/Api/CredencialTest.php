@@ -147,18 +147,30 @@ test('desactivar una cuenta revoca sus credenciales', function () {
         ->and($cuenta->tokens()->count())->toBe(0);
 });
 
-test('cambiar la contraseña desde la cuenta revoca todas sus credenciales', function () {
-    $cuenta = ($this->tiendaCuenta)();
-    $this->credenciales->emitir($cuenta);
-    $this->credenciales->emitir($cuenta);
+// Tramo I (HL-132): el servicio sigue revocándolas todas, y el endpoint emite una nueva para quien
+// hizo el cambio. Lo que fija el test sigue igual: ninguna de las anteriores sobrevive.
+test('cambiar la contraseña desde la cuenta revoca todas sus credenciales; queda sólo la devuelta', function () {
+    $cuenta  = ($this->tiendaCuenta)();
+    $pedido  = bearer($cuenta);
+    $anterior = ['Authorization' => 'Bearer '.$this->credenciales->emitir($cuenta)['credencial']];
+    $viejas  = $cuenta->tokens()->pluck('id');
 
-    $this->actingAs($cuenta)->put(route('cuenta.password.update'), [
+    $nueva = $this->putJson('/api/v1/yo/contrasena', [
         'password_actual'       => 'Secreta123',
         'password'              => 'NuevaClave456',
         'password_confirmation' => 'NuevaClave456',
-    ])->assertSessionHasNoErrors();
+    ], $pedido)->assertOk()->json('datos.credencial');
 
-    expect($cuenta->tokens()->count())->toBe(0);
+    expect($cuenta->tokens()->whereIn('id', $viejas)->count())->toBe(0)
+        ->and($cuenta->tokens()->count())->toBe(1);
+
+    foreach ([$pedido, $anterior] as $vieja) {
+        app('auth')->forgetGuards();
+        $this->getJson('/api/v1/yo', $vieja)->assertUnauthorized();
+    }
+
+    app('auth')->forgetGuards();
+    $this->getJson('/api/v1/yo', ['Authorization' => "Bearer {$nueva}"])->assertOk();
 });
 
 test('restablecer la contraseña con el enlace revoca todas sus credenciales', function () {
@@ -166,7 +178,7 @@ test('restablecer la contraseña con el enlace revoca todas sus credenciales', f
     $this->credenciales->emitir($cuenta);
     $token = $this->usuarios->crearTokenDeRestablecimiento($cuenta);
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token'                 => $token,
         'email'                 => $cuenta->email,
         'password'              => 'NuevaClave456',

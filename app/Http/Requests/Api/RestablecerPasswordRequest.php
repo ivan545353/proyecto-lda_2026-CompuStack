@@ -1,12 +1,13 @@
 <?php
 
-namespace App\Http\Requests\Auth;
+namespace App\Http\Requests\Api;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Password;
 
 /**
- * Validación del formulario que abre la persona con el enlace.
+ * Validación del formulario que abre la persona con el enlace (`POST /api/v1/contrasena/restablecer`,
+ * público). Pasó a la API en el tramo I sin cambiar una regla.
  *
  * No pide la contraseña actual, a diferencia de CambiarPasswordRequest: acá el
  * caso de uso es justamente que no se la acuerda. La prueba de identidad es el

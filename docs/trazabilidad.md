@@ -1603,3 +1603,30 @@ operación devuelve la ficha entera con el mensaje que daba la web, y `VentaServ
   no se duplica en el cliente.
 - **Lo que se dejó de poder sin JavaScript**: guardar una venta, el diálogo de impresión del listado y los números
   plegados del panel. Es el mismo precio que pagaron D a G (HL-111): la credencial viaja como Bearer y sólo la manda el JS.
+
+### Tramo I — Usuarios y accesos
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `Api/V1/PersonalController` + `PersonalRequest`, `PersonalFiltroRequest`, `CambiarRolRequest`, `RolesDelPersonalRequest` (en `Requests/Api`) | El listado del personal con sus filtros, las opciones de rol, la ficha, el alta, la edición, la baja, el cambio de rol y el enlace de restablecimiento | Nuevo |
+| `PersonalResource` | La fila y la ficha; los permisos del rol y `roles_asignables`, sólo con `usuario.cambiar_rol` (regla 36, molde HL-131) | Nuevo |
+| `Api/V1/RolController` + `RolRequest` (en `Requests/Api`), `RolResource` | Los roles con sus conteos y `se_puede_eliminar`, el catálogo de permisos, el alta, la edición y la baja | Nuevo |
+| `Api/V1/YoController::contrasena` + `CambiarPasswordRequest` (en `Requests/Api`) | El cambio de la contraseña propia, que rota la credencial (HL-132) | Modificado |
+| `Api/V1/ContrasenaController` + `RestablecerPasswordRequest` (en `Requests/Api`) | Fijar la contraseña con el enlace, pública y con el límite del ingreso; devuelve el `ambito`, sin credencial | Nuevo |
+| `api/cliente.js` | `cambiarContrasena()` guarda la credencial rotada; sin la opción `propia`, el token CSRF ni el 419, que ya no usa ninguna pantalla | Modificado |
+| `pantallas/personal.js`, `roles.js`, `sesion.js`, `app.js` | El listado, el formulario y el cambio de rol del personal; el listado y el formulario de roles, con las casillas por módulo que vivían sueltas en `app.js`; el cambio y el restablecimiento de la contraseña | Nuevo / Modificado |
+| Vistas de `personal`, `roles`, `cuenta/password` y `auth/restablecer` | Shells: la estructura, las plantillas y los `@can`, sin datos de negocio (regla 37). El aviso de la cuenta de la tienda vive en el shell del restablecimiento; `auth/cuenta-tienda-lista` se borra | Modificado |
+| Controladores web `PersonalController`, `RolController`, `CuentaController`, `RestablecerPasswordController` | Sólo shells. Se retiran 10 rutas, las últimas de escritura de `web.php`; se borran los seis Form Requests web | Modificado |
+| `PersonalModuloTest`, `RolModuloTest`, `CuentaPasswordTest`, `RestablecerPasswordTest`, `Api/CredencialTest`, `Api/RegistroMostradorTest`, `ClienteAccesoTiendaTest` | 62 llamadas migradas al endpoint con su aserción; los permisos en las dos direcciones, las URLs retiradas y los shells sin datos | Modificado |
+
+**La decisión que lo condicionó.** Cambiar la contraseña revoca todas las credenciales de la cuenta, y desde el tramo C
+(D-30) la de la cookie es una de ellas: la web ya sacaba al usuario en el pedido siguiente, y el test «no cierra la sesión
+propia» pasaba porque usaba `actingAs` (HL-132). Se resolvió **rotando**: el servicio no cambia (sigue revocándolas
+todas, que es lo que espera quien la cambia porque se la sacaron) y el endpoint emite una nueva con la forma de
+`POST /sesion`, que el módulo central guarda. Es lo que era `session()->regenerate()`.
+- **Las reglas que dependen de quién pide** —no eliminarse, no generarse un enlace— quedaron en el controlador, como en la
+  web: 409 con el mismo texto. El servicio no se tocó (D-34).
+- **`activo` es obligatorio en la edición del personal** (M-31): la web convertía una casilla ausente en `false`; la API
+  rechaza en lugar de completar.
+- **Los roles para elegir salen de `/personal/roles`**, no de `/roles`: quien da de alta personal no necesita `rol.ver`.
+- **Con el tramo, `web.php` no tiene ninguna ruta de escritura**: sólo entrega páginas y descargas firmadas.

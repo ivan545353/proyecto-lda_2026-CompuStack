@@ -26,6 +26,14 @@ function cuentaCon(string $password, array $sobreescribir = []): User
     );
 }
 
+// Desde el tramo I el cambio va por la API (PUT /api/v1/yo/contrasena); la pantalla sigue en la web.
+function cambioDeContrasena($test, User $usuario, array $datos, ?array $credencial = null)
+{
+    app('auth')->forgetGuards();
+
+    return $test->putJson('/api/v1/yo/contrasena', $datos, $credencial ?? bearer($usuario));
+}
+
 /*
 |--------------------------------------------------------------------------
 | M-21: siempre hay un camino para cambiar la contraseña
@@ -47,14 +55,13 @@ test('un usuario sin ningun permiso puede cambiar su contrasena', function () {
         ->get(route('cuenta.password.edit'))
         ->assertOk();
 
-    $this->actingAs($usuario)
-        ->put(route('cuenta.password.update'), [
-            'password_actual'       => 'Vieja12345',
-            'password'              => 'Nueva67890',
-            'password_confirmation' => 'Nueva67890',
-        ])
-        ->assertRedirect(route('panel'))
-        ->assertSessionHas('exito');
+    cambioDeContrasena($this, $usuario, [
+        'password_actual'       => 'Vieja12345',
+        'password'              => 'Nueva67890',
+        'password_confirmation' => 'Nueva67890',
+    ])
+        ->assertOk()
+        ->assertJsonPath('mensaje', 'Tu contraseña se cambió. La próxima vez que inicies sesión usá la nueva.');
 
     expect(Hash::check('Nueva67890', $usuario->fresh()->password))->toBeTrue();
 });
@@ -65,13 +72,11 @@ test('un usuario de ambito tienda tambien puede', function () {
     // de gestión.
     $cliente = User::factory()->conRol('Cliente')->create(['password' => 'Vieja12345']);
 
-    $this->actingAs($cliente)
-        ->put(route('cuenta.password.update'), [
-            'password_actual'       => 'Vieja12345',
-            'password'              => 'Nueva67890',
-            'password_confirmation' => 'Nueva67890',
-        ])
-        ->assertSessionHasNoErrors();
+    cambioDeContrasena($this, $cliente, [
+        'password_actual'       => 'Vieja12345',
+        'password'              => 'Nueva67890',
+        'password_confirmation' => 'Nueva67890',
+    ])->assertOk();
 
     expect(Hash::check('Nueva67890', $cliente->fresh()->password))->toBeTrue();
 });
@@ -79,14 +84,15 @@ test('un usuario de ambito tienda tambien puede', function () {
 test('la contrasena nueva sirve para entrar y la vieja no', function () {
     $usuario = cuentaCon('Vieja12345');
 
-    $this->actingAs($usuario)->put(route('cuenta.password.update'), [
+    $nueva = cambioDeContrasena($this, $usuario, [
         'password_actual'       => 'Vieja12345',
         'password'              => 'Nueva67890',
         'password_confirmation' => 'Nueva67890',
-    ]);
+    ])->assertOk()->json('datos.credencial');
 
-    // Salir e ingresar van por la API desde el tramo C (D-30).
-    $this->deleteJson('/api/v1/sesion', [], bearer($usuario))->assertNoContent();
+    // Salir e ingresar van por la API desde el tramo C (D-30). Se sale con la credencial rotada.
+    app('auth')->forgetGuards();
+    $this->deleteJson('/api/v1/sesion', [], ['Authorization' => "Bearer {$nueva}"])->assertNoContent();
 
     ingresoAdministracion($this, $usuario->email, 'Vieja12345')->assertJsonValidationErrors('email', 'errores');
 
@@ -100,15 +106,24 @@ test('la contrasena nueva sirve para entrar y la vieja no', function () {
 test('cambiar la contrasena no cierra la sesion propia', function () {
     // Expulsar a alguien por hacer lo correcto sería un castigo, y encima lo
     // desalentaría de cambiarla.
-    $usuario = cuentaCon('Vieja12345');
+    $usuario    = cuentaCon('Vieja12345');
+    $credencial = bearer($usuario);
 
-    $this->actingAs($usuario)->put(route('cuenta.password.update'), [
+    $nueva = cambioDeContrasena($this, $usuario, [
         'password_actual'       => 'Vieja12345',
         'password'              => 'Nueva67890',
         'password_confirmation' => 'Nueva67890',
-    ]);
+    ], $credencial)->assertOk()->json('datos.credencial');
 
-    $this->assertAuthenticatedAs($usuario);
+    // Tramo I (HL-132): el servidor revoca la credencial del pedido y devuelve otra, que el módulo
+    // central guarda. Era el session()->regenerate(): la sesión sigue, con un identificador nuevo.
+    app('auth')->forgetGuards();
+    $this->getJson('/api/v1/yo', ['Authorization' => "Bearer {$nueva}"])
+        ->assertOk()
+        ->assertJsonPath('datos.email', $usuario->email);
+
+    app('auth')->forgetGuards();
+    $this->getJson('/api/v1/yo', $credencial)->assertUnauthorized();
 });
 
 /*
@@ -119,20 +134,25 @@ test('cambiar la contrasena no cierra la sesion propia', function () {
 
 test('sin sesion no se llega a la pantalla', function () {
     $this->get(route('cuenta.password.edit'))->assertRedirect(route('login'));
+
+    // Ni al endpoint: sin credencial, 401.
+    $this->putJson('/api/v1/yo/contrasena', [
+        'password_actual'       => 'Vieja12345',
+        'password'              => 'Nueva67890',
+        'password_confirmation' => 'Nueva67890',
+    ])->assertUnauthorized();
 });
 
 test('una cuenta desactivada no cambia su contrasena', function () {
-    // VerificarUsuarioActivo corre sobre todo el grupo web y se revalida en cada
-    // request, no sólo en el login (A-5). Si le quitaron el acceso, no hace nada.
+    // La cuenta activa se revalida en cada pedido, no sólo en el ingreso (A-5):
+    // en la API, `api.cuenta_activa`. Si le quitaron el acceso, no hace nada.
     $usuario = cuentaCon('Vieja12345', ['activo' => false]);
 
-    $this->actingAs($usuario)
-        ->put(route('cuenta.password.update'), [
-            'password_actual'       => 'Vieja12345',
-            'password'              => 'Nueva67890',
-            'password_confirmation' => 'Nueva67890',
-        ])
-        ->assertRedirect();
+    cambioDeContrasena($this, $usuario, [
+        'password_actual'       => 'Vieja12345',
+        'password'              => 'Nueva67890',
+        'password_confirmation' => 'Nueva67890',
+    ])->assertUnauthorized();
 
     expect(Hash::check('Vieja12345', $usuario->fresh()->password))->toBeTrue();
 });
@@ -146,20 +166,16 @@ test('una cuenta desactivada no cambia su contrasena', function () {
 test('hace falta la contrasena actual, y tiene que ser la correcta', function () {
     $usuario = cuentaCon('Vieja12345');
 
-    $this->actingAs($usuario)
-        ->put(route('cuenta.password.update'), [
-            'password'              => 'Nueva67890',
-            'password_confirmation' => 'Nueva67890',
-        ])
-        ->assertSessionHasErrors('password_actual');
+    cambioDeContrasena($this, $usuario, [
+        'password'              => 'Nueva67890',
+        'password_confirmation' => 'Nueva67890',
+    ])->assertJsonValidationErrors('password_actual', 'errores');
 
-    $this->actingAs($usuario)
-        ->put(route('cuenta.password.update'), [
-            'password_actual'       => 'NoEsLaMia123',
-            'password'              => 'Nueva67890',
-            'password_confirmation' => 'Nueva67890',
-        ])
-        ->assertSessionHasErrors(['password_actual' => 'Esa no es tu contraseña actual.']);
+    cambioDeContrasena($this, $usuario, [
+        'password_actual'       => 'NoEsLaMia123',
+        'password'              => 'Nueva67890',
+        'password_confirmation' => 'Nueva67890',
+    ])->assertJsonValidationErrors(['password_actual' => 'Esa no es tu contraseña actual.'], 'errores');
 
     expect(Hash::check('Vieja12345', $usuario->fresh()->password))->toBeTrue();
 });
@@ -167,13 +183,11 @@ test('hace falta la contrasena actual, y tiene que ser la correcta', function ()
 test('las dos contrasenas nuevas tienen que coincidir', function () {
     $usuario = cuentaCon('Vieja12345');
 
-    $this->actingAs($usuario)
-        ->put(route('cuenta.password.update'), [
-            'password_actual'       => 'Vieja12345',
-            'password'              => 'Nueva67890',
-            'password_confirmation' => 'Otra456789',
-        ])
-        ->assertSessionHasErrors('password');
+    cambioDeContrasena($this, $usuario, [
+        'password_actual'       => 'Vieja12345',
+        'password'              => 'Nueva67890',
+        'password_confirmation' => 'Otra456789',
+    ])->assertJsonValidationErrors('password', 'errores');
 
     expect(Hash::check('Vieja12345', $usuario->fresh()->password))->toBeTrue();
 });
@@ -181,25 +195,21 @@ test('las dos contrasenas nuevas tienen que coincidir', function () {
 test('una contrasena debil se rechaza', function () {
     $usuario = cuentaCon('Vieja12345');
 
-    $this->actingAs($usuario)
-        ->put(route('cuenta.password.update'), [
-            'password_actual'       => 'Vieja12345',
-            'password'              => 'corta',
-            'password_confirmation' => 'corta',
-        ])
-        ->assertSessionHasErrors('password');
+    cambioDeContrasena($this, $usuario, [
+        'password_actual'       => 'Vieja12345',
+        'password'              => 'corta',
+        'password_confirmation' => 'corta',
+    ])->assertJsonValidationErrors('password', 'errores');
 });
 
 test('la contrasena nueva no puede ser igual a la actual', function () {
     $usuario = cuentaCon('Vieja12345');
 
-    $this->actingAs($usuario)
-        ->put(route('cuenta.password.update'), [
-            'password_actual'       => 'Vieja12345',
-            'password'              => 'Vieja12345',
-            'password_confirmation' => 'Vieja12345',
-        ])
-        ->assertSessionHasErrors(['password' => 'La contraseña nueva tiene que ser distinta de la actual.']);
+    cambioDeContrasena($this, $usuario, [
+        'password_actual'       => 'Vieja12345',
+        'password'              => 'Vieja12345',
+        'password_confirmation' => 'Vieja12345',
+    ])->assertJsonValidationErrors(['password' => 'La contraseña nueva tiene que ser distinta de la actual.'], 'errores');
 });
 
 /*
@@ -213,20 +223,25 @@ test('la pantalla no trae la contrasena escrita en el formulario', function () {
     // la deja en el historial del navegador y en cualquier caché intermedia.
     $usuario = cuentaCon('Vieja12345');
 
-    $this->actingAs($usuario)
-        ->from(route('cuenta.password.edit'))
-        ->put(route('cuenta.password.update'), [
-            'password_actual'       => 'Vieja12345',
-            'password'              => 'corta',
-            'password_confirmation' => 'corta',
-        ]);
+    cambioDeContrasena($this, $usuario, [
+        'password_actual'       => 'Vieja12345',
+        'password'              => 'corta',
+        'password_confirmation' => 'corta',
+    ])->assertUnprocessable()
+        // Ni la respuesta de error la devuelve.
+        ->assertDontSee('Vieja12345')
+        ->assertDontSee('corta');
+
+    app('auth')->forgetGuards();
 
     $this->actingAs($usuario)
         ->get(route('cuenta.password.edit'))
         ->assertOk()
         ->assertDontSee('Vieja12345')
         ->assertDontSee('value="corta"', false)
-        ->assertDontSee($usuario->password, false);
+        ->assertDontSee($usuario->password, false)
+        // Shell (regla 37): ni el correo de la cuenta llega en la página; lo trae el JS de /yo.
+        ->assertDontSee($usuario->email);
 });
 
 test('el cambio borra los tokens de restablecimiento pendientes', function () {
@@ -238,14 +253,41 @@ test('el cambio borra los tokens de restablecimiento pendientes', function () {
         'created_at' => now(),
     ]);
 
-    $this->actingAs($usuario)->put(route('cuenta.password.update'), [
+    cambioDeContrasena($this, $usuario, [
         'password_actual'       => 'Vieja12345',
         'password'              => 'Nueva67890',
         'password_confirmation' => 'Nueva67890',
-    ]);
+    ])->assertOk();
 
     // Un token vivo después del cambio sigue sirviendo para cambiarla otra vez
     // hasta que expire.
     expect(DB::table('password_reset_tokens')->where('email', $usuario->email)->exists())
         ->toBeFalse();
 });
+
+/*
+|--------------------------------------------------------------------------
+| Las rutas web retiradas (tramo I)
+|--------------------------------------------------------------------------
+*/
+
+dataset('rutas web retiradas de contrasenas', [
+    'cambio propio'       => ['put',  '/cuenta/password'],
+    'fijar con el enlace' => ['post', '/restablecer'],
+]);
+
+test('la ruta web retirada de contrasenas ya no existe', function (string $metodo, string $url) {
+    $usuario = cuentaCon('Vieja12345');
+    $token   = app(\App\Services\UsuarioService::class)->crearTokenDeRestablecimiento($usuario);
+
+    $respuesta = pedirRuta($this->actingAs($usuario), $metodo, $url, [
+        'token'                 => $token,
+        'email'                 => $usuario->email,
+        'password_actual'       => 'Vieja12345',
+        'password'              => 'Nueva67890',
+        'password_confirmation' => 'Nueva67890',
+    ]);
+
+    expect($respuesta->status())->toBeIn([404, 405])
+        ->and(Hash::check('Vieja12345', $usuario->fresh()->password))->toBeTrue();
+})->with('rutas web retiradas de contrasenas');

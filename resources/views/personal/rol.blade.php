@@ -1,55 +1,41 @@
 @extends('layouts.app')
 
+{{-- Shell (regla 37): sólo llega el id. La persona, su rol actual con lo que hoy puede y los roles que se le
+     pueden asignar vienen en su ficha, que pide pantallas/personal.js a la API. --}}
 @section('title', 'Cambiar rol')
 
 @section('content')
     <div class="mb-4">
-        <h1 class="h3 mb-1">Cambiar el rol de {{ $usuario->nombre_completo }}</h1>
+        <h1 class="h3 mb-1">Cambiar el rol de <span data-campo="nombre">esta persona</span></h1>
         <p class="text-body-secondary small mb-0">
             El rol decide qué puede hacer el usuario dentro del sistema.
         </p>
     </div>
 
-    @include('partials.errores')
-
     <div class="row g-4">
         <div class="col-12 col-lg-7">
-            <form method="POST" action="{{ route('personal.rol.update', $usuario) }}" novalidate
-                class="card card-body border-0 shadow-sm">
-                @csrf
-                @method('PATCH')
+            <form method="POST" novalidate data-formulario-rol data-usuario="{{ $usuarioId }}"
+                data-volver="{{ route('personal.edit', $usuarioId) }}" class="card card-body border-0 shadow-sm">
+                <p class="alert alert-danger" data-errores-formulario hidden></p>
 
                 <div class="mb-3">
                     <span class="form-label d-block">Rol actual</span>
-                    <p class="form-control-plaintext mb-0 fw-semibold">{{ $usuario->rol->nombre }}</p>
-                    @if ($usuario->rol->descripcion)
-                        <div class="form-text">{{ $usuario->rol->descripcion }}</div>
-                    @endif
+                    <p class="form-control-plaintext mb-0 fw-semibold" data-campo="rol-actual"></p>
+                    <div class="form-text" data-campo="rol-descripcion" hidden></div>
                 </div>
 
                 <div class="mb-3">
                     <label for="rol_id" class="form-label">
                         Rol nuevo <span class="text-danger" aria-hidden="true">*</span>
                     </label>
-
-                    <select class="form-select @error('rol_id') is-invalid @enderror" id="rol_id" name="rol_id"
-                        aria-describedby="ayudaRol @error('rol_id') errorRol @enderror">
+                    {{-- Las opciones son los roles asignables de la ficha: las pone el JS. --}}
+                    <select class="form-select" id="rol_id" name="rol_id" aria-describedby="ayudaRol">
                         <option value="">Elegí el rol nuevo</option>
-                        @foreach ($roles as $rol)
-                            <option value="{{ $rol->id }}" @disabled($rol->is($usuario->rol)) @selected((int) old('rol_id') === $rol->id)>
-                                {{ $rol->nombre }}{{ $rol->is($usuario->rol) ? ' (actual)' : '' }}
-                            </option>
-                        @endforeach
                     </select>
-
                     <div id="ayudaRol" class="form-text">
                         Sólo aparecen los roles del personal. Cambiar de ámbito no es un cambio de rol:
                         pide otros datos y otra ficha.
                     </div>
-
-                    @error('rol_id')
-                        <div id="errorRol" class="invalid-feedback">{{ $message }}</div>
-                    @enderror
                 </div>
 
                 <div class="alert alert-warning d-flex gap-3 mb-4" role="alert">
@@ -61,7 +47,7 @@
                 </div>
 
                 <div class="d-grid d-sm-flex justify-content-sm-end gap-2 mt-4 pt-3 border-top">
-                    <a href="{{ route('personal.edit', $usuario) }}" class="btn btn-outline-secondary">Cancelar</a>
+                    <a href="{{ route('personal.edit', $usuarioId) }}" class="btn btn-outline-secondary">Cancelar</a>
                     <button type="submit" class="btn btn-acento px-4">
                         <i class="bi bi-check-lg" aria-hidden="true"></i> Cambiar rol
                     </button>
@@ -69,19 +55,11 @@
             </form>
         </div>
 
-        {{-- Qué puede hacer hoy, para que el cambio se haga con el dato a la vista
-             y no de memoria --}}
+        {{-- Qué puede hacer hoy, para que el cambio se haga con el dato a la vista y no de memoria --}}
         <div class="col-12 col-lg-5">
             <div class="card card-body border-0 shadow-sm">
                 <h2 class="h6 mb-3">Hoy puede</h2>
-
-                @forelse ($usuario->rol->permisos->sortBy('clave') as $permiso)
-                    <div class="small text-body-secondary">{{ $permiso->descripcion }}</div>
-                @empty
-                    <p class="small text-body-secondary mb-0">
-                        Este rol no tiene permisos sobre el sistema de gestión.
-                    </p>
-                @endforelse
+                <div data-permisos-actuales data-vacio="Este rol no tiene permisos sobre el sistema de gestión."></div>
             </div>
         </div>
     </div>

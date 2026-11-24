@@ -368,6 +368,29 @@ y la edición. **Desvío del plan**: el `GET ventas/armador` del paso 2 no se co
 son configuración del rol y del catálogo, no datos de una venta, y quedaron en el shell como atributos; la venta que se edita
 se lee de la ficha.
 
+### HL-132 — Cambiar la contraseña propia sacaba al usuario de la administración
+
+*Registrado en el tramo I.* `UsuarioService::cambiarPassword()` revoca todas las credenciales de la cuenta, y desde el tramo
+C (D-30) la de la cookie de la administración es una de ellas: cambiar la contraseña desde la web pedía el ingreso en el
+pedido siguiente. El test «no cierra la sesión propia» pasaba porque usaba `actingAs`. Decidido con el usuario: **rotar**.
+El servicio no cambia (revocarlas todas es lo que espera quien la cambia porque se la sacaron) y `PUT /yo/contrasena`
+emite una nueva con la forma de `POST /sesion`, que el módulo central guarda (`cambiarContrasena()` en `cliente.js`).
+Es lo que era `session()->regenerate()`. `CredencialTest` › «revoca todas» pasa a «queda sólo la devuelta».
+
+### HL-133 — La edición del personal completaba `activo`
+
+*Registrado en el tramo I.* El `PersonalRequest` web convertía una casilla ausente en `false`: un cliente que no mandara el
+campo le quitaba el acceso a la persona sin decirlo. En la API **`activo` es obligatorio** y su falta es 422 (M-31: la
+validación rechaza, no corrige). La pantalla lo manda siempre, y el `mensaje` de la edición nombra el efecto cuando quita
+el acceso.
+
+### HL-134 — Los roles para elegir, sin `rol.ver`
+
+*Registrado en el tramo I.* El filtro del listado y el alta del personal necesitan los roles de gestión, pero `GET /roles`
+pide `rol.ver`, que quien da de alta personal no tiene por qué tener (C-2). Como `stock/usuarios` y `compras/proveedores`,
+las opciones salen de su módulo: `GET /personal/roles`, con `usuario.ver` o `usuario.crear` (`RolesDelPersonalRequest`).
+Los roles a los que se puede pasar a alguien van en su ficha (`roles_asignables`), sólo con `usuario.cambiar_rol`.
+
 ---
 
 ## 4. Alcance
@@ -748,7 +771,7 @@ de esta tabla están ahí, módulo por módulo. Las filas de abajo quedan como e
 | Consultar catálogo | `GET /productos` · `ProductoController@index` | `GET /api/v1/productos?forma=gestion` | `producto.ver` / público | Administración web y Flutter | Finalizado (tramo D) |
 | Modificar producto | `PUT /productos/{id}` · `ProductoController@update` | `PATCH /api/v1/productos/{id}` | `producto.editar` | Administración web | Finalizado (tramo D) |
 | Registrar pedido | `POST /api/v1/pedidos` | *(ya en la API)* | Cliente | Flutter | Finalizado |
-| Administrar roles | `PUT /roles/{id}` · `RolController@update` | `PATCH /api/v1/roles/{id}` | `rol.editar` | Administración web | Pendiente |
+| Administrar roles | `PUT /roles/{id}` · `RolController@update` | `PATCH /api/v1/roles/{id}` | `rol.editar` | Administración web | Finalizado (tramo I) |
 | … | | | | | |
 
 Las filas que ya están en la API desde la Etapa 2 entran como **Finalizado**, con su endpoint: son

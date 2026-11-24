@@ -34,18 +34,18 @@ test('quien puede editar usuarios no puede por eso restablecer contrasenas', fun
     // segundo llegaría como efecto lateral de lo primero (C-2).
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
-    $this->actingAs(usuarioCon('usuario.ver', 'usuario.editar'))
-        ->post(route('personal.restablecer', $objetivo))
+    $this->postJson("/api/v1/personal/{$objetivo->id}/restablecer-contrasena", [], bearer(usuarioCon('usuario.ver', 'usuario.editar')))
         ->assertForbidden();
 });
 
 test('con el permiso propio se genera el enlace', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
-    $this->actingAs(usuarioCon('usuario.resetear_password'))
-        ->post(route('personal.restablecer', $objetivo))
-        ->assertRedirect(route('personal.edit', $objetivo))
-        ->assertSessionHas('enlace_restablecimiento');
+    $this->postJson("/api/v1/personal/{$objetivo->id}/restablecer-contrasena", [], bearer(usuarioCon('usuario.resetear_password')))
+        ->assertOk()
+        ->assertJsonPath('datos.enlace_restablecimiento', fn ($enlace) => filled($enlace))
+        // Un secreto de un solo uso: ninguna caché lo guarda.
+        ->assertHeader('Cache-Control', 'no-store, private');
 
     expect(DB::table('password_reset_tokens')->where('email', $objetivo->email)->exists())
         ->toBeTrue();
@@ -57,10 +57,9 @@ test('el administrador recibe un enlace, nunca una contrasena', function () {
     // atribución de ventas y movimientos de stock (A-13).
     $objetivo = User::factory()->conRol('Vendedor')->create(['password' => 'Vieja12345']);
 
-    $respuesta = $this->actingAs(usuarioCon('usuario.resetear_password'))
-        ->post(route('personal.restablecer', $objetivo));
+    $respuesta = $this->postJson("/api/v1/personal/{$objetivo->id}/restablecer-contrasena", [], bearer(usuarioCon('usuario.resetear_password')));
 
-    $enlace = $respuesta->getSession()->get('enlace_restablecimiento');
+    $enlace = $respuesta->json('datos.enlace_restablecimiento');
 
     expect($enlace)->toStartWith(url('/restablecer/'))
         // La contraseña del objetivo no cambió: sigue siendo la que él conoce.
@@ -78,10 +77,10 @@ test('no se genera enlace para una cuenta sin acceso', function () {
     // el orden importa.
     $objetivo = User::factory()->conRol('Vendedor')->inactivo()->create();
 
-    $this->actingAs(usuarioCon('usuario.resetear_password'))
-        ->post(route('personal.restablecer', $objetivo))
-        ->assertSessionHas('error')
-        ->assertSessionMissing('enlace_restablecimiento');
+    $this->postJson("/api/v1/personal/{$objetivo->id}/restablecer-contrasena", [], bearer(usuarioCon('usuario.resetear_password')))
+        ->assertConflict()
+        ->assertJsonPath('codigo', 'regla_de_negocio')
+        ->assertJsonMissingPath('datos.enlace_restablecimiento');
 
     expect(DB::table('password_reset_tokens')->where('email', $objetivo->email)->exists())
         ->toBeFalse();
@@ -112,14 +111,15 @@ test('la persona fija su contrasena con el enlace y entra con ella', function ()
     // La pantalla es pública: quien la usa, por definición, no puede entrar.
     $this->get($enlace)->assertOk();
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token'                 => tokenDelEnlace($enlace),
         'email'                 => $objetivo->email,
         'password'              => 'Nueva67890',
         'password_confirmation' => 'Nueva67890',
     ])
-        ->assertRedirect(route('login'))
-        ->assertSessionHas('exito');
+        ->assertOk()
+        ->assertJsonPath('datos.ambito', 'gestion')
+        ->assertJsonPath('mensaje', 'Tu contraseña quedó configurada. Ya podés iniciar sesión.');
 
     expect(Hash::check('Nueva67890', $objetivo->fresh()->password))->toBeTrue();
 
@@ -132,7 +132,7 @@ test('la contrasena vieja deja de servir', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create(['password' => 'Vieja12345']);
     $enlace   = enlaceParaRestablecer($objetivo);
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token'                 => tokenDelEnlace($enlace),
         'email'                 => $objetivo->email,
         'password'              => 'Nueva67890',
@@ -151,7 +151,7 @@ test('el restablecimiento no inicia sesion por su cuenta', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
     $enlace   = enlaceParaRestablecer($objetivo);
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token'                 => tokenDelEnlace($enlace),
         'email'                 => $objetivo->email,
         'password'              => 'Nueva67890',
@@ -172,15 +172,15 @@ test('el enlace sirve una sola vez', function () {
     $enlace   = enlaceParaRestablecer($objetivo);
     $token    = tokenDelEnlace($enlace);
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token' => $token, 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
     ]);
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token' => $token, 'email' => $objetivo->email,
         'password' => 'Tercera12345', 'password_confirmation' => 'Tercera12345',
-    ])->assertSessionHasErrors('email');
+    ])->assertJsonValidationErrors('email', 'errores');
 
     expect(Hash::check('Nueva67890', $objetivo->fresh()->password))->toBeTrue();
 });
@@ -188,10 +188,10 @@ test('el enlace sirve una sola vez', function () {
 test('un token inventado se rechaza', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create(['password' => 'Vieja12345']);
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token' => 'esto-no-es-un-token', 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
-    ])->assertSessionHasErrors('email');
+    ])->assertJsonValidationErrors('email', 'errores');
 
     expect(Hash::check('Vieja12345', $objetivo->fresh()->password))->toBeTrue();
 });
@@ -202,10 +202,10 @@ test('el token de una cuenta no sirve para otra', function () {
 
     $tokenAjeno = tokenDelEnlace(enlaceParaRestablecer($ajeno));
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token' => $tokenAjeno, 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
-    ])->assertSessionHasErrors('email');
+    ])->assertJsonValidationErrors('email', 'errores');
 
     expect(Hash::check('Vieja12345', $objetivo->fresh()->password))->toBeTrue();
 });
@@ -217,10 +217,10 @@ test('un enlace vencido se rechaza', function () {
     // auth.passwords.users.expire son 60 minutos.
     $this->travel(61)->minutes();
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token' => $token, 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
-    ])->assertSessionHasErrors('email');
+    ])->assertJsonValidationErrors('email', 'errores');
 
     expect(Hash::check('Vieja12345', $objetivo->fresh()->password))->toBeTrue();
 });
@@ -231,10 +231,10 @@ test('generar un enlace nuevo invalida el anterior', function () {
     $primero = tokenDelEnlace(enlaceParaRestablecer($objetivo));
     enlaceParaRestablecer($objetivo);
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token' => $primero, 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
-    ])->assertSessionHasErrors('email');
+    ])->assertJsonValidationErrors('email', 'errores');
 
     expect(Hash::check('Vieja12345', $objetivo->fresh()->password))->toBeTrue();
 });
@@ -243,17 +243,19 @@ test('una contrasena debil se rechaza y el enlace sigue vivo', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
     $token    = tokenDelEnlace(enlaceParaRestablecer($objetivo));
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token' => $token, 'email' => $objetivo->email,
         'password' => 'corta', 'password_confirmation' => 'corta',
-    ])->assertSessionHasErrors('password');
+    ])->assertJsonValidationErrors('password', 'errores');
 
     // Un error de validación no puede quemar el enlace: dejaría a la persona
     // afuera por escribir mal una contraseña.
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token' => $token, 'email' => $objetivo->email,
         'password' => 'Nueva67890', 'password_confirmation' => 'Nueva67890',
-    ])->assertSessionHasNoErrors();
+    ])->assertOk();
+
+    expect(Hash::check('Nueva67890', $objetivo->fresh()->password))->toBeTrue();
 });
 
 test('no se genera enlace para la propia cuenta', function () {
@@ -262,10 +264,10 @@ test('no se genera enlace para la propia cuenta', function () {
     // portapapeles y en el historial, durante una hora y sin beneficio alguno.
     $usuario = usuarioCon('usuario.resetear_password');
 
-    $this->actingAs($usuario)
-        ->post(route('personal.restablecer', $usuario))
-        ->assertSessionHas('error')
-        ->assertSessionMissing('enlace_restablecimiento');
+    $this->postJson("/api/v1/personal/{$usuario->id}/restablecer-contrasena", [], bearer($usuario))
+        ->assertConflict()
+        ->assertJsonPath('codigo', 'regla_de_negocio')
+        ->assertJsonMissingPath('datos.enlace_restablecimiento');
 
     expect(DB::table('password_reset_tokens')->where('email', $usuario->email)->exists())
         ->toBeFalse();

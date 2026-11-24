@@ -672,3 +672,107 @@ Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
 GET {{base}}/informes/vendedores
 Accept: application/json
 Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+### ── Tramo I — Usuarios y accesos ───────────────────────────────────────────
+
+# El personal, de a 15, filtrado por rol. Las opciones salen de /personal/roles (`usuario.ver` o `usuario.crear`).
+GET {{base}}/personal?q=vend
+Accept: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+###
+
+# El administrativo no tiene `usuario.ver`: 403 `sin_permiso`, aunque sea el mismo endpoint.
+GET {{base}}/personal
+Accept: application/json
+Authorization: Bearer {{sesionAdministrativo.response.body.datos.credencial}}
+
+###
+
+# Alta de un empleado (201). `activo` va siempre: la validación rechaza, no completa (M-31).
+# @name altaEmpleado
+POST {{base}}/personal
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+{ "nombre": "Lucas", "apellido": "Demo", "email": "lucas.demo@sistema.local", "rol_id": 3,
+  "password": "Demo12345", "password_confirmation": "Demo12345", "activo": true,
+  "empleado": { "legajo": "DEMO-I1", "dni": "40111222", "telefono": "297-4111222", "fecha_ingreso": "2026-11-24" } }
+
+###
+
+# La ficha con `usuario.cambiar_rol`: los permisos del rol y `roles_asignables`. Sin ese permiso, las claves no están.
+GET {{base}}/personal/{{altaEmpleado.response.body.datos.id}}
+Accept: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+###
+
+# El enlace de un solo uso, sin caché. El administrador nunca conoce la contraseña.
+# @name enlaceEmpleado
+POST {{base}}/personal/{{altaEmpleado.response.body.datos.id}}/restablecer-contrasena
+Accept: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+###
+
+# Un token inventado: 422 en `email`. El de verdad sale de `enlace_restablecimiento` (el tramo de la URL tras /restablecer/).
+POST {{base}}/contrasena/restablecer
+Accept: application/json
+Content-Type: application/json
+
+{ "token": "inventado", "email": "lucas.demo@sistema.local", "password": "Nueva12345", "password_confirmation": "Nueva12345" }
+
+###
+
+# Los roles, los de sistema primero, con los conteos y si se pueden eliminar (derivado de los datos).
+GET {{base}}/roles
+Accept: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+###
+
+# Un rol nuevo con sólo `producto.crear`: el servicio le agrega `producto.ver` (cualquier acción implica ver).
+# Los ids salen de GET /permisos.
+# @name altaRol
+POST {{base}}/roles
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+{ "nombre": "Alta de productos", "ambito": "gestion", "descripcion": "Demostración del tramo I", "permisos": [ 10 ] }
+
+###
+
+# Un rol de sistema no se elimina: 409 `regla_de_negocio`, con el mismo texto que daba la web.
+DELETE {{base}}/roles/3
+Accept: application/json
+Authorization: Bearer {{sesionAdministrador.response.body.datos.credencial}}
+
+###
+
+# La contraseña propia: rota la credencial. La respuesta trae una nueva; la del pedido pasa a 401 (HL-132).
+# @name cambioPropio
+PUT {{base}}/yo/contrasena
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+{ "password_actual": "demo1234", "password": "demo12345", "password_confirmation": "demo12345" }
+
+###
+
+# La credencial de antes ya no sirve: 401 `sesion_invalida`. (Para repetir la demostración, devolvela a `demo1234`.)
+GET {{base}}/yo
+Accept: application/json
+Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
+
+###
+
+# La nueva, sí.
+GET {{base}}/yo
+Accept: application/json
+Authorization: Bearer {{cambioPropio.response.body.datos.credencial}}

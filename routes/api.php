@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\CategoriaController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\ClienteController;
 use App\Http\Controllers\Api\V1\CompraController;
+use App\Http\Controllers\Api\V1\ContrasenaController;
 use App\Http\Controllers\Api\V1\DireccionController;
 use App\Http\Controllers\Api\V1\FactorCostoController;
 use App\Http\Controllers\Api\V1\ImpresionController;
@@ -17,12 +18,14 @@ use App\Http\Controllers\Api\V1\MarcaController;
 use App\Http\Controllers\Api\V1\PagoPedidoController;
 use App\Http\Controllers\Api\V1\PanelController;
 use App\Http\Controllers\Api\V1\PedidoController;
+use App\Http\Controllers\Api\V1\PersonalController;
 use App\Http\Controllers\Api\V1\PerfilController;
 use App\Http\Controllers\Api\V1\PoliticaPreciosController;
 use App\Http\Controllers\Api\V1\ProductoController;
 use App\Http\Controllers\Api\V1\ProductoProveedorController;
 use App\Http\Controllers\Api\V1\ProveedorController;
 use App\Http\Controllers\Api\V1\RegistroController;
+use App\Http\Controllers\Api\V1\RolController;
 use App\Http\Controllers\Api\V1\SesionController;
 use App\Http\Controllers\Api\V1\SimuladorController;
 use App\Http\Controllers\Api\V1\StockController;
@@ -78,6 +81,9 @@ Route::prefix('v1')->group(function () {
         Route::middleware('throttle:tienda-acceso')->group(function () {
             Route::post('registro', [RegistroController::class, 'store']);
             Route::post('sesion', [SesionController::class, 'store']);
+            // Fijar la contraseña con el enlace (tramo I): el token es la autorización, y probar tokens
+            // también se frena por correo e IP.
+            Route::post('contrasena/restablecer', [ContrasenaController::class, 'restablecer']);
         });
 
         // El comprobante, abierto por el navegador sin credencial: la firma temporal es la
@@ -118,6 +124,8 @@ Route::prefix('v1')->group(function () {
         // Sin permiso propio: cerrar la sesión y saber quién soy es de toda cuenta.
         Route::delete('sesion', [SesionController::class, 'destroy']);
         Route::get('yo', [YoController::class, 'show']);
+        // La contraseña propia (tramo I): rota la credencial y devuelve la nueva (HL-132).
+        Route::put('yo/contrasena', [YoController::class, 'contrasena']);
 
         // El catálogo de la administración (tramo D). Un permiso por acción (C-2), en la ruta.
         Route::middleware('can:marca.ver')->group(function () {
@@ -284,6 +292,32 @@ Route::prefix('v1')->group(function () {
         });
         Route::get('precios/lotes', [AjusteMasivoController::class, 'lotes'])->middleware('can:precio.ver');
         Route::post('precios/lotes/{lote}/deshacer', [AjusteMasivoController::class, 'deshacer'])->whereNumber('lote')->middleware('can:precio.deshacer_ajuste');
+
+        // El personal (tramo I). Un permiso por acción (C-2), en la ruta. Una cuenta de la tienda es 404.
+        // Las opciones de rol sirven al filtro y al alta: su Form Request acepta cualquiera de los dos.
+        Route::get('personal/roles', [PersonalController::class, 'roles']);
+        Route::middleware('can:usuario.ver')->group(function () {
+            Route::get('personal', [PersonalController::class, 'index']);
+            Route::get('personal/{usuario}', [PersonalController::class, 'show'])->whereNumber('usuario');
+        });
+        Route::post('personal', [PersonalController::class, 'store'])->middleware('can:usuario.crear');
+        Route::patch('personal/{usuario}', [PersonalController::class, 'update'])->whereNumber('usuario')->middleware('can:usuario.editar');
+        Route::delete('personal/{usuario}', [PersonalController::class, 'destroy'])->whereNumber('usuario')->middleware('can:usuario.eliminar');
+        Route::put('personal/{usuario}/rol', [PersonalController::class, 'cambiarRol'])->whereNumber('usuario')->middleware('can:usuario.cambiar_rol');
+        Route::post('personal/{usuario}/restablecer-contrasena', [PersonalController::class, 'restablecer'])
+            ->whereNumber('usuario')->middleware('can:usuario.resetear_password');
+
+        // Roles y permisos (tramo I): leer con `rol.ver`, escribir con `rol.editar`, como en la web.
+        Route::middleware('can:rol.ver')->group(function () {
+            Route::get('roles', [RolController::class, 'index']);
+            Route::get('roles/{rol}', [RolController::class, 'show'])->whereNumber('rol');
+            Route::get('permisos', [RolController::class, 'permisos']);
+        });
+        Route::middleware('can:rol.editar')->group(function () {
+            Route::post('roles', [RolController::class, 'store']);
+            Route::patch('roles/{rol}', [RolController::class, 'update'])->whereNumber('rol');
+            Route::delete('roles/{rol}', [RolController::class, 'destroy'])->whereNumber('rol');
+        });
     });
 
     // Protegida de la tienda.

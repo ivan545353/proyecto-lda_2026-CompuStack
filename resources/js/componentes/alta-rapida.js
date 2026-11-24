@@ -7,7 +7,7 @@ import { elegirOpcion } from './selects-buscables';
  * Altas desde una ventana flotante: postean al endpoint del alta de la API (`data-alta-rapida-api`,
  * el mismo que usa la pantalla de alta: un solo camino) y, al guardar, dejan elegido el registro nuevo
  * en el buscador de la pantalla.
- * El pedido y sus errores (422 en cada campo; 403, 419 y sin conexión arriba del formulario)
+ * El pedido y sus errores (422 en cada campo; 403 y sin conexión arriba del formulario)
  * los trata el módulo central (tramo C); acá queda sólo lo que es de la ventana.
  */
 export function iniciarAltasRapidas(raiz = document) {

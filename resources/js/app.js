@@ -8,7 +8,7 @@ import { iniciarRecepcion } from './componentes/recepcion';
 import { iniciarLineasDeVenta } from './componentes/lineas-venta';
 import { iniciarAltasRapidas } from './componentes/alta-rapida';
 import { iniciarOpcionesDeImpresion } from './componentes/impresion';
-import { iniciarIngreso, iniciarSalida } from './pantallas/sesion';
+import { iniciarCambioDeContrasena, iniciarIngreso, iniciarRestablecimiento, iniciarSalida } from './pantallas/sesion';
 import { iniciarFormularioDeMarca, iniciarListadoDeMarcas } from './pantallas/marcas';
 import { iniciarFormularioDeCategoria, iniciarListadoDeCategorias } from './pantallas/categorias';
 import { iniciarFormularioDeProducto, iniciarListadoDeProductos } from './pantallas/productos';
@@ -24,6 +24,8 @@ import { iniciarFichaDeVenta, iniciarListadoDeVentas } from './pantallas/ventas'
 import { iniciarPanel } from './pantallas/panel';
 import { iniciarInforme } from './pantallas/informes';
 import { iniciarCobroDeVenta, iniciarDevolucion, iniciarEntregaParcial } from './pantallas/operaciones-venta';
+import { iniciarCambioDeRol, iniciarFormularioDePersonal, iniciarListadoDePersonal } from './pantallas/personal';
+import { iniciarFormularioDeRol, iniciarListadoDeRoles } from './pantallas/roles';
 import { iniciarSelecciones } from './componentes/seleccion';
 import { mostrarAvisoPendiente } from './api/estados';
 
@@ -52,68 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Pantalla de permisos: dependencia con "ver", casilla por módulo y contador
-document.addEventListener('DOMContentLoaded', () => {
-    const permisos = document.querySelectorAll('.js-permiso');
-    if (!permisos.length) return;
-
-    const contador = document.getElementById('contadorPermisos');
-
-    const delModulo = (modulo) =>
-        [...document.querySelectorAll(`.js-permiso[data-modulo="${modulo}"]`)];
-
-    const verDe = (modulo) =>
-        delModulo(modulo).find((c) => c.dataset.accion === 'ver');
-
-    const refrescar = () => {
-        document.querySelectorAll('.js-modulo').forEach((casilla) => {
-            const hijos = delModulo(casilla.dataset.modulo);
-            const marcados = hijos.filter((c) => c.checked).length;
-
-            casilla.checked = marcados === hijos.length;
-            casilla.indeterminate = marcados > 0 && marcados < hijos.length;
-        });
-
-        if (contador) {
-            const total = [...permisos].filter((c) => c.checked).length;
-            contador.textContent = `${total} de ${permisos.length} asignados`;
-        }
-    };
-
-    document.querySelectorAll('.js-modulo').forEach((casilla) => {
-        casilla.addEventListener('change', () => {
-            delModulo(casilla.dataset.modulo).forEach((c) => (c.checked = casilla.checked));
-            refrescar();
-        });
-    });
-
-    permisos.forEach((casilla) => {
-        casilla.addEventListener('change', () => {
-            const modulo = casilla.dataset.modulo;
-            const ver = verDe(modulo);
-
-            if (!ver) {
-                refrescar();
-                return;
-            }
-
-            // Cualquier acción implica poder ver el módulo
-            if (casilla.checked && casilla.dataset.accion !== 'ver') {
-                ver.checked = true;
-            }
-
-            // Y al revés: quitar "ver" quita todo el módulo, porque el resto
-            // quedaría inaccesible
-            if (!casilla.checked && casilla.dataset.accion === 'ver') {
-                delModulo(modulo).forEach((c) => (c.checked = false));
-            }
-
-            refrescar();
-        });
-    });
-
-    refrescar();
-});
+// Pantalla de permisos (casillas por módulo y contador): desde el tramo I, ver pantallas/roles.js
 
 // Llevar el foco al resumen de errores para que un lector de pantalla lo anuncie
 document.addEventListener('DOMContentLoaded', () => {
@@ -243,17 +184,24 @@ document.addEventListener('DOMContentLoaded', () => iniciarAltasRapidas());
 document.addEventListener('DOMContentLoaded', () => iniciarOpcionesDeImpresion());
 
 
-// Entrar y salir de la administración, por la API: ver pantallas/sesion.js
+// Entrar y salir de la administración, y las dos contraseñas, por la API: ver pantallas/sesion.js
 document.addEventListener('DOMContentLoaded', () => {
     iniciarIngreso();
     iniciarSalida();
+    iniciarCambioDeContrasena();
+    iniciarRestablecimiento();
 });
 
 // El aviso que dejó la pantalla anterior (una alta que volvió al listado): ver api/estados.js
 document.addEventListener('DOMContentLoaded', () => mostrarAvisoPendiente());
 
-// Las pantallas migradas a la API (tramos D a H): ver pantallas/
+// Las pantallas migradas a la API (tramos D a I): ver pantallas/
 document.addEventListener('DOMContentLoaded', () => {
+    iniciarListadoDePersonal();
+    iniciarFormularioDePersonal();
+    iniciarCambioDeRol();
+    iniciarListadoDeRoles();
+    iniciarFormularioDeRol();
     iniciarListadoDeCompras();
     iniciarFichaDeCompra();
     iniciarListadoDeVentas();

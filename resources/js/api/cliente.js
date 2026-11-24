@@ -12,8 +12,6 @@ const COOKIE = 'credencial';
 
 const SIN_CONEXION = 'No pudimos conectarnos con el servidor. Revisá la conexión y reintentá.';
 const SIN_PERMISO = 'No tenés permiso para hacer esto.';
-// Sólo en una ruta propia: venció el token CSRF de la página, no la credencial.
-const PAGINA_VENCIDA = 'La página venció. Recargala para seguir; lo que no se guardó en esta pantalla se pierde.';
 
 /** Un error de la API ya tratado: la pantalla sólo decide qué hacer con lo suyo. */
 export class ErrorDeApi extends Error {
@@ -43,20 +41,15 @@ function leerCredencial() {
     return par ? decodeURIComponent(par.slice(COOKIE.length + 1)) : null;
 }
 
-// Las rutas de la API llevan Bearer; las propias de la web (las que su tramo todavía no migró),
-// el token CSRF de la página.
-function cabeceras(propia, conCuerpoJson) {
+// Todo pedido va a la API, con la credencial como Bearer. Desde el tramo I no queda ninguna ruta web
+// de escritura, así que tampoco el token CSRF de la página.
+function cabeceras(conCuerpoJson) {
     const lista = { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
 
     if (conCuerpoJson) lista['Content-Type'] = 'application/json';
 
-    if (propia) {
-        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-        if (csrf) lista['X-CSRF-TOKEN'] = csrf;
-    } else {
-        const credencial = leerCredencial();
-        if (credencial) lista.Authorization = `Bearer ${credencial}`;
-    }
+    const credencial = leerCredencial();
+    if (credencial) lista.Authorization = `Bearer ${credencial}`;
 
     return lista;
 }
@@ -72,11 +65,10 @@ async function leerCuerpo(respuesta) {
 }
 
 // El tratamiento de cada error, una vez: 401 pide el ingreso, 403 avisa, 422 marca los campos,
-// 409 y el resto muestran el mensaje del servidor. Una ruta propia de la web contesta con la forma
-// de Laravel (`message`, `errors`) o con una página: se lee igual, hasta que su tramo la migre.
+// 409 y el resto muestran el mensaje del servidor.
 function tratar(respuesta, cuerpo, formulario) {
     const codigo = cuerpo?.codigo ?? null;
-    const errores = cuerpo?.errores ?? cuerpo?.errors ?? {};
+    const errores = cuerpo?.errores ?? {};
     const mensaje = cuerpo?.mensaje ?? 'Algo falló del lado del servidor. Probá de nuevo en un rato.';
     const error = new ErrorDeApi(respuesta.status, codigo, mensaje, errores, cuerpo);
 
@@ -88,12 +80,9 @@ function tratar(respuesta, cuerpo, formulario) {
         case 403:
             avisarEnFormulario(formulario, 'error', cuerpo?.mensaje ?? SIN_PERMISO);
             break;
-        case 419:
-            avisarEnFormulario(formulario, 'error', PAGINA_VENCIDA);
-            break;
         case 422:
             if (formulario) marcarErrores(formulario, errores);
-            else avisar('error', cuerpo?.mensaje ?? cuerpo?.message ?? mensaje);
+            else avisar('error', mensaje);
             break;
         default:
             avisarEnFormulario(formulario, 'error', mensaje);
@@ -105,28 +94,28 @@ function tratar(respuesta, cuerpo, formulario) {
 /**
  * Hace un pedido y devuelve el sobre (`datos`, `mensaje` y, en un listado, el paginado).
  * Opciones: `metodo`, `datos` (va como JSON, o tal cual si es FormData), `formulario` (donde marcar
- * los errores por campo), `senal` (para cancelar) y `propia` (la ruta es de la web, no de la API).
+ * los errores por campo) y `senal` (para cancelar).
  */
-export async function pedir(ruta, { metodo = 'GET', datos = null, formulario = null, senal = null, propia = false } = {}) {
+export async function pedir(ruta, { metodo = 'GET', datos = null, formulario = null, senal = null } = {}) {
     const esFormulario = datos instanceof FormData;
     const opciones = {
         method: metodo,
         credentials: 'same-origin',
         signal: senal,
-        headers: cabeceras(propia, datos !== null && !esFormulario),
+        headers: cabeceras(datos !== null && !esFormulario),
         body: datos === null ? undefined : esFormulario ? datos : JSON.stringify(datos),
     };
 
     let respuesta;
 
     try {
-        respuesta = await fetch(propia ? ruta : `${BASE}${ruta}`, opciones);
+        respuesta = await fetch(`${BASE}${ruta}`, opciones);
     } catch (falla) {
         // Cancelado por la pantalla (una búsqueda que se reemplazó): no es un error que mostrar.
         if (falla?.name === 'AbortError') throw falla;
 
         if (await esperarReintento(SIN_CONEXION)) {
-            return pedir(ruta, { metodo, datos, formulario, senal, propia });
+            return pedir(ruta, { metodo, datos, formulario, senal });
         }
 
         throw new ErrorDeApi(0, 'sin_conexion', SIN_CONEXION);
@@ -159,6 +148,17 @@ export async function ingresar(email, password, formulario) {
     }
 
     return true;
+}
+
+/**
+ * Cambia la contraseña propia. El servidor revoca todas las credenciales de la cuenta, también esta, y
+ * devuelve una nueva (HL-132): se guarda en su lugar para que el cambio no expulse a quien lo hizo.
+ */
+export async function cambiarContrasena(datos, formulario) {
+    const respuesta = await api.put('/yo/contrasena', datos, { formulario });
+    guardarCredencial(respuesta.datos.credencial);
+
+    return respuesta;
 }
 
 /** Cierra la sesión: la credencial deja de servir en el servidor y se olvida acá. */

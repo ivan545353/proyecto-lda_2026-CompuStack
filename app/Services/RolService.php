@@ -64,7 +64,7 @@ class RolService
         // pueda volver a otorgarlo, y sólo se sale tocando la base a mano.
         if ($rol->id === $autor->rol_id && $this->cambianLosPermisos($rol, $permisos)) {
             throw new ReglaDeNegocioException(
-                'No puede modificar los permisos de su propio rol. Pídaselo a otro administrador.'
+                'No podés modificar los permisos de tu propio rol. Pedíselo a otro administrador.'
             );
         }
 

@@ -27,18 +27,28 @@ beforeEach(function () {
 | ruta se deniega, y con SÓLO el de la ruta se permite. Sin la primera mitad,
 | una ruta protegida por el permiso equivocado pasaría desapercibida.
 |
+| Desde el tramo I las pantallas siguen en la web y las operaciones están en la
+| API: las dos mitades se prueban sobre cada una.
+|
 */
 
+// Las pantallas, que siguen en la web.
 dataset('rutas de usuarios', [
-    'listado'           => ['get',    'personal.index',      'usuario.ver',         false],
-    'formulario alta'   => ['get',    'personal.create',     'usuario.crear',       false],
-    'alta'              => ['post',   'personal.store',      'usuario.crear',       false],
-    'formulario edicion'=> ['get',    'personal.edit',       'usuario.editar',      true],
-    'edicion'           => ['put',    'personal.update',     'usuario.editar',      true],
-    'baja'              => ['delete', 'personal.destroy',    'usuario.eliminar',    true],
-    'pantalla de rol'   => ['get',    'personal.rol.edit',   'usuario.cambiar_rol', true],
-    'cambio de rol'     => ['patch',  'personal.rol.update', 'usuario.cambiar_rol', true],
-    'enlace de acceso'  => ['post',   'personal.restablecer', 'usuario.resetear_password', true],
+    'listado'           => ['get', 'personal.index',    'usuario.ver',         false],
+    'formulario alta'   => ['get', 'personal.create',   'usuario.crear',       false],
+    'formulario edicion'=> ['get', 'personal.edit',     'usuario.editar',      true],
+    'pantalla de rol'   => ['get', 'personal.rol.edit', 'usuario.cambiar_rol', true],
+]);
+
+// Las operaciones, en la API (tramo I). `{usuario}` se reemplaza por el del test.
+dataset('endpoints del personal', [
+    'listado'          => ['get',    '/api/v1/personal',                                   'usuario.ver'],
+    'ficha'            => ['get',    '/api/v1/personal/{usuario}',                         'usuario.ver'],
+    'alta'             => ['post',   '/api/v1/personal',                                   'usuario.crear'],
+    'edicion'          => ['patch',  '/api/v1/personal/{usuario}',                         'usuario.editar'],
+    'baja'             => ['delete', '/api/v1/personal/{usuario}',                         'usuario.eliminar'],
+    'cambio de rol'    => ['put',    '/api/v1/personal/{usuario}/rol',                     'usuario.cambiar_rol'],
+    'enlace de acceso' => ['post',   '/api/v1/personal/{usuario}/restablecer-contrasena', 'usuario.resetear_password'],
 ]);
 
 const PERMISOS_USUARIO = [
@@ -64,6 +74,35 @@ test('el permiso de la ruta alcanza para pasar', function (string $metodo, strin
     expect($respuesta->status())->not->toBe(403);
 })->with('rutas de usuarios');
 
+test('en la API, ningun otro permiso del modulo habilita el endpoint', function (string $metodo, string $url, string $permiso) {
+    $objetivo = User::factory()->conRol('Vendedor')->create();
+    $otros    = array_values(array_diff(PERMISOS_USUARIO, [$permiso]));
+
+    $this->json($metodo, str_replace('{usuario}', (string) $objetivo->id, $url), datosDeEmpleado(), bearer(usuarioCon(...$otros)))
+        ->assertForbidden()
+        ->assertJsonPath('codigo', 'sin_permiso');
+})->with('endpoints del personal');
+
+test('en la API, el permiso del endpoint alcanza para pasar', function (string $metodo, string $url, string $permiso) {
+    $objetivo = User::factory()->conRol('Vendedor')->create();
+
+    $respuesta = $this->json($metodo, str_replace('{usuario}', (string) $objetivo->id, $url), datosDeEmpleado(), bearer(usuarioCon($permiso)));
+
+    expect($respuesta->status())->not->toBe(403);
+})->with('endpoints del personal');
+
+test('las opciones de rol se piden con ver o con crear, y con ningun otro permiso', function () {
+    // El filtro del listado y el alta las usan: quien puede dar de alta tiene que poder elegir el rol.
+    $otros = array_values(array_diff(PERMISOS_USUARIO, ['usuario.ver', 'usuario.crear']));
+
+    $this->getJson('/api/v1/personal/roles', bearer(usuarioCon(...$otros)))->assertForbidden();
+
+    foreach (['usuario.ver', 'usuario.crear'] as $permiso) {
+        app('auth')->forgetGuards();
+        $this->getJson('/api/v1/personal/roles', bearer(usuarioCon($permiso)))->assertOk();
+    }
+});
+
 test('quien solo puede ver no recibe los botones de alta, edicion ni baja', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
@@ -74,7 +113,18 @@ test('quien solo puede ver no recibe los botones de alta, edicion ni baja', func
         ->get(route('personal.index'))
         ->assertOk()
         ->assertDontSee(route('personal.create'))
-        ->assertDontSee(route('personal.edit', $objetivo));
+        ->assertDontSee(route('personal.edit', $objetivo))
+        ->assertDontSee('data-accion="editar"', false)
+        ->assertDontSee('data-listado-eliminar', false);
+
+    // Desde el tramo I la fila es una plantilla del shell: quien sí tiene los permisos la recibe con los botones.
+    app('auth')->forgetGuards();
+
+    $this->actingAs(usuarioCon('usuario.ver', 'usuario.crear', 'usuario.editar', 'usuario.eliminar'))
+        ->get(route('personal.index'))
+        ->assertSee(route('personal.create'))
+        ->assertSee('data-accion="editar"', false)
+        ->assertSee('data-listado-eliminar', false);
 });
 
 /*
@@ -85,40 +135,64 @@ test('quien solo puede ver no recibe los botones de alta, edicion ni baja', func
 | UserDao::list() hacía `SELECT u.*` y UserDto::toArray() incluía la clave, así
 | que /user/list devolvía el hash bcrypt de todos los personal.
 |
-| $hidden solo actúa al serializar: en una vista Blade `{{ $u->password }}`
-| imprimiría el hash igual. Por eso son dos tests y no uno.
+| $hidden solo actúa al serializar: un Resource que nombrara la columna la
+| mandaría igual. Por eso son dos tests y no uno.
 |
 */
+
+/** El JSON tal cual se ve, sin las barras escapadas: un hash bcrypt tiene `/`. */
+function jsonDelPersonal($respuesta): string
+{
+    return json_encode($respuesta->json(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+}
 
 test('el listado no contiene ningun hash de contrasena', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
-    $respuesta = $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('personal.index'))
-        ->assertOk();
+    $respuesta = $this->getJson('/api/v1/personal', bearer(usuarioCon('usuario.ver')))->assertOk();
 
-    $respuesta->assertDontSee($objetivo->password, false);
-    // El prefijo de bcrypt, por si algún día cambia la forma de imprimirlo.
-    $respuesta->assertDontSee('$2y$', false);
+    expect(jsonDelPersonal($respuesta))->not->toContain($objetivo->password)
+        // El prefijo de bcrypt, por si algún día cambia la forma de imprimirlo.
+        ->not->toContain('$2y$')
+        ->and($respuesta->json('datos.0'))->not->toHaveKey('password');
 });
 
 test('el listado ni siquiera trae la columna de contrasena desde la base', function () {
     User::factory()->conRol('Vendedor')->create();
+    $cabeceras = bearer(usuarioCon('usuario.ver'));
 
-    $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('personal.index'))
-        ->assertViewHas('usuarios', fn ($usuarios) => $usuarios
-            ->every(fn ($usuario) => $usuario->password === null));
+    // La consulta del listado es la que ordena por apellido; la de la credencial no cuenta. Se mira
+    // sólo lo que trae de `users`: las subconsultas `exists (select * from roles…)` de los filtros no.
+    $columnas = [];
+    DB::listen(function ($consulta) use (&$columnas) {
+        if (str_contains($consulta->sql, 'order by `apellido`')
+            && preg_match('/^select (.*?) from `users`/', $consulta->sql, $partes)) {
+            $columnas[] = $partes[1];
+        }
+    });
+
+    $this->getJson('/api/v1/personal', $cabeceras)->assertOk();
+
+    expect($columnas)->not->toBeEmpty()
+        ->and(implode(' ', $columnas))->not->toContain('password')
+        ->not->toContain('*');
 });
 
 test('el formulario de edicion tampoco expone el hash', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
     Empleado::factory()->create(['user_id' => $objetivo->id]);
+    $usuario = usuarioCon('usuario.ver', 'usuario.editar');
 
-    $this->actingAs(usuarioCon('usuario.editar'))
+    $this->actingAs($usuario)
         ->get(route('personal.edit', $objetivo))
         ->assertOk()
         ->assertDontSee($objetivo->password, false);
+
+    // Y la ficha que el formulario pide a la API, tampoco.
+    $ficha = $this->getJson("/api/v1/personal/{$objetivo->id}", bearer($usuario))->assertOk();
+
+    expect(jsonDelPersonal($ficha))->not->toContain($objetivo->password)
+        ->and($ficha->json('datos'))->not->toHaveKey('password');
 });
 
 /*
@@ -136,62 +210,59 @@ test('el parametro q llega al listado y filtra', function () {
     User::factory()->conRol('Vendedor')->create(['apellido' => 'Zurbarán']);
     User::factory()->conRol('Vendedor')->create(['apellido' => 'Medina']);
 
-    $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('personal.index', ['q' => 'zurbar']))
+    $this->getJson('/api/v1/personal?q=zurbar', bearer(usuarioCon('usuario.ver')))
         ->assertOk()
-        ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->total() === 1
-            && $usuarios->first()->apellido === 'Zurbarán');
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.apellido', 'Zurbarán');
 });
 
 test('el parametro rol_id llega al listado y filtra', function () {
     User::factory()->count(2)->conRol('Cajero')->create();
     User::factory()->conRol('Vendedor')->create();
 
-    $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('personal.index', ['rol_id' => Rol::where('nombre', 'Cajero')->value('id')]))
-        ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->total() === 2);
+    $this->getJson('/api/v1/personal?rol_id='.Rol::where('nombre', 'Cajero')->value('id'), bearer(usuarioCon('usuario.ver')))
+        ->assertJsonPath('total', 2);
 });
 
 
 test('el parametro estado llega al listado y filtra', function () {
     User::factory()->conRol('Vendedor')->inactivo()->create();
 
-    $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('personal.index', ['estado' => 'inactivos']))
-        ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->total() === 1);
+    $this->getJson('/api/v1/personal?estado=inactivos', bearer(usuarioCon('usuario.ver')))
+        ->assertJsonPath('total', 1);
 });
 
 test('el parametro situacion llega al listado y filtra', function () {
     $sefue = User::factory()->conRol('Vendedor')->create();
     Empleado::factory()->create(['user_id' => $sefue->id, 'fecha_baja' => '2026-03-31']);
 
-    $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('personal.index', ['situacion' => 'dados_de_baja']))
-        ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->total() === 1);
+    $this->getJson('/api/v1/personal?situacion=dados_de_baja', bearer(usuarioCon('usuario.ver')))
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('datos.0.situacion_texto', 'Baja el 31/03/2026');
 });
 
-test('un filtro inexistente vuelve al listado limpio con aviso', function () {
-    $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('personal.index', ['estado' => 'cualquiera']))
-        ->assertRedirect(route('personal.index'))
-        ->assertSessionHas('error');
+test('un filtro inexistente se rechaza con el error en su campo', function () {
+    // Antes volvía al listado limpio con un aviso; en la API un filtro inválido es 422 en su campo (HL-120).
+    $this->getJson('/api/v1/personal?estado=cualquiera', bearer(usuarioCon('usuario.ver')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('estado', 'errores');
 });
 
 test('el listado pagina de a 15 y los enlaces conservan el filtro', function () {
     User::factory()->count(20)->conRol('Vendedor')->create(['apellido' => 'Apellidodeprueba']);
 
-    $usuario = usuarioCon('usuario.ver');
+    $cabeceras = bearer(usuarioCon('usuario.ver'));
 
-    $this->actingAs($usuario)
-        ->get(route('personal.index', ['q' => 'apellidodeprueba']))
-        ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->count() === 15
-            && $usuarios->total() === 20
-            // Sin withQueryString(), la página 2 perdería el filtro.
-            && str_contains($usuarios->nextPageUrl(), 'q=apellidodeprueba'));
+    // Los enlaces de página los arma la pantalla con la consulta de la URL; la API devuelve el filtro aplicado.
+    $this->getJson('/api/v1/personal?q=apellidodeprueba', $cabeceras)
+        ->assertJsonCount(15, 'datos')
+        ->assertJsonPath('por_pagina', 15)
+        ->assertJsonPath('total', 20)
+        ->assertJsonPath('ultima_pagina', 2)
+        ->assertJsonPath('criterios.q', 'apellidodeprueba');
 
-    $this->actingAs($usuario)
-        ->get(route('personal.index', ['q' => 'apellidodeprueba', 'page' => 2]))
-        ->assertViewHas('usuarios', fn ($usuarios) => $usuarios->count() === 5);
+    $this->getJson('/api/v1/personal?q=apellidodeprueba&pagina=2', $cabeceras)
+        ->assertJsonCount(5, 'datos');
 });
 
 /*
@@ -206,12 +277,10 @@ test('el listado pagina de a 15 y los enlaces conservan el filtro', function () 
 */
 
 test('un correo invalido se rechaza, no se guarda y conserva lo escrito', function () {
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->from(route('personal.create'))
-        ->post(route('personal.store'), datosDeEmpleado(['email' => 'no-es-un-correo']))
-        ->assertRedirect(route('personal.create'))
-        ->assertSessionHasErrors('email')
-        ->assertSessionHasInput('email', 'no-es-un-correo');
+    // Lo escrito se conserva porque la pantalla ya no se recarga: el 422 marca el campo y el formulario queda.
+    $this->postJson('/api/v1/personal', datosDeEmpleado(['email' => 'no-es-un-correo']), bearer(usuarioCon('usuario.crear')))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('email', 'errores');
 
     expect(User::where('apellido', 'Gutiérrez')->exists())->toBeFalse();
 });
@@ -219,18 +288,16 @@ test('un correo invalido se rechaza, no se guarda y conserva lo escrito', functi
 test('un correo repetido se rechaza con un mensaje que lo explica', function () {
     User::factory()->conRol('Vendedor')->create(['email' => 'sofia@sistema.local']);
 
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('personal.store'), datosDeEmpleado())
-        ->assertSessionHasErrors(['email' => 'Ya hay una cuenta con ese correo.']);
+    $this->postJson('/api/v1/personal', datosDeEmpleado(), bearer(usuarioCon('usuario.crear')))
+        ->assertJsonValidationErrors(['email' => 'Ya hay una cuenta con ese correo.'], 'errores');
 });
 
 test('las contrasenas que no coinciden se rechazan', function () {
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('personal.store'), datosDeEmpleado([
-            'password'              => 'Secreta123',
-            'password_confirmation' => 'Otra456789',
-        ]))
-        ->assertSessionHasErrors('password');
+    $this->postJson('/api/v1/personal', datosDeEmpleado([
+        'password'              => 'Secreta123',
+        'password_confirmation' => 'Otra456789',
+    ]), bearer(usuarioCon('usuario.crear')))
+        ->assertJsonValidationErrors('password', 'errores');
 
     expect(User::where('email', 'sofia@sistema.local')->exists())->toBeFalse();
 });
@@ -239,22 +306,31 @@ test('un rol de gestion exige los datos laborales', function () {
     $datos = datosDeEmpleado();
     unset($datos['empleado']);
 
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('personal.store'), $datos)
-        ->assertSessionHasErrors('empleado');
+    $this->postJson('/api/v1/personal', $datos, bearer(usuarioCon('usuario.crear')))
+        ->assertJsonValidationErrors('empleado', 'errores');
 });
 
 
 test('la fecha de ingreso no puede ser futura', function () {
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('personal.store'), datosDeEmpleado([
-            'empleado' => [
-                'legajo'        => 'EMP-0031',
-                'dni'           => '38123456',
-                'fecha_ingreso' => now()->addWeek()->toDateString(),
-            ],
-        ]))
-        ->assertSessionHasErrors('empleado.fecha_ingreso');
+    $this->postJson('/api/v1/personal', datosDeEmpleado([
+        'empleado' => [
+            'legajo'        => 'EMP-0031',
+            'dni'           => '38123456',
+            'fecha_ingreso' => now()->addWeek()->toDateString(),
+        ],
+    ]), bearer(usuarioCon('usuario.crear')))
+        ->assertJsonValidationErrors('empleado.fecha_ingreso', 'errores');
+});
+
+test('el acceso se envia siempre: si falta, se rechaza', function () {
+    // M-31 en la API: ya no hay casilla que, desmarcada, no se envíe. Antes `activo` faltante se leía como `false`.
+    $datos = datosDeEmpleado();
+    unset($datos['activo']);
+
+    $this->postJson('/api/v1/personal', $datos, bearer(usuarioCon('usuario.crear')))
+        ->assertJsonValidationErrors('activo', 'errores');
+
+    expect(User::where('email', 'sofia@sistema.local')->exists())->toBeFalse();
 });
 
 /*
@@ -264,10 +340,10 @@ test('la fecha de ingreso no puede ser futura', function () {
 */
 
 test('el alta de personal crea la cuenta y su legajo', function () {
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('personal.store'), datosDeEmpleado())
-        ->assertRedirect(route('personal.index'))
-        ->assertSessionHas('exito');
+    $this->postJson('/api/v1/personal', datosDeEmpleado(), bearer(usuarioCon('usuario.crear')))
+        ->assertCreated()
+        ->assertJsonPath('mensaje', 'Se creó la cuenta de Gutiérrez, Sofía.')
+        ->assertJsonPath('datos.empleado.legajo', 'EMP-0031');
 
     $creado = User::firstWhere('email', 'sofia@sistema.local');
 
@@ -292,11 +368,10 @@ test('enviar rol_id en la edicion se rechaza en vez de ignorarse', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
     Empleado::factory()->create(['user_id' => $objetivo->id]);
 
-    $this->actingAs(usuarioCon('usuario.editar'))
-        ->put(route('personal.update', $objetivo), datosDeEdicionDe($objetivo->fresh(), [
-            'rol_id' => Rol::where('nombre', 'Administrador')->value('id'),
-        ]))
-        ->assertSessionHasErrors('rol_id');
+    $this->patchJson("/api/v1/personal/{$objetivo->id}", datosDeEdicionDe($objetivo->fresh(), [
+        'rol_id' => Rol::where('nombre', 'Administrador')->value('id'),
+    ]), bearer(usuarioCon('usuario.editar')))
+        ->assertJsonValidationErrors('rol_id', 'errores');
 
     expect($objetivo->fresh()->rol->nombre)->toBe('Vendedor');
 });
@@ -304,11 +379,10 @@ test('enviar rol_id en la edicion se rechaza en vez de ignorarse', function () {
 test('nadie se cambia el rol a si mismo', function () {
     $usuario = usuarioCon('usuario.cambiar_rol');
 
-    $this->actingAs($usuario)
-        ->patch(route('personal.rol.update', $usuario), [
-            'rol_id' => Rol::where('nombre', 'Administrador')->value('id'),
-        ])
-        ->assertSessionHasErrors('rol_id');
+    $this->putJson("/api/v1/personal/{$usuario->id}/rol", [
+        'rol_id' => Rol::where('nombre', 'Administrador')->value('id'),
+    ], bearer($usuario))
+        ->assertJsonValidationErrors('rol_id', 'errores');
 
     expect($usuario->fresh()->rol->nombre)->not->toBe('Administrador');
 });
@@ -316,11 +390,10 @@ test('nadie se cambia el rol a si mismo', function () {
 test('no se asigna un rol de otro ambito', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
-    $this->actingAs(usuarioCon('usuario.cambiar_rol'))
-        ->patch(route('personal.rol.update', $objetivo), [
-            'rol_id' => Rol::where('nombre', 'Cliente')->value('id'),
-        ])
-        ->assertSessionHasErrors('rol_id');
+    $this->putJson("/api/v1/personal/{$objetivo->id}/rol", [
+        'rol_id' => Rol::where('nombre', 'Cliente')->value('id'),
+    ], bearer(usuarioCon('usuario.cambiar_rol')))
+        ->assertJsonValidationErrors('rol_id', 'errores');
 
     expect($objetivo->fresh()->rol->nombre)->toBe('Vendedor');
 });
@@ -328,12 +401,12 @@ test('no se asigna un rol de otro ambito', function () {
 test('el cambio de rol dentro del mismo ambito funciona', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
-    $this->actingAs(usuarioCon('usuario.cambiar_rol'))
-        ->patch(route('personal.rol.update', $objetivo), [
-            'rol_id' => Rol::where('nombre', 'Cajero')->value('id'),
-        ])
-        ->assertRedirect(route('personal.edit', $objetivo))
-        ->assertSessionHas('exito');
+    $this->putJson("/api/v1/personal/{$objetivo->id}/rol", [
+        'rol_id' => Rol::where('nombre', 'Cajero')->value('id'),
+    ], bearer(usuarioCon('usuario.cambiar_rol')))
+        ->assertOk()
+        ->assertJsonPath('datos.rol.nombre', 'Cajero')
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'pasó a tener el rol Cajero'));
 
     expect($objetivo->fresh()->rol->nombre)->toBe('Cajero');
 });
@@ -341,13 +414,19 @@ test('el cambio de rol dentro del mismo ambito funciona', function () {
 test('el permiso nuevo rige de inmediato, sin esperar a que expire nada', function () {
     // A-5: en el sistema original el perfil viajaba dentro del JWT, así que un
     // cambio de rol tardaba hasta una hora en surtir efecto. Acá Gate consulta
-    // el rol en cada request.
-    $objetivo = usuarioCon('usuario.ver');
+    // el rol en cada request, también con la credencial que ya tenía.
+    $objetivo  = usuarioCon('usuario.ver');
+    $suyo      = bearer($objetivo);
 
-    $this->actingAs(usuarioCon('usuario.cambiar_rol'))
-        ->patch(route('personal.rol.update', $objetivo), [
-            'rol_id' => Rol::where('nombre', 'Cajero')->value('id'),
-        ]);
+    $this->putJson("/api/v1/personal/{$objetivo->id}/rol", [
+        'rol_id' => Rol::where('nombre', 'Cajero')->value('id'),
+    ], bearer(usuarioCon('usuario.cambiar_rol')))->assertOk();
+
+    app('auth')->forgetGuards();
+
+    $this->getJson('/api/v1/personal', $suyo)->assertForbidden();
+
+    app('auth')->forgetGuards();
 
     $this->actingAs($objetivo->fresh())
         ->get(route('personal.index'))
@@ -363,9 +442,8 @@ test('el permiso nuevo rige de inmediato, sin esperar a que expire nada', functi
 test('nadie se quita el acceso a si mismo', function () {
     $usuario = usuarioCon('usuario.editar');
 
-    $this->actingAs($usuario)
-        ->put(route('personal.update', $usuario), datosDeEdicionDe($usuario, ['activo' => 0]))
-        ->assertSessionHasErrors('activo');
+    $this->patchJson("/api/v1/personal/{$usuario->id}", datosDeEdicionDe($usuario, ['activo' => 0]), bearer($usuario))
+        ->assertJsonValidationErrors('activo', 'errores');
 
     expect($usuario->fresh()->activo)->toBeTrue();
 });
@@ -373,9 +451,10 @@ test('nadie se quita el acceso a si mismo', function () {
 test('nadie elimina su propia cuenta', function () {
     $usuario = usuarioCon('usuario.eliminar');
 
-    $this->actingAs($usuario)
-        ->delete(route('personal.destroy', $usuario))
-        ->assertSessionHas('error');
+    $this->deleteJson("/api/v1/personal/{$usuario->id}", [], bearer($usuario))
+        ->assertConflict()
+        ->assertJsonPath('codigo', 'regla_de_negocio')
+        ->assertJsonPath('mensaje', 'No podés eliminar tu propia cuenta.');
 
     $this->assertModelExists($usuario);
 });
@@ -399,9 +478,8 @@ test('no se desactiva la ultima cuenta que puede administrar usuarios', function
 
     $otroAdmin->update(['activo' => false]);
 
-    $this->actingAs($ultimo)
-        ->put(route('personal.update', $ultimo), datosDeEdicionDe($ultimo, ['activo' => 0]))
-        ->assertSessionHasErrors('activo');
+    $this->patchJson("/api/v1/personal/{$ultimo->id}", datosDeEdicionDe($ultimo, ['activo' => 0]), bearer($ultimo))
+        ->assertJsonValidationErrors('activo', 'errores');
 
     expect($ultimo->fresh()->activo)->toBeTrue();
 });
@@ -415,10 +493,10 @@ test('no se desactiva la ultima cuenta que puede administrar usuarios', function
 test('una cuenta sin historial se elimina', function () {
     $objetivo = User::factory()->conRol('Vendedor')->create();
 
-    $this->actingAs(usuarioCon('usuario.eliminar'))
-        ->delete(route('personal.destroy', $objetivo))
-        ->assertRedirect(route('personal.index'))
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'Se eliminó'));
+    $this->deleteJson("/api/v1/personal/{$objetivo->id}", [], bearer(usuarioCon('usuario.eliminar')))
+        ->assertOk()
+        ->assertJsonPath('datos.eliminado', true)
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'Se eliminó'));
 
     $this->assertModelMissing($objetivo);
 });
@@ -432,12 +510,12 @@ test('una cuenta con ventas se desactiva y el mensaje lo dice', function () {
         'updated_at' => now(),
     ]);
 
-    $this->actingAs(usuarioCon('usuario.eliminar'))
-        ->delete(route('personal.destroy', $objetivo))
+    $this->deleteJson("/api/v1/personal/{$objetivo->id}", [], bearer(usuarioCon('usuario.eliminar')))
         // El mensaje dice lo que pasó de verdad: informar "cuenta eliminada"
         // cuando en realidad quedó desactivada es mentirle al usuario sobre el
         // estado del sistema.
-        ->assertSessionHas('exito', fn ($mensaje) => str_contains($mensaje, 'historial'));
+        ->assertJsonPath('datos.eliminado', false)
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'historial'));
 
     $this->assertModelExists($objetivo);
     expect($objetivo->fresh()->activo)->toBeFalse();
@@ -451,22 +529,33 @@ test('cargar la fecha de baja no quita el acceso', function () {
         'fecha_baja'    => null,
     ]);
 
-    $this->actingAs(usuarioCon('usuario.editar'))
-        ->put(route('personal.update', $objetivo), datosDeEdicionDe($objetivo->fresh(), [
-            'empleado' => array_merge(
-                $objetivo->empleado->only(['legajo', 'dni', 'telefono']),
-                [
-                    'fecha_ingreso' => $objetivo->empleado->fecha_ingreso->toDateString(),
-                    'fecha_baja'    => '2026-08-31',
-                ],
-            ),
-        ]))
-        ->assertSessionHas('exito');
+    $this->patchJson("/api/v1/personal/{$objetivo->id}", datosDeEdicionDe($objetivo->fresh(), [
+        'empleado' => array_merge(
+            $objetivo->empleado->only(['legajo', 'dni', 'telefono']),
+            [
+                'fecha_ingreso' => $objetivo->empleado->fecha_ingreso->toDateString(),
+                'fecha_baja'    => '2026-08-31',
+            ],
+        ),
+    ]), bearer(usuarioCon('usuario.editar')))
+        ->assertOk()
+        ->assertJsonPath('mensaje', "Se guardaron los datos de {$objetivo->nombre_completo}.");
 
     $objetivo = $objetivo->fresh();
 
     expect($objetivo->empleado->fecha_baja->toDateString())->toBe('2026-08-31')
         ->and($objetivo->activo)->toBeTrue();
+});
+
+test('quitarle el acceso a otra persona lo dice en el mensaje', function () {
+    // Que alguien pierda el acceso es un efecto que se nombra, no se esconde en un «se guardó».
+    $objetivo = User::factory()->conRol('Vendedor')->create();
+    Empleado::factory()->create(['user_id' => $objetivo->id]);
+
+    $this->patchJson("/api/v1/personal/{$objetivo->id}", datosDeEdicionDe($objetivo->fresh(), ['activo' => false]), bearer(usuarioCon('usuario.editar')))
+        ->assertOk()
+        ->assertJsonPath('datos.activo', false)
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'se le quitó el acceso al sistema'));
 });
 
 test('el listado no muestra las cuentas de clientes', function () {
@@ -476,33 +565,31 @@ test('el listado no muestra las cuentas de clientes', function () {
     $empleado = User::factory()->conRol('Vendedor')->create(['apellido' => 'Gutiérrez']);
     $cliente  = User::factory()->conRol('Cliente')->create(['apellido' => 'Herrera']);
 
-    $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('personal.index'))
-        ->assertOk()
-        ->assertViewHas('personal', fn ($personal) => $personal
-            ->pluck('id')
-            ->contains($empleado->id))
-        ->assertDontSee('Herrera');
+    $respuesta = $this->getJson('/api/v1/personal', bearer(usuarioCon('usuario.ver')))->assertOk();
 
-    expect($cliente->esDeGestion())->toBeFalse();
+    expect(collect($respuesta->json('datos'))->pluck('id'))->toContain($empleado->id)
+        ->not->toContain($cliente->id)
+        ->and(jsonDelPersonal($respuesta))->not->toContain('Herrera')
+        ->and($cliente->esDeGestion())->toBeFalse();
 });
 
 test('el filtro de rol solo ofrece roles del personal', function () {
-    $this->actingAs(usuarioCon('usuario.ver'))
-        ->get(route('personal.index'))
-        ->assertViewHas('roles', fn ($roles) => $roles
-            ->every(fn ($rol) => $rol->ambito === 'gestion'));
+    $ids = collect($this->getJson('/api/v1/personal/roles', bearer(usuarioCon('usuario.ver')))->assertOk()->json('datos'))
+        ->pluck('id');
+
+    expect($ids)->not->toBeEmpty()
+        ->and(Rol::whereIn('id', $ids)->get()->every(fn ($rol) => $rol->ambito === 'gestion'))->toBeTrue()
+        ->and($ids)->not->toContain(Rol::where('nombre', 'Cliente')->value('id'));
 });
 
 test('el alta rechaza un rol de tienda', function () {
     // La capacidad de crear una cuenta de tienda existe en UsuarioService y
     // está probada, pero ninguna pantalla de la Etapa 1 la ofrece: en la Etapa
     // 1 no hay tienda.
-    $this->actingAs(usuarioCon('usuario.crear'))
-        ->post(route('personal.store'), datosDeEmpleado([
-            'rol_id' => Rol::where('nombre', 'Cliente')->value('id'),
-        ]))
-        ->assertSessionHasErrors('rol_id');
+    $this->postJson('/api/v1/personal', datosDeEmpleado([
+        'rol_id' => Rol::where('nombre', 'Cliente')->value('id'),
+    ]), bearer(usuarioCon('usuario.crear')))
+        ->assertJsonValidationErrors('rol_id', 'errores');
 
     expect(User::where('email', 'sofia@sistema.local')->exists())->toBeFalse();
 });
@@ -513,11 +600,126 @@ test('una cuenta de cliente no se abre desde la pantalla de personal', function 
     // acá. Es el mismo descuido que el de las direcciones anidadas.
     $cliente = User::factory()->conRol('Cliente')->create();
 
-    $usuario = usuarioCon('usuario.editar', 'usuario.eliminar', 'usuario.cambiar_rol', 'usuario.resetear_password');
+    $usuario   = usuarioCon('usuario.ver', 'usuario.editar', 'usuario.eliminar', 'usuario.cambiar_rol', 'usuario.resetear_password');
+    $cabeceras = bearer($usuario);
+
+    $this->getJson("/api/v1/personal/{$cliente->id}", $cabeceras)->assertNotFound();
+    $this->patchJson("/api/v1/personal/{$cliente->id}", datosDeEmpleado(), $cabeceras)->assertNotFound();
+    $this->deleteJson("/api/v1/personal/{$cliente->id}", [], $cabeceras)->assertNotFound();
+    $this->putJson("/api/v1/personal/{$cliente->id}/rol", ['rol_id' => Rol::where('nombre', 'Cliente')->value('id')], $cabeceras)->assertNotFound();
+    $this->postJson("/api/v1/personal/{$cliente->id}/restablecer-contrasena", [], $cabeceras)->assertNotFound();
+
+    app('auth')->forgetGuards();
 
     $this->actingAs($usuario)->get(route('personal.edit', $cliente))->assertNotFound();
-    $this->actingAs($usuario)->put(route('personal.update', $cliente), datosDeEmpleado())->assertNotFound();
-    $this->actingAs($usuario)->delete(route('personal.destroy', $cliente))->assertNotFound();
     $this->actingAs($usuario)->get(route('personal.rol.edit', $cliente))->assertNotFound();
-    $this->actingAs($usuario)->post(route('personal.restablecer', $cliente))->assertNotFound();
+
+    $this->assertModelExists($cliente);
+});
+
+/*
+|--------------------------------------------------------------------------
+| La ficha, representación por permiso (regla 36)
+|--------------------------------------------------------------------------
+|
+| Lo que la pantalla de cambio de rol necesita —lo que el rol actual permite y los
+| roles asignables— viaja sólo con `usuario.cambiar_rol`. Sin él, la clave no está.
+|
+*/
+
+test('sin el permiso de cambiar el rol, la ficha no trae el rol en detalle ni los asignables', function () {
+    $objetivo = User::factory()->conRol('Vendedor')->create();
+
+    $this->getJson("/api/v1/personal/{$objetivo->id}", bearer(usuarioCon('usuario.ver', 'usuario.editar')))
+        ->assertOk()
+        ->assertJsonPath('datos.rol.nombre', 'Vendedor')
+        ->assertJsonMissingPath('datos.rol.permisos')
+        ->assertJsonMissingPath('datos.rol.descripcion')
+        ->assertJsonMissingPath('datos.roles_asignables');
+});
+
+test('con el permiso de cambiar el rol, la ficha trae lo que hoy puede y los roles de su ambito', function () {
+    $objetivo = User::factory()->conRol('Vendedor')->create();
+
+    $ficha = $this->getJson("/api/v1/personal/{$objetivo->id}", bearer(usuarioCon('usuario.ver', 'usuario.cambiar_rol')))
+        ->assertOk()
+        ->assertJsonPath('datos.es_la_propia', false);
+
+    $asignables = collect($ficha->json('datos.roles_asignables'));
+
+    expect($ficha->json('datos.rol.permisos'))->not->toBeEmpty()
+        ->and($asignables->firstWhere('actual', true)['nombre'])->toBe('Vendedor')
+        ->and($asignables->pluck('nombre'))->not->toContain('Cliente');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Las rutas web retiradas y los shells (tramo I)
+|--------------------------------------------------------------------------
+|
+| La web sólo entrega las pantallas: el alta, la edición, la baja, el cambio de
+| rol y el enlace van por `/api/v1/personal`. Cada URL vieja se prueba literal,
+| con todos los permisos del módulo, para que no la salve un 403.
+|
+*/
+
+dataset('rutas web retiradas del personal', [
+    'alta'             => ['post',   '/personal'],
+    'guardar edicion'  => ['put',    '/personal/{usuario}'],
+    'baja'             => ['delete', '/personal/{usuario}'],
+    'cambio de rol'    => ['patch',  '/personal/{usuario}/rol'],
+    'enlace de acceso' => ['post',   '/personal/{usuario}/restablecer-contrasena'],
+]);
+
+test('la ruta web retirada del personal ya no existe', function (string $metodo, string $url) {
+    $objetivo = User::factory()->conRol('Vendedor')->create(['nombre' => 'Original']);
+    $quien    = usuarioCon(...PERMISOS_USUARIO);
+    $antes    = User::count();
+
+    $respuesta = pedirRuta(
+        $this->actingAs($quien),
+        $metodo,
+        str_replace('{usuario}', (string) $objetivo->id, $url),
+        datosDeEmpleado(['nombre' => 'Cambiado', 'rol_id' => Rol::where('nombre', 'Cajero')->value('id')]),
+    );
+
+    $objetivo = $objetivo->fresh();
+
+    expect($respuesta->status())->toBeIn([404, 405])
+        ->and($objetivo)->not->toBeNull()
+        ->and($objetivo->nombre)->toBe('Original')
+        ->and($objetivo->rol->nombre)->toBe('Vendedor')
+        ->and(User::count())->toBe($antes)
+        ->and(DB::table('password_reset_tokens')->where('email', $objetivo->email)->exists())->toBeFalse();
+})->with('rutas web retiradas del personal');
+
+// Regla 37: la página llega con su estructura, y los datos por la API.
+test('los shells del personal no traen datos de negocio', function () {
+    $objetivo = User::factory()->conRol('Vendedor')->create(['nombre' => 'Persona', 'apellido' => 'Reservadísima', 'email' => 'reservada@sistema.local']);
+    Empleado::factory()->create(['user_id' => $objetivo->id, 'legajo' => 'LEG-SECRETO']);
+    $usuario = usuarioCon('usuario.ver', 'usuario.crear', 'usuario.editar', 'usuario.cambiar_rol', 'usuario.resetear_password');
+
+    $this->actingAs($usuario)->get(route('personal.index'))
+        ->assertOk()
+        ->assertDontSee('Reservadísima')
+        ->assertDontSee('Vendedor')
+        ->assertSee('data-pantalla="personal"', false);
+
+    $this->actingAs($usuario)->get(route('personal.create'))
+        ->assertOk()
+        ->assertDontSee('Cajero')
+        ->assertSee('data-formulario-personal', false);
+
+    $this->actingAs($usuario)->get(route('personal.edit', $objetivo))
+        ->assertOk()
+        ->assertDontSee('Reservadísima')
+        ->assertDontSee('reservada@sistema.local')
+        ->assertDontSee('LEG-SECRETO')
+        ->assertSee('data-usuario="'.$objetivo->id.'"', false);
+
+    $this->actingAs($usuario)->get(route('personal.rol.edit', $objetivo))
+        ->assertOk()
+        ->assertDontSee('Reservadísima')
+        ->assertDontSee('Cajero')
+        ->assertSee('data-formulario-rol', false);
 });

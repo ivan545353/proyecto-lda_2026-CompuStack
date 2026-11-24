@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Models\User;
 use App\Services\UsuarioService;
@@ -21,8 +21,8 @@ use Illuminate\Validation\Rule;
  * nunca comparaba el id del body contra el del token.
  *
  * La regla vive acá y no en el servicio porque depende de QUIÉN está pidiendo,
- * y el servicio no conoce la sesión. La API de la Etapa 3 reutiliza este mismo
- * Form Request.
+ * y el servicio no conoce la sesión. Pasó a la API en el tramo I sin cambiar
+ * una regla: `PUT /api/v1/personal/{usuario}/rol`.
  */
 class CambiarRolRequest extends FormRequest
 {

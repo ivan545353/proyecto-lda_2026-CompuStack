@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
@@ -34,9 +34,12 @@ use Illuminate\Validation\Rules\Password;
  *      Las reglas fiscales que antes vivían acá se fueron a
  *      App\Support\ReglasFiscales, donde las usa ClienteRequest.
  *
+ *   5. En la API (tramo I), `activo` llega como booleano y es obligatorio: ya
+ *      no hay casilla que, desmarcada, no se envía. Si falta, se rechaza.
+ *
  * Métodos:
- *   authorize()             true; el permiso ya lo exige la ruta
- *   prepareForValidation()  normaliza el correo y el checkbox
+ *   authorize()             404 si la cuenta no es del personal; el permiso lo exige la ruta
+ *   prepareForValidation()  normaliza el formato del correo
  *   rules()                 cuenta + datos laborales
  *   messages() / attributes()
  */
@@ -58,8 +61,7 @@ class PersonalRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         $this->merge([
-            'activo' => $this->boolean('activo'),
-            'email'  => is_string($this->input('email'))
+            'email' => is_string($this->input('email'))
                 ? Str::lower(trim($this->input('email')))
                 : $this->input('email'),
         ]);

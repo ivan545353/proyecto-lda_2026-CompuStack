@@ -64,12 +64,12 @@ test('con el enlace elige la contraseña y entra a la app; sus compras del mostr
     $enlace = ($this->tiendaDarAcceso)($cliente)->json('datos.enlace_restablecimiento');
     app('auth')->forgetGuards();
 
-    $this->post(route('password.store'), [
+    $this->postJson('/api/v1/contrasena/restablecer', [
         'token'                 => tokenDelEnlace($enlace),
         'email'                 => 'tilos@ejemplo.com',
         'password'              => 'Panaderia123',
         'password_confirmation' => 'Panaderia123',
-    ])->assertSessionHasNoErrors();
+    ])->assertOk()->assertJsonPath('datos.ambito', 'tienda');
     app('auth')->forgetGuards();
 
     $credencial = $this->postJson('/api/v1/sesion', ['email' => 'tilos@ejemplo.com', 'password' => 'Panaderia123'])

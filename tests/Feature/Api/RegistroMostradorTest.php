@@ -56,13 +56,21 @@ test('quien elige la contraseña de una cuenta de la tienda lee que entra por la
         Cliente::factory()->create(['email' => 'tilos@ejemplo.com', 'user_id' => null]), 'Rosa', 'Tilos',
     );
 
-    $this->post(route('password.store'), [
-        'token'                 => $usuarios->crearTokenDeRestablecimiento($cuenta),
+    $token = $usuarios->crearTokenDeRestablecimiento($cuenta);
+
+    // La pantalla del enlace trae el aviso de la app; lo muestra el JS cuando la API contesta `tienda`.
+    $this->get(route('password.reset', ['token' => $token, 'email' => 'tilos@ejemplo.com']))
+        ->assertOk()
+        ->assertSee('data-cuenta-tienda-lista', false)
+        ->assertSee('desde la app');
+
+    $this->postJson('/api/v1/contrasena/restablecer', [
+        'token'                 => $token,
         'email'                 => 'tilos@ejemplo.com',
         'password'              => 'Panaderia123',
         'password_confirmation' => 'Panaderia123',
     ])
         ->assertOk()
-        ->assertSee('data-cuenta-tienda-lista', false)
-        ->assertSee('desde la app');
+        ->assertJsonPath('datos.ambito', 'tienda')
+        ->assertJsonPath('mensaje', fn ($mensaje) => str_contains($mensaje, 'desde la app'));
 });

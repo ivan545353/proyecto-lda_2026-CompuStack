@@ -1,6 +1,6 @@
 # API de la tienda — contrato
 
-**Revisión 19** · tramo H de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
+**Revisión 20** · tramo I de la Etapa 3 (la 10 fue la final de la Etapa 2). Base: `/api/v1`.
 
 Es el único documento que comparten el backend (este repositorio) y la app móvil (su propio
 repositorio). Cada endpoint que se agrega se documenta acá, con su método y ruta, autenticación,
@@ -18,7 +18,7 @@ principio). La 11 suma `GET /tienda` (§7.1), lo que la tienda ofrece, para el I
 transferencia como tercer medio (§7.7). La 13, con qué entregas vale cada medio (D-28): el efectivo, sólo con retiro. La 14 abre la Etapa 3: la sesión es
 común a la app y a la administración, con `GET /yo`, vigencia por ámbito y `401 sesion_expirada`. La 15 suma la
 gestión del catálogo (§7.8): marcas, categorías, productos y sus proveedores, por representación según el permiso,
-sin cambiar ninguna forma de la tienda. La 16, los terceros (§7.9): clientes, direcciones y proveedores. La 17, precios y stock (§7.10): la parametrización, el ajuste masivo con su historial, el kardex y el ajuste por conteo. La 18, las compras (§7.11): órdenes, armador, edición, transiciones, recepción y el pedido en PDF. La 19, las ventas de la administración, los dos paneles y los dos informes (§7.12).
+sin cambiar ninguna forma de la tienda. La 16, los terceros (§7.9): clientes, direcciones y proveedores. La 17, precios y stock (§7.10): la parametrización, el ajuste masivo con su historial, el kardex y el ajuste por conteo. La 18, las compras (§7.11): órdenes, armador, edición, transiciones, recepción y el pedido en PDF. La 19, las ventas de la administración, los dos paneles y los dos informes (§7.12). La 20, el personal, los roles y las dos contraseñas (§7.13): con ella ninguna ruta web escribe.
 
 ## 1. Reglas generales
 
@@ -2299,6 +2299,150 @@ nombre, unidades, importe }`):
 
 - Errores de la sección: 401, 403, 404, 409 `regla_de_negocio`, 422 `validacion`.
 
+### 7.13 Usuarios y accesos (Etapa 3, tramo I, r20)
+
+El personal, los roles y las dos contraseñas —la propia y la que se fija con el enlace— pasan a leerse y escribirse por
+acá. Con este tramo **ninguna ruta web escribe**: `routes/web.php` sólo entrega páginas y descargas firmadas. **Todo es
+nuevo**: ninguna forma anterior cambia (regla 40). Valen las reglas comunes de §7.8: un permiso por acción (C-2), 403
+`sin_permiso` sin él, un filtro inválido es 422, una regla del servicio es **409 `regla_de_negocio`** con el mismo mensaje
+que daba la web. Una cuenta de la tienda pedida por `/personal/{id}` es 404: el personal es sólo el ámbito gestión.
+
+| Método y ruta | Permiso | Qué hace |
+| --- | --- | --- |
+| `GET /personal` | `usuario.ver` | El listado, por apellido, de a 15. `q` (nombre, apellido, correo, legajo o DNI), `rol_id`, `estado`, `situacion` |
+| `GET /personal/roles` | `usuario.ver` o `usuario.crear` | Las opciones del filtro y del alta: los roles de gestión (`{ id, texto, descripcion }`, paginado) |
+| `GET /personal/{id}` | `usuario.ver` | La ficha; con `usuario.cambiar_rol` suma la descripción y los permisos del rol y `roles_asignables` |
+| `POST /personal` | `usuario.crear` | Alta: `nombre`, `apellido`, `email`, `rol_id`, `password` + `password_confirmation`, `activo`, `empleado{legajo, dni, telefono, fecha_ingreso}` (201) |
+| `PATCH /personal/{id}` | `usuario.editar` | Edición: lo mismo sin rol ni contraseña, con `empleado.fecha_baja`. `activo` es obligatorio (M-31: no se completa) |
+| `DELETE /personal/{id}` | `usuario.eliminar` | Baja; con operaciones registradas, desactiva (`eliminado: false`); la propia cuenta, 409 |
+| `PUT /personal/{id}/rol` | `usuario.cambiar_rol` | `rol_id`, entre los asignables; el rol propio, 409 |
+| `POST /personal/{id}/restablecer-contrasena` | `usuario.resetear_password` | El enlace de un solo uso, sin caché (molde `acceso-tienda`, §7.9); la propia cuenta o una sin acceso, 409 |
+| `GET /roles` | `rol.ver` | Los roles, los de sistema primero, de a 15, con los conteos y `se_puede_eliminar` |
+| `GET /roles/{id}` | `rol.ver` | El rol con los ids de sus `permisos` |
+| `GET /permisos` | `rol.ver` | El catálogo de permisos, por módulo (`{ id, clave, modulo, descripcion }`, paginado) |
+| `POST /roles` | `rol.editar` | `nombre`, `ambito`, `descripcion`, `permisos[]` (ids); uno de gestión sin permisos, 422 (201) |
+| `PATCH /roles/{id}` | `rol.editar` | Lo mismo; un rol de sistema conserva nombre y ámbito; el rol propio, 409 |
+| `DELETE /roles/{id}` | `rol.editar` | Uno de sistema o con usuarios, 409. Devuelve `{ id, eliminado }` |
+| `PUT /yo/contrasena` | ninguno (protegida) | Cambia la propia: `password_actual`, `password` + `password_confirmation`. **Rota la credencial** |
+| `POST /contrasena/restablecer` | pública | Fija la contraseña con el enlace: `token`, `email`, `password` + `password_confirmation` |
+
+`GET /personal` (`estado`: `activos` o `inactivos`; `situacion`: `en_actividad`, `de_baja` o `sin_ficha`):
+
+```json
+{
+  "datos": [
+    {
+      "id": 12, "nombre": "Micaela", "apellido": "Aguirre", "nombre_completo": "Aguirre, Micaela",
+      "email": "vendedor4@volumen.local", "activo": false, "acceso_texto": "Sin acceso", "es_la_propia": false,
+      "rol": { "id": 3, "nombre": "Vendedor" },
+      "empleado": { "legajo": "VOL-0006", "dni": "90100006", "telefono": "297-4000006",
+                    "fecha_ingreso": "2025-03-22", "fecha_baja": null },
+      "situacion_texto": "En actividad"
+    }
+  ],
+  "pagina": 1, "por_pagina": 15, "ultima_pagina": 1, "total": 15,
+  "criterios": { "q": null, "rol_id": null, "estado": null, "situacion": null }
+}
+```
+
+`GET /personal/{id}` con `usuario.cambiar_rol` (la misma forma vuelve en `POST`, `PATCH` y `PUT …/rol`, con `mensaje`):
+
+```json
+{
+  "datos": {
+    "id": 2, "nombre": "Pedro Valentín", "apellido": "Colque", "nombre_completo": "Colque, Pedro Valentín",
+    "email": "administrativo@sistema.local", "activo": true, "acceso_texto": "Con acceso", "es_la_propia": false,
+    "rol": {
+      "id": 2, "nombre": "Administrativo",
+      "descripcion": "Catálogo, personas, compras y stock. Ve las ventas y resuelve las devoluciones.",
+      "permisos": [ "Crear categoria", "Editar categoria", "…", "Ver venta" ]
+    },
+    "empleado": { "legajo": "EMP-0002", "dni": "30000000", "telefono": "297-4500000",
+                  "fecha_ingreso": "2026-05-22", "fecha_baja": null },
+    "situacion_texto": "En actividad",
+    "roles_asignables": [
+      { "id": 1, "nombre": "Administrador", "actual": false },
+      { "id": 2, "nombre": "Administrativo", "actual": true },
+      { "id": 4, "nombre": "Cajero", "actual": false },
+      { "id": 3, "nombre": "Vendedor", "actual": false }
+    ]
+  }
+}
+```
+
+- Sin `usuario.cambiar_rol`, `rol` trae sólo `id` y `nombre`, y `roles_asignables` **no está** (regla 36, molde HL-131).
+- `empleado` es `null` en una cuenta sin ficha, y `situacion_texto` dice entonces «No corresponde»; con `fecha_baja`,
+  «Baja el d/m/a».
+- `es_la_propia` es ayuda de interfaz: la pantalla esconde la baja propia; el servidor da 409 igual.
+- La edición que quita el acceso lo dice en el `mensaje` («… y se le quitó el acceso al sistema.»).
+
+`POST /personal/{id}/restablecer-contrasena` (con `Cache-Control: no-store`):
+
+```json
+{
+  "datos": { "id": 2, "nombre": "Colque, Pedro Valentín",
+             "enlace_restablecimiento": "http://compustack.test/restablecer/3f9c…?email=administrativo%40sistema.local" },
+  "mensaje": "Enlace generado para Colque, Pedro Valentín. Sirve una sola vez."
+}
+```
+
+`GET /roles/{id}` (el listado trae la misma forma sin `permisos`; la ficha vuelve en `POST` y `PATCH`, con `mensaje`):
+
+```json
+{
+  "datos": {
+    "id": 3, "nombre": "Vendedor", "descripcion": "Emite presupuestos y ventas. No cobra ni anula.",
+    "ambito": "gestion", "ambito_texto": "Gestión", "es_sistema": true,
+    "cantidad_permisos": 9, "cantidad_usuarios": 8, "se_puede_eliminar": false,
+    "permisos": [ 1, 9, 19, 20, 33, 34, 35, 37, 51 ]
+  }
+}
+```
+
+- `se_puede_eliminar` se deriva de los datos (regla 9): no es de sistema y no tiene usuarios.
+- «Cualquier acción implica ver el módulo» la aplica el servicio: `permisos` con `producto.crear` guarda también `producto.ver`.
+
+`GET /permisos`: `{ "datos": [ { "id": 2, "clave": "categoria.crear", "modulo": "categoria", "descripcion": "Crear categoria" } ], … }`,
+con el sobre del paginado y `criterios` vacío.
+
+`PUT /yo/contrasena`, **200** con la forma de la credencial (§4), sin caché:
+
+```json
+{
+  "datos": {
+    "credencial": "…",
+    "tipo": "Bearer",
+    "vence": "2026-11-24T22:00:00Z",
+    "usuario": { "nombre": "Pedro Valentín", "apellido": "Colque", "email": "administrativo@sistema.local" }
+  },
+  "mensaje": "Tu contraseña se cambió. La próxima vez que inicies sesión usá la nueva."
+}
+```
+
+- **Rota la credencial (HL-132).** Cambiar la contraseña revoca todas las credenciales de la cuenta —es lo que espera quien
+  la cambia porque se la sacaron—, también la del pedido. Para no expulsar a quien hizo lo correcto, se emite una nueva,
+  que el cliente guarda en lugar de la anterior. Desde la respuesta, **la credencial con que se pidió es 401**.
+- Sin permiso a propósito (M-21): es de toda cuenta, también de la tienda.
+- Errores: 422 en `password_actual` («Esa no es tu contraseña actual.») o en `password` (débil, no coincide, o «La
+  contraseña nueva tiene que ser distinta de la actual.»); 401 si la cuenta está desactivada.
+
+`POST /contrasena/restablecer`, pública, con el límite del ingreso (`tienda-acceso`, correo e IP):
+
+```json
+{
+  "datos": { "ambito": "tienda" },
+  "mensaje": "Tu contraseña quedó configurada. Ya podés entrar desde la app de la tienda con tu correo y la contraseña que elegiste."
+}
+```
+
+- **No emite credencial**: la persona entra con la contraseña nueva, y una cuenta que el ingreso rechazaría por otro motivo
+  no queda con sesión. `ambito` le dice a la pantalla adónde mandarla (D-26): `gestion` va al ingreso («Tu contraseña quedó
+  configurada. Ya podés iniciar sesión.»), `tienda` a la app.
+- El token de un solo uso lo verifica el broker de Laravel, hasheado y con vencimiento (60 minutos). Inventado, ya usado,
+  vencido, de otra cuenta o reemplazado por uno más nuevo: **422 en `email`**, con el mensaje del broker. Un error en
+  `password` no lo gasta.
+- Revoca todas las credenciales de la cuenta (desde la r3).
+
 ## Registro de cambios
 
 | Revisión | Tramo | Cambio |
@@ -2322,3 +2466,4 @@ nombre, unidades, importe }`):
 | 17 | F (Etapa 3) | §7.10, precios y stock con la misma credencial (regla 35): impuestos y factores de costo (listado, uno, alta, edición, baja que desactiva la alícuota en uso; `productos` cuenta los que la usan), la política (`GET` y `PATCH /precios/politica`) y la simulación (`GET /precios/simulacion`, con el `calculo` de la ficha de gestión), el ajuste masivo (`vista-previa` con `conteos` y `criterio_texto`, aplicar, el historial con `reversible` y deshacer; «nada que hacer» es 409, HL-122), el kardex (`GET /stock/movimientos` de a 20, HL-119; filtro inválido 422, HL-120; impresión por URL firmada), `GET /stock/usuarios`, `GET /productos/{id}/stock` con `reservas` y `POST /productos/{id}/ajustes-stock`. `costo` y `costo_nuevo` de la vista previa, sólo con `precio.ver_costo`. Ninguna forma anterior cambia; las rutas pasan a 88 (86 con el simulador apagado) |
 | 18 | G (Etapa 3) | §7.11, las compras con la misma credencial (regla 35): el listado con sus filtros y su impresión por URL firmada, `GET /compras/proveedores` (con `activos=1` para elegir; HL-125), la ficha con `lineas`, `recepciones` (la forma del kardex) y `acciones` que decide el estado, el pedido en PDF por URL firmada propia (HL-126; sin aprobar, 409), los sugeridos con `grupos` y `sin_proveedor` (los costos, sólo con `precio.ver_costo`), `GET /compras/armador` (HL-124: los elegidos como renglones, con `descartados` y `aviso`), `POST /compras` (un borrador por proveedor, 201), `PATCH /compras/{id}`, aprobar, enviada, cancelar, cerrar y `POST /compras/{id}/recepciones` (201 con la ficha). Ninguna forma anterior cambia; las rutas pasan a 103 (101 con el simulador apagado) |
 | 19 | H (Etapa 3) | §7.12, las ventas, el panel y los informes con la misma credencial (regla 35): el listado de ventas con sus filtros, `GET /ventas/vendedores` (opciones del filtro) y la impresión por URL firmada; la ficha con `lineas` (con `cotizacion_hoy` y `faltante` sólo en un presupuesto), `entregas`, `comprobantes_transferencia`, `pagos`, `medios`, `cobro`, `devolucion` y `acciones` que decide el estado; `POST /ventas` (201), `PATCH`, recotizar y cancelar; `POST /ventas/{id}/pagos`, `/entregas` y `/devoluciones` (201 con la ficha); tres documentos por URL firmada propia (la venta, HL-129; el comprobante de entrega y el de transferencia, HL-130); `GET /panel` y `GET /panel/general` (período, anterior y `comparaciones` con la frase del servidor; período inválido, 422); `GET /informes/vendedores` (con `totales`) y `GET /informes/productos`, de a 15. Ninguna forma anterior cambia: `/pedidos` sigue igual. Las rutas pasan a 126 (124 con el simulador apagado) |
+| 20 | I (Etapa 3) | §7.13, usuarios y accesos con la misma credencial (regla 35): el personal (listado con sus filtros, `GET /personal/roles` para las opciones, la ficha con los permisos del rol y `roles_asignables` sólo con `usuario.cambiar_rol`, alta, edición con `activo` obligatorio, baja que desactiva si hay historial, `PUT …/rol` y el enlace de restablecimiento sin caché), los roles (listado con conteos y `se_puede_eliminar`, uno con los ids de sus `permisos`, `GET /permisos`, alta, edición y baja con 409 si es de sistema, tiene usuarios o es el propio), `PUT /yo/contrasena` (rota la credencial: devuelve la forma de `POST /sesion`, HL-132) y `POST /contrasena/restablecer` (pública, con el límite del ingreso; token inválido, 422 en `email`; `datos.ambito`, sin credencial). Ninguna forma anterior cambia. Las rutas pasan a 142 (140 con el simulador apagado) |

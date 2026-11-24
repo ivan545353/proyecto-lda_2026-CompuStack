@@ -2,14 +2,12 @@
 
 @section('title', 'Configurar mi contraseña')
 
+{{-- Lo envía pantallas/sesion.js a POST /api/v1/contrasena/restablecer (tramo I): no tiene action ni CSRF.
+     El token y el correo vienen del enlace, no de la base: no hay dato de negocio en esta página. --}}
 @section('content')
-    <form method="POST" action="{{ route('password.store') }}" novalidate class="form-authentication">
-        @csrf
-
-        {{-- Vienen del enlace, no los escribe nadie. El correo además le dice al
-             gestor de contraseñas a qué cuenta corresponde lo que guarda. --}}
+    <form novalidate class="form-authentication" data-formulario-restablecer data-ingreso="{{ route('login') }}">
         <input type="hidden" name="token" value="{{ $token }}">
-        <input type="hidden" name="email" value="{{ old('email', $email) }}" autocomplete="username">
+        <input type="hidden" name="email" value="{{ $email }}" autocomplete="username">
 
         <div class="card card-body m-3 gap-2 shadow-sm border-0">
             <div class="d-flex justify-content-center mb-4">
@@ -25,7 +23,8 @@
                 Este enlace sirve una sola vez.
             </p>
 
-            @include('partials.errores')
+            {{-- Un enlace vencido o ya usado es un error del correo, que está oculto: va acá arriba. --}}
+            <p class="alert alert-danger" data-errores-formulario hidden></p>
 
             <div class="mb-3">
                 <label for="password" class="form-label">
@@ -33,16 +32,11 @@
                 </label>
 
                 <input type="password" id="password" name="password" autofocus autocomplete="new-password"
-                    class="form-control @error('password') is-invalid @enderror"
-                    aria-describedby="ayudaPassword @error('password') errorPassword @enderror">
+                    class="form-control" aria-describedby="ayudaPassword">
 
                 <div id="ayudaPassword" class="form-text">
                     Al menos 8 caracteres, con letras y números.
                 </div>
-
-                @error('password')
-                    <div id="errorPassword" class="invalid-feedback">{{ $message }}</div>
-                @enderror
             </div>
 
             <div class="mb-3">
@@ -61,4 +55,17 @@
             </p>
         </div>
     </form>
+
+    {{-- La cuenta es de la tienda: el ingreso de la gestión la rechazaría, así que se le dice dónde sí (D-26).
+         Lo muestra el JS cuando la API contesta `ambito: tienda`. --}}
+    <div class="form-authentication text-center" data-cuenta-tienda-lista hidden>
+        <div class="card card-body m-3 shadow-sm border-0">
+            <i class="bi bi-phone fs-1 d-block mb-2" aria-hidden="true"></i>
+            <h1 class="h4 mb-3">Tu contraseña quedó configurada</h1>
+            <p class="mb-0">
+                Ya podés entrar desde la app de la tienda con tu correo y la contraseña que elegiste.
+                Esta página es del sistema interno del local: no hace falta que vuelvas a ella.
+            </p>
+        </div>
+    </div>
 @endsection

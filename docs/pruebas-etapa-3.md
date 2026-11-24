@@ -397,3 +397,39 @@ las dos mitades del permiso.
 - El JS (`ventas.js`, `operaciones-venta.js`, `lineas-venta.js`, `panel.js`, `informes.js`) no tiene test automático. El
   recorrido manual encontró que la insignia «Sin stock suficiente» y el aviso del cobro se veían siempre: `d-flex` y
   `d-inline-block` de Bootstrap le ganaban a `hidden`. Se corrigió con una regla global en `app.scss` (pendiente #89).
+
+## 13. Tramo I — Usuarios y accesos
+
+**Migradas las escrituras del módulo**: el alta, la edición, la baja y el cambio de rol del personal, el enlace de
+restablecimiento, el alta, la edición y la baja de roles, y las dos contraseñas. Con las lecturas de las siete pantallas
+pasaron 62 llamadas, y el inventario (§5) baja de 67 a **5 llamadas en 3 archivos**, las 5 a propósito (3 del F, 2 del
+dataset de `ClienteModuloTest`). **`web.php` no tiene ninguna ruta de escritura.** Ningún archivo perdió tests:
+`PersonalModuloTest` pasa de 33 a 42, `RolModuloTest` de 9 a 15, `CuentaPasswordTest` de 12 a 13; el resto conserva su
+número.
+
+**Cómo se migró**: igual que en D a H. El dato se afirma en el JSON (`datos.*`, `mensaje`, 409, 422) y la estructura en
+el shell.
+
+| Test | Fijaba | Ahora | Por qué |
+| --- | --- | --- | --- |
+| `PersonalModuloTest` › alta, edición, baja, cambio de rol | `post`/`put`/`delete` a la ruta web, `with('exito'/'error')` | `POST`/`PATCH`/`DELETE`/`PUT /api/v1/personal…`: la ficha o `{ id, eliminado }`, `mensaje`; lo propio, 409 | — |
+| `PersonalModuloTest` › un filtro inexistente | Se ignoraba | 422 con el error en su campo; renombrado | HL-120 |
+| `PersonalModuloTest` › la edición sin `activo` | La casilla ausente era `false` | 422 en `activo` (test nuevo) | M-31 |
+| `PersonalModuloTest` › «ni siquiera trae la columna» | El `select` del listado web | El mismo `select` en `GET /personal`, leído con `DB::listen` | — |
+| `RestablecerPasswordTest` › generar el enlace | `post personal.restablecer`, el enlace en la sesión | `POST /personal/{id}/restablecer-contrasena`: `datos.enlace_restablecimiento`, `Cache-Control: no-store` | — |
+| `RestablecerPasswordTest` › fijarla con el enlace | `post password.store`, redirección al ingreso; `assertSessionHasErrors('email')` | `POST /contrasena/restablecer`: `datos.ambito` y el mismo `mensaje`; 422 en `email` con el token inválido, usado, vencido, ajeno o reemplazado | — |
+| `RolModuloTest` › alta, edición, baja | `post`/`put`/`delete roles.*`, `assertSessionHasErrors('permisos')`, `with('error')` | `POST`/`PATCH`/`DELETE /api/v1/roles…`: 201/200, 422 en `permisos` con el mismo texto, 409 | — |
+| `CuentaPasswordTest` › las validaciones, la cuenta desactivada | `put cuenta.password.update`, `assertSessionHasErrors`, redirección | `PUT /yo/contrasena`: 422 en el mismo campo y con el mismo texto; desactivada, 401 | — |
+| `CuentaPasswordTest` › «no cierra la sesión propia» | `assertAuthenticatedAs` después del cambio | La credencial devuelta entra a `/yo`; la del pedido da 401 | HL-132, acordado |
+| `Api/CredencialTest` › «revoca todas sus credenciales» | Cero credenciales después del cambio | Ninguna de las anteriores sobrevive y queda sólo la devuelta; renombrado | HL-132, acordado |
+| `Api/RegistroMostradorTest` › «lee que entra por la app» | `assertSee` del aviso en la respuesta del `POST` | El aviso en el shell del enlace y `datos.ambito = tienda` con «desde la app» en el `mensaje` | El aviso lo muestra el JS |
+
+**Tests nuevos**: las 10 URLs retiradas (5 del personal, 3 de roles, 2 de contraseñas), que dan 404 o 405 sin cambiar
+nada; los shells del personal, de roles y de la cuenta sin datos de negocio (regla 37); los endpoints de personal y de
+roles con las dos mitades del permiso; las opciones de rol con `usuario.ver` o `usuario.crear`; la ficha con y sin
+`usuario.cambiar_rol`; `se_puede_eliminar` y los conteos de roles; el 401 sin credencial en `PUT /yo/contrasena`.
+
+**Huecos**:
+- El JS (`personal.js`, `roles.js`, `sesion.js`) no tiene test automático: lo cubre el recorrido manual. Lo que más
+  conviene mirar: cambiar la contraseña propia y seguir navegando sin que pida el ingreso (la cookie con la credencial
+  rotada), el enlace de gestión (al ingreso con el aviso) y el de la tienda (el bloque de la app).

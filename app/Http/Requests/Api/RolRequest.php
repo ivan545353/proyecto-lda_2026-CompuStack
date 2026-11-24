@@ -1,11 +1,13 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Api;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+
 /**
- * Validación del formulario de rol.
+ * Validación del alta y la edición de un rol (`POST /api/v1/roles`, `PATCH /api/v1/roles/{rol}`). Pasó
+ * a la API en el tramo I sin cambiar una regla.
  *
  * Sirve para el alta y para la edición. Dos reglas condicionales:
  *

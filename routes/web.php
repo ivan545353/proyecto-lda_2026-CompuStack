@@ -35,7 +35,7 @@ use Illuminate\Support\Facades\Route;
 |
 | Grupos:
 |   guest            el formulario de ingreso (entrar y salir van por la API: tramo C, D-30)
-|   auth             la cuenta propia
+|   auth             la cuenta propia (sólo la página)
 |   auth + gestion   todo el sistema de gestión
 |
 */
@@ -49,19 +49,14 @@ Route::middleware('guest')->group(function () {
 
     Route::get('/restablecer/{token}', [RestablecerPasswordController::class, 'mostrar'])
         ->name('password.reset');
-
-    Route::post('/restablecer', [RestablecerPasswordController::class, 'restablecer'])
-        ->middleware('throttle:5,1')
-        ->name('password.store');
+    // Fijar la contraseña con el enlace: POST /api/v1/contrasena/restablecer (tramo I).
 });
 
 // CUENTA PROPIA
 Route::middleware('auth')->group(function () {
     Route::get('/cuenta/password', [CuentaController::class, 'editarPassword'])
         ->name('cuenta.password.edit');
-
-    Route::put('/cuenta/password', [CuentaController::class, 'actualizarPassword'])
-        ->name('cuenta.password.update');
+    // El cambio: PUT /api/v1/yo/contrasena, que rota la credencial (tramo I, HL-132).
 });
 
 // Sistema de gestión
@@ -108,33 +103,19 @@ Route::middleware(['auth', 'gestion'])->group(function () {
         ->name('producto-proveedores.edit');
 });
 
-    // Personas — Personal (cuentas de ámbito gestión)
+    // Personas — Personal (cuentas de ámbito gestión): sólo las páginas; el alta, la edición, la baja,
+    // el cambio de rol y el enlace de restablecimiento, por la API (tramo I).
     Route::get('/personal', [PersonalController::class, 'index'])
         ->middleware('can:usuario.ver')->name('personal.index');
 
     Route::get('/personal/crear', [PersonalController::class, 'create'])
         ->middleware('can:usuario.crear')->name('personal.create');
 
-    Route::post('/personal', [PersonalController::class, 'store'])
-        ->middleware('can:usuario.crear')->name('personal.store');
-
     Route::get('/personal/{usuario}/editar', [PersonalController::class, 'edit'])
         ->middleware('can:usuario.editar')->name('personal.edit');
 
-    Route::put('/personal/{usuario}', [PersonalController::class, 'update'])
-        ->middleware('can:usuario.editar')->name('personal.update');
-
-    Route::delete('/personal/{usuario}', [PersonalController::class, 'destroy'])
-        ->middleware('can:usuario.eliminar')->name('personal.destroy');
-
     Route::get('/personal/{usuario}/rol', [PersonalController::class, 'editarRol'])
         ->middleware('can:usuario.cambiar_rol')->name('personal.rol.edit');
-
-    Route::patch('/personal/{usuario}/rol', [PersonalController::class, 'cambiarRol'])
-        ->middleware('can:usuario.cambiar_rol')->name('personal.rol.update');
-
-    Route::post('/personal/{usuario}/restablecer-contrasena', [PersonalController::class, 'generarEnlaceDeRestablecimiento'])
-        ->middleware('can:usuario.resetear_password')->name('personal.restablecer');
 
     // Personas — Clientes: sólo las páginas; las operaciones y la impresión, por la API (tramo E).
     Route::get('/clientes', [ClienteController::class, 'index'])
@@ -275,11 +256,9 @@ Route::middleware(['auth', 'gestion'])->group(function () {
                 ->name('precios.factores.edit');
         });
 
+    // Roles: sólo las páginas; el alta, la edición y la baja, por la API (tramo I).
     Route::middleware('can:rol.editar')->group(function () {
         Route::get('/roles/crear', [RolController::class, 'create'])->name('roles.create');
-        Route::post('/roles', [RolController::class, 'store'])->name('roles.store');
         Route::get('/roles/{rol}/editar', [RolController::class, 'edit'])->name('roles.edit');
-        Route::put('/roles/{rol}', [RolController::class, 'update'])->name('roles.update');
-        Route::delete('/roles/{rol}', [RolController::class, 'destroy'])->name('roles.destroy');
     });
 });

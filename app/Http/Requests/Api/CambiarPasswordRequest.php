@@ -1,12 +1,13 @@
 <?php
 
-namespace App\Http\Requests\Auth;
+namespace App\Http\Requests\Api;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Password;
 
 /**
- * Validación del cambio de contraseña propia.
+ * Validación del cambio de contraseña propia (`PUT /api/v1/yo/contrasena`). Pasó a la API en el
+ * tramo I sin cambiar una regla; `current_password` verifica contra la cuenta de la credencial.
  *
  * `resetPass` bloqueaba el login y no existía ninguna
  *  pantalla para restablecer la clave, así que la
