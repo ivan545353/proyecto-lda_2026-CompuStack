@@ -391,6 +391,25 @@ pide `rol.ver`, que quien da de alta personal no tiene por qué tener (C-2). Com
 las opciones salen de su módulo: `GET /personal/roles`, con `usuario.ver` o `usuario.crear` (`RolesDelPersonalRequest`).
 Los roles a los que se puede pasar a alguien van en su ficha (`roles_asignables`), sólo con `usuario.cambiar_rol`.
 
+### HL-135 — Una cuenta de gestión recibe credencial también en la app
+
+*Registrado en el tramo J.* Desde la r14 `POST /sesion` emite a toda cuenta activa (HL-98) con la misma forma, así que la
+app ya no recibía el 422 que la frenaba. Una cuenta de gestión quedaba «con sesión», sin precios (no tiene
+`tienda.ver_precios`) y con 401 `sesion_invalida` en el carrito y el perfil, que dicen «Tu sesión venció» sin que haya
+vencido nada. Es un cambio de **comportamiento**, no de forma: ningún test de serialización lo detecta. Decidido con el
+usuario: **la app la rechaza al entrar**. Después de `POST /sesion` pide `GET /yo`. Si `rol.ambito` no es `tienda`,
+descarta la credencial (`DELETE /sesion` si hay red, y la borra igual) y muestra un 422 en `email`: «Esta cuenta es de
+gestión: entrá desde la administración web.». El backend no cambia.
+
+### HL-136 — Las pantallas con sesión apiladas sobre Perfil no se recargaban al volver a entrar
+
+*Registrado en el tramo J, probando en el teléfono; venía de la Etapa 2.* Mi cuenta, Mis pedidos, el detalle y el pago se
+apilan sobre Perfil, que no pide sesión, así que al vencer la credencial la guarda no las saca: muestran «Tu sesión
+venció». Tras entrar de nuevo, la pantalla conservaba la falla vieja, y su botón «rebotaba»: con sesión, la guarda saca al
+login. Había que cerrar la sesión y volver a entrar. Se resolvió con la regla del catálogo: las cuatro escuchan
+`cambiosDeSesionProvider` y se vuelven a pedir al abrir la sesión. Sólo leen al armarse; el carrito y la confirmación
+quedan como estaban, porque la guarda los saca y volver a armar la confirmación reiniciaría la reserva.
+
 ---
 
 ## 4. Alcance

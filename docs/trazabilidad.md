@@ -1630,3 +1630,21 @@ todas, que es lo que espera quien la cambia porque se la sacaron) y el endpoint 
   rechaza en lugar de completar.
 - **Los roles para elegir salen de `/personal/roles`**, no de `/roles`: quien da de alta personal no necesita `rol.ver`.
 - **Con el tramo, `web.php` no tiene ninguna ruta de escritura**: sólo entrega páginas y descargas firmadas.
+
+### Tramo J — Flutter al contrato final (en `compustack-app`)
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `lib/data/models/yo.dart` (`Yo`, `RolYo`) | `GET /yo`: la cuenta, el rol con su ámbito y los permisos; la app sólo mira `esDeTienda` | Nuevo |
+| `AuthService.yo()`, `AuthService.descartar()` | Pide `/yo`; suelta una credencial que no se va a usar (intenta revocarla y la borra aunque no haya red) | Modificado |
+| `SessionRepository.iniciar` | Después de `POST /sesion` pregunta el ámbito: una cuenta de gestión no entra a la app (HL-135) | Modificado |
+| `fallaDesdeRespuesta` (`core/errores/falla.dart`), `VistaAsincronica` | `401 sesion_expirada` (r14): se traduce como `sesion_invalida` y se muestra igual, «Tu sesión venció» | Modificado |
+| Modelos de vista de Mi cuenta, Mis pedidos, detalle del pedido y pago | Se vuelven a pedir al abrir la sesión, como el catálogo: si no, quedaba a la vista el 401 viejo (HL-136) | Modificado |
+| `test/data/models/*_test.dart`, `yo_test.dart`, `routing/sesion_vencida_test.dart` | Los JSON de ejemplo de la r20; el recorrido vencido con los dos códigos y desde Perfil | Modificado / Nuevo |
+| `README.md`, `ARQUITECTURA.md` de la app | La revisión 20 y el porqué de `/yo` y de la recarga al volver a entrar | Modificado |
+
+**La decisión que lo condicionó.** El contrato se extendió sin cambiar ninguna forma que la app lee (r15 a r20), así que
+el tramo fue el más chico. Lo único que la app tenía que absorber era un **cambio de comportamiento** de la r14: `POST
+/sesion` ya no rechaza a las cuentas de gestión (HL-98). Sin hacer nada, una de ellas quedaba «con sesión», sin precios y
+con 401 en el carrito. Se resolvió del lado de la app, con `GET /yo`, sin tocar el backend: el servidor dice quién es la
+cuenta y cada cliente decide qué ofrece.
