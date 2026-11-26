@@ -21,15 +21,19 @@ use Illuminate\Pagination\LengthAwarePaginator;
  * esta clase sólo da forma a la respuesta.
  *
  * Métodos:
- *   respuesta()  paginador + clase de recurso + criterios → JsonResponse
+ *   respuesta()  paginador + clase de recurso + criterios (+ claves extra) → JsonResponse
+ *
+ * Las claves extra del sobre (`totales`, `conteos`…) entran por acá y no rearmando la
+ * respuesta con `getData(true)`: decodificar como arreglo vuelve `{}` en `[]` (HL-137).
  */
 final class Paginado
 {
     /**
      * @param  class-string<\Illuminate\Http\Resources\Json\JsonResource>  $resource
      * @param  array<string, mixed>  $criterios
+     * @param  array<string, mixed>  $extra  claves que el listado suma al sobre, después de `criterios`
      */
-    public static function respuesta(LengthAwarePaginator $pagina, string $resource, array $criterios): JsonResponse
+    public static function respuesta(LengthAwarePaginator $pagina, string $resource, array $criterios, array $extra = []): JsonResponse
     {
         return response()->json([
             'datos'         => $resource::collection($pagina->getCollection())->resolve(),
@@ -38,6 +42,7 @@ final class Paginado
             'ultima_pagina' => $pagina->lastPage(),
             'total'         => $pagina->total(),
             'criterios'     => $criterios === [] ? new \stdClass : $criterios,
+            ...$extra,
         ]);
     }
 }

@@ -1648,3 +1648,28 @@ el tramo fue el más chico. Lo único que la app tenía que absorber era un **ca
 /sesion` ya no rechaza a las cuentas de gestión (HL-98). Sin hacer nada, una de ellas quedaba «con sesión», sin precios y
 con 401 en el carrito. Se resolvió del lado de la app, con `GET /yo`, sin tocar el backend: el servidor dice quién es la
 cuenta y cada cliente decide qué ofrece.
+
+### Tramo K — Pruebas, OpenAPI, documentación y demostración
+
+| Componente | Qué resuelve | Estado |
+| --- | --- | --- |
+| `docs/openapi.yaml` | El contrato en OpenAPI 3.1 (la promoción): las 142 operaciones de `/api/v1` con su seguridad, su permiso (`x-permiso`), sus parámetros, sus respuestas y sus errores, y la sección de `api.md` que explica cada una (`x-api-md`). La versión es la revisión de `api.md` (r20) | Nuevo |
+| `tests/Feature/Api/OpenApiTest.php` | El documento contra el enrutador, en las dos direcciones: cada operación es una ruta y cada ruta una operación; la seguridad y el 401 son los de su middleware; `x-permiso` es el `can:`, y la ruta con permiso declara el 403; los `$ref` resuelven; los parámetros del path están declarados; cada parámetro trae sólo sus claves | Nuevo |
+| `symfony/yaml` en `require-dev` | Lee el OpenAPI en el test. Ya estaba en `vendor/` como dependencia indirecta; se declara porque el test la usa directamente | Modificado |
+| `Paginado::respuesta()` (`app/Http/Api`) y `AjusteMasivoController`, `CompraController`, `InformeController` | Las claves de más del sobre (`conteos`, `reversible`, `grupos`, `totales`) entran por `$extra`, y `criterios` sale siempre como objeto (HL-137) | Modificado |
+| `docs/demostracion/compustack-etapa-3.postman_collection.json` | La demostración sin interfaces, en Postman: la venta completa de mostrador (presupuesto, el cobro que el vendedor no puede hacer, cobro, entrega, comprobante firmado, kardex), la compra de la tienda con Mercado Pago de prueba (D-23) y el permiso que se decide en cada pedido. Cada pedido tiene su test; los scripts guardan las credenciales y los ids | Nuevo |
+| `docs/demostracion/api-etapa-3.http`, bloque «Tramo K» | Apunta a la colección de Postman, para que el guion no viva en dos lugares | Modificado |
+| `tests/Feature/Api/GuionEtapa3Test.php` | Las tres secuencias de Postman, con las mismas afirmaciones: la venta de mostrador, la compra de la tienda y el permiso quitado y devuelto. El checkout de Mercado Pago lo reemplaza el simulador | Nuevo |
+| `docs/demostracion-etapa-3.md` | El guion de la defensa: los siete puntos de la consigna, las cuentas, el recorrido manual del JS del tramo I, los dos ensayos y el plan B | Nuevo |
+| `docs/api.md` | §1 apunta al OpenAPI; tres ejemplos de `criterios` y los valores de `situacion` corregidos (HL-137, HL-138), sin subir la revisión | Modificado |
+
+**La decisión que lo condicionó.** El OpenAPI se escribió **a mano**, a partir de `api.md` y del código, sin un
+generador: generarlo sería sumar una librería, y la fuente ya estaba escrita. Lo que lo hace confiable no es cómo se
+escribió sino el test, que lo compara con el enrutador en cada corrida. El documento no puede afirmar una ruta, una
+seguridad o un permiso que el servidor no tiene (regla 16).
+- **`x-permiso` es el `can:` de la ruta.** Donde el permiso depende de la forma o de una alternativa y lo decide el Form
+  Request (`/categorias`, `/productos`, `/productos/{id}`, sus proveedores, `/personal/roles`), la ruta no lo fija. Ahí
+  el documento lo dice con `x-permiso-por-forma` o `x-permiso-alguno`, que el test no compara.
+- **La operación rechazada es un 403 del servidor, no una decisión de la interfaz**: se quita un permiso al rol y la
+  misma credencial deja de poder. Así se ve también el requisito 7: el cambio vale en el pedido siguiente.
+- **Ningún test se migró ni se tocó**: el tramo sólo suma.

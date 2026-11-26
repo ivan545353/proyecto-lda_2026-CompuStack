@@ -433,3 +433,35 @@ roles con las dos mitades del permiso; las opciones de rol con `usuario.ver` o `
 - El JS (`personal.js`, `roles.js`, `sesion.js`) no tiene test automático: lo cubre el recorrido manual. Lo que más
   conviene mirar: cambiar la contraseña propia y seguir navegando sin que pida el ingreso (la cookie con la credencial
   rotada), el enlace de gestión (al ingreso con el aviso) y el de la tienda (el bloque de la app).
+
+## 14. Tramo K — Pruebas, OpenAPI, documentación y demostración
+
+**El tramo no migra ni toca ningún test: sólo suma.** No retiró rutas ni vació pantallas, así que el inventario (§5)
+sigue en **5 llamadas en 3 archivos**, las 5 a propósito.
+
+**Tests nuevos** (14):
+
+| Test | Qué fija | Por qué |
+| --- | --- | --- |
+| `Api/OpenApiTest` (9) | `docs/openapi.yaml` contra el enrutador: cada operación es una ruta (las del simulador pueden faltar con `TIENDA_SIMULADOR` apagado) y cada ruta es una operación; la versión es la revisión de `api.md`; los `$ref` resuelven; la seguridad y el 401 son los del middleware; `x-permiso` es el `can:` y la ruta con permiso declara el 403; los parámetros del path están declarados; cada parámetro trae sólo sus claves; los `operationId` son únicos y cada operación tiene una respuesta 2xx | Regla 16: el documento no afirma lo que el servidor no hace. No toca la base |
+| `Api/GuionEtapa3Test` (3) | Las tres secuencias de la colección de Postman, con sus mismas afirmaciones: la venta de mostrador (sin `precio.ver_costo` ni `stock.ver` no viajan `costo_promedio` ni `stock`; el vendedor emite y no cobra, 403; la cajera cobra y entrega; el PDF firmado abre sin credencial y con la firma tocada da 403; el kardex trae la salida), la compra completa (carrito, checkout, pedido, intento, aprobación, el stock que baja al cobrar y la venta vista desde la administración) y el 403 de la misma credencial cuando el rol Cliente pierde `tienda.comprar`, con la vuelta al 200 al devolverlo | Los siete puntos se hacen sin tocar código |
+| `AjusteMasivoModuloTest` › criterios como objeto | La vista previa y el historial traen `"criterios":{}` en el JSON crudo | HL-137 |
+| `PedidoCompraModuloTest` › criterios como objeto | Los sugeridos traen `"criterios":{}` en el JSON crudo | HL-137 |
+
+**Por qué el JSON crudo**: `json()` decodifica como arreglo asociativo, y ahí `{}` y `[]` son lo mismo. La diferencia
+sólo se ve en el texto.
+
+**La trampa del YAML** que la segunda aserción de los parámetros vino a atajar: una coma sin comillas dentro de
+`{ … }` no hace fallar la lectura. Corta el valor y deja una clave suelta, y en el paso 4 eso le había sacado el `schema`
+al filtro `q` de `/clientes` sin que ningún test lo notara.
+
+**Huecos**:
+- El JS del tramo I sigue sin test automático. El recorrido manual está en `demostracion-etapa-3.md`, y se hace antes
+  de los ensayos.
+- `GuionEtapa3Test` reemplaza el checkout de Mercado Pago por el simulador, que resuelve por el mismo camino (D-13). El
+  checkout de verdad se prueba en los ensayos, con las cuentas de prueba (D-23).
+- El OpenAPI no se valida contra el esquema oficial de OpenAPI 3.1: haría falta una librería. El test comprueba lo que
+  el documento afirma sobre el servidor, no su gramática completa.
+
+**La suite al cerrar**: backend **2.585** tests (8.122 aserciones), todos pasan, en 718 s: los 2.571 del tramo I más
+los 14 nuevos. La de la app no cambió en este tramo (1.049); la corre el usuario.

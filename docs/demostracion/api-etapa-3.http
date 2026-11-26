@@ -776,3 +776,11 @@ Authorization: Bearer {{sesionGestion.response.body.datos.credencial}}
 GET {{base}}/yo
 Accept: application/json
 Authorization: Bearer {{cambioPropio.response.body.datos.credencial}}
+
+###
+
+### ── Tramo K — La demostración, en Postman ─────────────────────────────────
+
+# El guion de la defensa no corre desde acá: está en `compustack-etapa-3.postman_collection.json`, al lado de
+# este archivo (Postman → Import). Tiene la venta completa de mostrador, la compra de la tienda con Mercado Pago
+# de prueba y el permiso que se decide en cada pedido, cada pedido con su test. Lo fija `Api/GuionEtapa3Test`.

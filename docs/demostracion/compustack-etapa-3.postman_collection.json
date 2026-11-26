@@ -1,0 +1,1875 @@
+{
+    "info": {
+        "name": "CompuStack — Etapa 3 (demostración)",
+        "description": "La API sin las interfaces: la venta completa de mostrador, la compra de la tienda y el permiso que se decide en cada pedido. Guion: docs/demostracion-etapa-3.md. Contrato: docs/api.md y docs/openapi.yaml.\n\nAntes de correr: en la pestaña Variables, `claveAdministrador` con la ADMIN_PASSWORD de tu .env, **sólo en el valor actual** (no se exporta). Correr las carpetas en orden; la 2 se frena en «Iniciar el pago» para pagar en el navegador.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "0. Sesiones",
+            "description": "Las cinco cuentas del guion. Correr esta carpeta primero: guarda cada credencial en una variable.",
+            "item": [
+                {
+                    "name": "El vendedor inicia sesión",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/sesion",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sesion"
+                            ]
+                        },
+                        "description": "El mismo endpoint para la app y la administración. Cada inicio emite su propia credencial.",
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"email\": \"vendedor@sistema.local\", \"password\": \"{{claveDemo}}\" }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: la credencial', () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set('tokenVendedor', pm.response.json().datos.credencial);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "La cajera inicia sesión",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/sesion",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sesion"
+                            ]
+                        },
+                        "description": "El mismo endpoint para la app y la administración. Cada inicio emite su propia credencial.",
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"email\": \"cajero@sistema.local\", \"password\": \"{{claveDemo}}\" }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: la credencial', () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set('tokenCajero', pm.response.json().datos.credencial);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El administrativo inicia sesión",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/sesion",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sesion"
+                            ]
+                        },
+                        "description": "El mismo endpoint para la app y la administración. Cada inicio emite su propia credencial.",
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"email\": \"administrativo@sistema.local\", \"password\": \"{{claveDemo}}\" }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: la credencial', () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set('tokenAdministrativo', pm.response.json().datos.credencial);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El administrador inicia sesión",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/sesion",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sesion"
+                            ]
+                        },
+                        "description": "El mismo endpoint para la app y la administración. Cada inicio emite su propia credencial.",
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"email\": \"admin@sistema.local\", \"password\": \"{{claveAdministrador}}\" }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: la credencial', () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set('tokenAdministrador', pm.response.json().datos.credencial);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "La clienta de la tienda inicia sesión",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/sesion",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sesion"
+                            ]
+                        },
+                        "description": "El mismo endpoint para la app y la administración. Cada inicio emite su propia credencial.",
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"email\": \"cliente@sistema.local\", \"password\": \"{{claveDemo}}\" }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: la credencial', () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set('tokenCliente', pm.response.json().datos.credencial);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "¿Quién soy? (vendedor)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/yo",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "yo"
+                            ]
+                        },
+                        "description": "Los permisos de /yo son ayuda de interfaz: el servidor vuelve a decidir en cada pedido.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenVendedor}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: la cuenta, el rol y sus permisos', () => pm.response.to.have.status(200));",
+                                    "pm.test('los permisos viajan como ayuda de interfaz', () => pm.expect(pm.response.json().datos.permisos).to.include('venta.crear'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Sin credencial",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/yo",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "yo"
+                            ]
+                        },
+                        "description": "Siempre JSON, también el error: { mensaje, codigo, errores }.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('401: sin_sesion', () => pm.response.to.have.status(401));",
+                                    "pm.test('el código es sin_sesion', () => pm.expect(pm.response.json().codigo).to.eql('sin_sesion'));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "1. Venta completa de mostrador",
+            "description": "Presupuesto, cobro, entrega, comprobante y kardex. Cada paso lo hace la cuenta que tiene el permiso.",
+            "item": [
+                {
+                    "name": "El vendedor busca el producto",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/productos?forma=gestion&q={{productoBusqueda}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "productos"
+                            ],
+                            "query": [
+                                {
+                                    "key": "forma",
+                                    "value": "gestion"
+                                },
+                                {
+                                    "key": "q",
+                                    "value": "{{productoBusqueda}}"
+                                }
+                            ]
+                        },
+                        "description": "Regla 36: un recurso, representación por permiso. Lo que no se puede ver no viaja, ni en null.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenVendedor}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: el listado de gestión', () => pm.response.to.have.status(200));",
+                                    "const fila = pm.response.json().datos.find(p => p.codigo === pm.collectionVariables.get('productoBusqueda')) ?? pm.response.json().datos[0];",
+                                    "pm.collectionVariables.set('productoId', fila.id);",
+                                    "pm.test('sin precio.ver_costo, costo_promedio no viaja', () => pm.expect(fila).to.not.have.property('costo_promedio'));",
+                                    "pm.test('sin stock.ver, stock no viaja', () => pm.expect(fila).to.not.have.property('stock'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El mismo producto, con el administrativo",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/productos/{{productoId}}?forma=gestion",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "productos",
+                                "{{productoId}}"
+                            ],
+                            "query": [
+                                {
+                                    "key": "forma",
+                                    "value": "gestion"
+                                }
+                            ]
+                        },
+                        "description": "El mismo endpoint, otra cuenta: cambia qué campos trae, no la ruta.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenAdministrativo}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: la ficha de gestión', () => pm.response.to.have.status(200));",
+                                    "const d = pm.response.json().datos;",
+                                    "pm.test('con sus permisos, el costo y el stock viajan', () => { pm.expect(d).to.have.property('costo_promedio'); pm.expect(d).to.have.property('stock'); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El vendedor busca al cliente",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/clientes?q={{clienteBusqueda}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "clientes"
+                            ],
+                            "query": [
+                                {
+                                    "key": "q",
+                                    "value": "{{clienteBusqueda}}"
+                                }
+                            ]
+                        },
+                        "description": "Un listado con su filtro y su paginado: datos, pagina, por_pagina, ultima_pagina, total, criterios.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenVendedor}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: el listado de clientes', () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set('clienteId', pm.response.json().datos[0].id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El vendedor emite el presupuesto",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/ventas",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "ventas"
+                            ]
+                        },
+                        "description": "Operación permitida (venta.crear). El precio no viaja en el pedido: lo pone el servidor. Un presupuesto no compromete stock.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenVendedor}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"cliente_id\": {{clienteId}},\n  \"lineas\": [ { \"producto_id\": {{productoId}}, \"cantidad\": 1 } ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('201: el presupuesto', () => pm.response.to.have.status(201));",
+                                    "const d = pm.response.json().datos;",
+                                    "pm.collectionVariables.set('ventaId', d.id);",
+                                    "pm.collectionVariables.set('saldo', d.importes.saldo);",
+                                    "pm.test('nace como presupuesto, con el precio que puso el servidor', () => { pm.expect(d.estado).to.eql('presupuesto'); pm.expect(d.importes.saldo).to.match(/^\\d+\\.\\d{2}$/); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El vendedor intenta cobrarlo",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/ventas/{{ventaId}}/pagos",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "ventas",
+                                "{{ventaId}}",
+                                "pagos"
+                            ]
+                        },
+                        "description": "Operación rechazada por falta de permisos. La decide Laravel, no la interfaz.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenVendedor}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"pagos\": [ { \"metodo\": \"efectivo\", \"monto\": \"{{saldo}}\" } ] }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('403: sin_permiso', () => pm.response.to.have.status(403));",
+                                    "pm.test('el servidor rechaza: venta.cobrar es de la caja', () => pm.expect(pm.response.json().codigo).to.eql('sin_permiso'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "La cajera lo cobra",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/ventas/{{ventaId}}/pagos",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "ventas",
+                                "{{ventaId}}",
+                                "pagos"
+                            ]
+                        },
+                        "description": "Por el saldo exacto (otra suma es 409). El stock sale acá, al cobrar (regla 5).",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCajero}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"pagos\": [ { \"metodo\": \"efectivo\", \"monto\": \"{{saldo}}\" } ] }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('201: cobrada', () => pm.response.to.have.status(201));",
+                                    "const d = pm.response.json().datos;",
+                                    "pm.test('pagada y sin saldo', () => { pm.expect(d.estado).to.eql('pagada'); pm.expect(d.importes.saldo).to.eql('0.00'); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "La cajera la entrega",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/ventas/{{ventaId}}/entregas",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "ventas",
+                                "{{ventaId}}",
+                                "entregas"
+                            ]
+                        },
+                        "description": "Sin cuerpo entrega todo lo pendiente; con cantidades, una parte.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCajero}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('201: entregada', () => pm.response.to.have.status(201));",
+                                    "pm.test('sin cuerpo entrega todo lo pendiente', () => pm.expect(pm.response.json().datos.estado).to.eql('entregada'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El enlace del comprobante",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/ventas/{{ventaId}}/pdf",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "ventas",
+                                "{{ventaId}}",
+                                "pdf"
+                            ]
+                        },
+                        "description": "D-22: la API no devuelve el archivo sino una URL firmada de cinco minutos, que no lleva la credencial.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCajero}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: una URL firmada', () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set('urlDocumento', pm.response.json().datos.url);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Abrir el comprobante, sin credencial",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{urlDocumento}}"
+                        },
+                        "description": "Postman lo muestra en la pestaña de la respuesta. Al abrirlo se vuelve a exigir que quien lo pidió siga activo y con permiso.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: el PDF', () => pm.response.to.have.status(200));",
+                                    "pm.test('es un PDF', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/pdf'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Con la firma tocada",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{urlDocumento}}0"
+                        },
+                        "description": "Una letra de más en la firma y el enlace deja de servir.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('403: firma inválida', () => pm.response.to.have.status(403));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El kardex del producto",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/stock/movimientos?producto_id={{productoId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "stock",
+                                "movimientos"
+                            ],
+                            "query": [
+                                {
+                                    "key": "producto_id",
+                                    "value": "{{productoId}}"
+                                }
+                            ]
+                        },
+                        "description": "StockService es la única puerta al stock: la venta deja su asiento, con el stock anterior y el resultante.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenAdministrativo}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: los movimientos, del más nuevo al más viejo', () => pm.response.to.have.status(200));",
+                                    "const m = pm.response.json().datos[0];",
+                                    "pm.test('el último es la salida de esta venta', () => { pm.expect(m.tipo).to.eql('venta'); pm.expect(m.cantidad).to.eql(-1); });"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "2. Compra de la tienda (Mercado Pago de prueba)",
+            "description": "La compra de la app, sin la app. El pago es con Mercado Pago de prueba (D-23): el checkout se abre en el navegador con `urlPago`, con el comprador de prueba y la tarjeta de prueba, titular APRO. Correr hasta «Iniciar el pago», pagar, y seguir.",
+            "item": [
+                {
+                    "name": "Vaciar el carrito",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/carrito",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carrito"
+                            ]
+                        },
+                        "description": "Empezar de cero. Vaciar uno vacío también es 200.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: vacío', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El catálogo de la tienda",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/productos?q={{productoBusqueda}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "productos"
+                            ],
+                            "query": [
+                                {
+                                    "key": "q",
+                                    "value": "{{productoBusqueda}}"
+                                }
+                            ]
+                        },
+                        "description": "Sin forma, la tienda de siempre: la misma ruta que usa la app. La disponibilidad viaja por niveles.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: el catálogo', () => pm.response.to.have.status(200));",
+                                    "const fila = pm.response.json().datos.find(p => p.codigo === pm.collectionVariables.get('productoBusqueda')) ?? pm.response.json().datos[0];",
+                                    "pm.collectionVariables.set('productoTiendaId', fila.id);",
+                                    "pm.test('con tienda.ver_precios, los precios viajan; el stock nunca', () => { pm.expect(fila).to.have.property('precios'); pm.expect(fila).to.not.have.property('stock'); pm.expect(fila).to.have.property('disponibilidad'); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Agregar al carrito",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/carrito/lineas",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carrito",
+                                "lineas"
+                            ]
+                        },
+                        "description": "El precio no viaja: lo pone el servidor.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"producto_id\": {{productoTiendaId}}, \"cantidad\": 1 }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('el renglón entró', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Checkout: reservar",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/carrito/checkout",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carrito",
+                                "checkout"
+                            ]
+                        },
+                        "description": "Reserva todo o nada por 20 minutos (D-28). Si algo cambió, 409 carrito_cambio: repetirlo pasa.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: reservado', () => pm.response.to.have.status(200));",
+                                    "const d = pm.response.json().datos;",
+                                    "pm.collectionVariables.set('carritoId', d.id);",
+                                    "pm.test('en checkout, con lo que sale por cada medio', () => { pm.expect(d.estado).to.eql('en_checkout'); pm.expect(d.medios).to.be.an('array'); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Confirmar el pedido",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/pedidos",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "pedidos"
+                            ]
+                        },
+                        "description": "D-8: repetirlo devuelve el mismo pedido. Registrado no quiere decir pagado.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"carrito_id\": {{carritoId}}, \"medio_pago\": \"pasarela\", \"modo_entrega\": \"retiro\" }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('201 (o 200 si se repite: idempotente por carrito_id)', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                                    "const d = pm.response.json().datos;",
+                                    "pm.collectionVariables.set('pedidoId', d.id);",
+                                    "pm.test('nace esperando el pago', () => pm.expect(d.estado).to.eql('pendiente_pago'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Iniciar el pago",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/pedidos/{{pedidoId}}/pagos",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "pedidos",
+                                "{{pedidoId}}",
+                                "pagos"
+                            ]
+                        },
+                        "description": "Un intento no es un pago. Abrí `urlPago` (también queda en la consola de Postman) y pagá con titular APRO.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"pasarela\": \"mercadopago\" }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('el intento (201, o 200 si ya había uno)', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                                    "const d = pm.response.json().datos;",
+                                    "pm.collectionVariables.set('intentoId', d.id);",
+                                    "pm.collectionVariables.set('urlPago', d.url_pago);",
+                                    "console.log('Abrí en el navegador y pagá con titular APRO:', d.url_pago);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Consultar el intento",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/pedidos/{{pedidoId}}/pagos/{{intentoId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "pedidos",
+                                "{{pedidoId}}",
+                                "pagos",
+                                "{{intentoId}}"
+                            ]
+                        },
+                        "description": "Antes de responder, el servidor le pregunta a Mercado Pago. Volver del checkout no confirma nada (regla 16).",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: el intento', () => pm.response.to.have.status(200));",
+                                    "pm.test('aprobado (si todavía dice pendiente, pagá y repetí)', () => pm.expect(pm.response.json().datos.estado).to.eql('aprobado'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El pedido, pagado",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/pedidos/{{pedidoId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "pedidos",
+                                "{{pedidoId}}"
+                            ]
+                        },
+                        "description": "Lo que la app muestra en Mis pedidos.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: el pedido', () => pm.response.to.have.status(200));",
+                                    "pm.test('pagado', () => pm.expect(pm.response.json().datos.estado).to.eql('pagada'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "La misma venta, vista por la administración",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/ventas/{{pedidoId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "ventas",
+                                "{{pedidoId}}"
+                            ]
+                        },
+                        "description": "Un modelo, dos alcances: /pedidos con tienda.* para el cliente, /ventas con venta.ver para la gestión.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenAdministrativo}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: la venta', () => pm.response.to.have.status(200));",
+                                    "pm.test('es una venta online, pagada', () => { const d = pm.response.json().datos; pm.expect(d.canal).to.eql('online'); pm.expect(d.estado).to.eql('pagada'); });"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "3. El permiso se decide en cada pedido",
+            "description": "Se le quita tienda.comprar al rol Cliente y la misma credencial deja de poder comprar; se devuelve y vuelve a poder. Requisito 7.",
+            "item": [
+                {
+                    "name": "Los roles",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles"
+                            ]
+                        },
+                        "description": "Los de sistema primero, con sus conteos.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenAdministrador}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: los roles', () => pm.response.to.have.status(200));",
+                                    "const cliente = pm.response.json().datos.find(r => r.nombre === 'Cliente');",
+                                    "pm.collectionVariables.set('rolClienteId', cliente.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El rol Cliente",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles/{{rolClienteId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles",
+                                "{{rolClienteId}}"
+                            ]
+                        },
+                        "description": "La descripción se guarda para mandarla en los dos PATCH: si no llega, queda vacía (HL-139).",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenAdministrador}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: el rol con los ids de sus permisos', () => pm.response.to.have.status(200));",
+                                    "const d = pm.response.json().datos;",
+                                    "pm.collectionVariables.set('permisosCliente', JSON.stringify(d.permisos));",
+                                    "pm.collectionVariables.set('descripcionCliente', JSON.stringify(d.descripcion));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El permiso tienda.comprar",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/permisos?por_pagina=50",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "permisos"
+                            ],
+                            "query": [
+                                {
+                                    "key": "por_pagina",
+                                    "value": "50"
+                                }
+                            ]
+                        },
+                        "description": "Paginado como todo listado (tope 50): si no está en la primera página, el script sigue con las demás.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenAdministrador}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: el catálogo de permisos', () => pm.response.to.have.status(200));",
+                                    "const permisos = JSON.parse(pm.collectionVariables.get('permisosCliente'));",
+                                    "const guardar = (p) => { pm.collectionVariables.set('permisosSinComprar', JSON.stringify(permisos.filter(id => id !== p.id))); pm.test('encontrado: ' + p.clave + ' = ' + p.id, () => pm.expect(permisos).to.include(p.id)); };",
+                                    "const buscar = (cuerpo) => cuerpo.datos.find(p => p.clave === 'tienda.comprar');",
+                                    "const pagina = (n, ultima) => pm.sendRequest({ url: pm.request.url.toString() + '&pagina=' + n, header: { Accept: 'application/json', Authorization: 'Bearer ' + pm.collectionVariables.get('tokenAdministrador') } }, (e, r) => { const p = buscar(r.json()); if (p) guardar(p); else if (n < ultima) pagina(n + 1, ultima); });",
+                                    "const primera = pm.response.json(); const p = buscar(primera); if (p) guardar(p); else pagina(2, primera.ultima_pagina);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Quitarle tienda.comprar al rol Cliente",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles/{{rolClienteId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles",
+                                "{{rolClienteId}}"
+                            ]
+                        },
+                        "description": "Rol de sistema: conserva nombre y ámbito.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenAdministrador}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"descripcion\": {{descripcionCliente}}, \"permisos\": {{permisosSinComprar}} }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: el rol, sin el permiso', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "La clienta pide su carrito",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/carrito",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carrito"
+                            ]
+                        },
+                        "description": "La credencial sigue vigente; el permiso no. El servidor decide en cada pedido.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('403: sin_permiso, con la misma credencial', () => pm.response.to.have.status(403));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Sus pedidos siguen andando",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/pedidos",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "pedidos"
+                            ]
+                        },
+                        "description": "Un permiso por acción, nunca por módulo (C-2).",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: otro permiso: tienda.ver_pedidos', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Devolverle el permiso",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/roles/{{rolClienteId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "roles",
+                                "{{rolClienteId}}"
+                            ]
+                        },
+                        "description": "No te olvides: sin él, ningún cliente puede comprar.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenAdministrador}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"descripcion\": {{descripcionCliente}}, \"permisos\": {{permisosCliente}} }",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: el rol como estaba', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "El carrito vuelve a responder",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/carrito",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carrito"
+                            ]
+                        },
+                        "description": "Sin volver a iniciar sesión.",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{tokenCliente}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('200: en el pedido siguiente', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:8000/api/v1",
+            "type": "string"
+        },
+        {
+            "key": "claveDemo",
+            "value": "demo1234",
+            "type": "string"
+        },
+        {
+            "key": "claveAdministrador",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "productoBusqueda",
+            "value": "G505",
+            "type": "string"
+        },
+        {
+            "key": "clienteBusqueda",
+            "value": "Estudio Contable",
+            "type": "string"
+        },
+        {
+            "key": "tokenVendedor",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "tokenCajero",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "tokenAdministrativo",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "tokenAdministrador",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "tokenCliente",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "productoId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "clienteId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "ventaId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "saldo",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "urlDocumento",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "productoTiendaId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "carritoId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "pedidoId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "intentoId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "urlPago",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "rolClienteId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "permisosCliente",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "permisosSinComprar",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "descripcionCliente",
+            "value": "",
+            "type": "string"
+        }
+    ]
+}

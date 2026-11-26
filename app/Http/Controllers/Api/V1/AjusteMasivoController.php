@@ -47,10 +47,7 @@ class AjusteMasivoController extends Controller
                 'proyeccion' => $this->service->proyectar($producto, $datos),
             ]);
 
-        $respuesta = Paginado::respuesta($pagina, ProyeccionAjusteResource::class, []);
-
-        return $respuesta->setData([
-            ...$respuesta->getData(true),
+        return Paginado::respuesta($pagina, ProyeccionAjusteResource::class, [], [
             'conteos'        => $this->service->previsualizar($datos),
             'criterio_texto' => $this->service->criterioTexto($datos),
         ]);
@@ -94,11 +91,8 @@ class AjusteMasivoController extends Controller
 
         $pagina->getCollection()->each(fn (LoteAjuste $lote) => $lote->setAttribute('es_reversible', $lote->id === $reversible));
 
-        $respuesta = Paginado::respuesta($pagina, LoteAjusteResource::class, []);
-
-        return $respuesta->setData([
-            ...$respuesta->getData(true),
-            'reversible' => $ultimo === null ? null : (new LoteAjusteResource($ultimo->setAttribute('es_reversible', true)))->resolve(),
+        return Paginado::respuesta($pagina, LoteAjusteResource::class, [], [
+            'reversible' =>$ultimo === null ? null : (new LoteAjusteResource($ultimo->setAttribute('es_reversible', true)))->resolve(),
         ]);
     }
 

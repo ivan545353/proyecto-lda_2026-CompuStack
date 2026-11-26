@@ -340,6 +340,16 @@ test('la API rechaza una vista previa sin la casilla de precio manual en lugar d
         ->assertJsonValidationErrors('incluir_manuales', 'errores');
 });
 
+test('la vista previa y el historial traen criterios como objeto aunque no haya', function () {
+    // HL-137: `json()` decodifica `{}` como `[]`; sólo el texto crudo distingue el objeto de la lista.
+    productoConPrecioCalculado(20000);
+    $usuario = usuarioCon('precio.ajustar_masivo', 'precio.ver');
+    $vista   = '/api/v1/precios/ajustes/vista-previa?operacion=precio&porcentaje=15&alcance=todos&incluir_manuales=0';
+
+    expect($this->getJson($vista, bearer($usuario))->assertOk()->getContent())->toContain('"criterios":{}')
+        ->and($this->getJson('/api/v1/precios/lotes', bearer($usuario))->assertOk()->getContent())->toContain('"criterios":{}');
+});
+
 /*
 |--------------------------------------------------------------------------
 | La primera salvaguarda: previsualizar no escribe

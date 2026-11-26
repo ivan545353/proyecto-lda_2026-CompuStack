@@ -282,3 +282,19 @@ foreach($r as $x){if(str_starts_with($x["uri"],"api/")||$x["uri"]==="up")continu
 if(preg_match("#`".preg_quote("$m $u","#")."` ·([NPDS])#",$d,$k))$c[$k[1]]=($c[$k[1]]??0)+1;else $f[]="$m $u";}
 ksort($c);print_r($c);echo "sin destino: ",count($f),"\n",implode("\n",$f),"\n";'
 ```
+
+## 11. Cierre de la matriz (tramo K)
+
+**Las 108 filas están en «Finalizado».** Ningún tramo dejó una pendiente, y ninguna operación quedó con dos caminos.
+
+| Qué | Al empezar (`develop@59714ef`) | Al cerrar la etapa |
+| --- | --- | --- |
+| Rutas web | 134 | **58**: 57 páginas (P), con la redirección de `/`, y el ingreso (S). **Ninguna escribe** |
+| Rutas de API | 24 | **142** (140 con `TIENDA_SIMULADOR` apagado) |
+| Rutas web sin destino (el script de §10) | — | 0 |
+
+- **Cada ruta de la API está en el OpenAPI** (`docs/openapi.yaml`), y `Api/OpenApiTest` lo comprueba en las dos
+  direcciones cada vez que corre la suite.
+- Lo que la matriz llama «Endpoint RESTful» es, fila por fila, una operación del OpenAPI. El test afirma que su
+  `x-permiso` es el `can:` de la ruta, y el dataset de permisos de cada test de módulo, que ese `can:` es el de la columna
+  Permiso, en las dos direcciones.

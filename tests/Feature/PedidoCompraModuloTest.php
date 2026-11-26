@@ -298,6 +298,15 @@ test('los sugeridos son lo que hay que reponer y nada mas', function () {
     expect(array_column($respuesta->json('datos'), 'id'))->toBe([$aPedir->id]);
 });
 
+test('los sugeridos traen criterios como objeto aunque no haya', function () {
+    // HL-137: `json()` decodifica `{}` como `[]`; sólo el texto crudo distingue el objeto de la lista.
+    productoDe(Proveedor::factory()->create(), cambios: ['stock_minimo' => 5]);
+
+    $respuesta = $this->getJson('/api/v1/compras/sugeridos', bearer(usuarioCon('compra.crear')))->assertOk();
+
+    expect($respuesta->getContent())->toContain('"criterios":{}');
+});
+
 test('el aviso dice cuantos no se pueden pedir y enlaza al catalogo filtrado', function () {
     productoDe(Proveedor::factory()->create(), cambios: ['stock_minimo' => 5]);
 

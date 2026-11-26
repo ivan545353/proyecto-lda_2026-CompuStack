@@ -138,10 +138,7 @@ class CompraController extends Controller
 
         $pagina->through(fn (Producto $producto) => $this->sugerido($producto, $verCosto));
 
-        $respuesta = Paginado::respuesta($pagina, JsonResource::class, []);
-
-        return $respuesta->setData([
-            ...$respuesta->getData(true),
+        return Paginado::respuesta($pagina, JsonResource::class, [], [
             'grupos'        => $grupos,
             'sin_proveedor' => Producto::query()->sinProveedorParaReponer()->count(),
             ...($verCosto ? ['estimado_pagina' => $estimadoPagina] : []),

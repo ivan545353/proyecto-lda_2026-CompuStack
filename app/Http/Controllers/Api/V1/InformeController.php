@@ -27,11 +27,10 @@ class InformeController extends Controller
         $pagina = $this->service->vendedores($request->desde(), $request->hasta())
             ->paginate($request->porPagina(), ['*'], 'pagina', $request->pagina());
 
-        $total     = $this->service->totalDeVendedores($request->desde(), $request->hasta());
-        $respuesta = Paginado::respuesta($pagina, InformeVendedorResource::class, $request->criterios());
+        $total = $this->service->totalDeVendedores($request->desde(), $request->hasta());
 
         // Una clave más que un listado común: suma lo que listan todas las páginas, no sólo ésta.
-        return $respuesta->setData([...$respuesta->getData(true), 'totales' => [
+        return Paginado::respuesta($pagina, InformeVendedorResource::class, $request->criterios(), ['totales' => [
             'cantidad'  => (int) $total->cantidad,
             'facturado' => Importe::json($total->facturado),
             'ticket'    => Importe::json($total->ticket),

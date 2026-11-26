@@ -1206,6 +1206,10 @@ congelados por renglón, lotes de ajuste y entregas).
 | `impuestos`, `factores_costo`, `politica_precios`, `historial_precios`, `lotes_ajuste` |                                                                       |                                      |
 | `venta_linea_impuestos`, `entregas`, `entrega_lineas`                             |                                                                       |                                      |
 
+**La Etapa 3 no crea tablas ni columnas.** Ninguna migración desde el cierre de la Etapa 2 (`develop@59714ef`): pasar
+las operaciones de negocio a la API cambió quién llama a los servicios, no lo que se guarda. Las credenciales de la
+administración usan la misma `personal_access_tokens` que las de la app (tramo B).
+
 **Por qué la Etapa 4 existe.** La consigna de la Etapa 2 define qué entra, y lo que no
 pide —facturación con ARCA, envíos calculados, vales, banners, el carrito anónimo— no se
 construye en esa etapa aunque esté diseñado acá. Es alcance, no falta de tiempo: mezclar lo

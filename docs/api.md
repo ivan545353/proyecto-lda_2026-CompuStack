@@ -35,6 +35,11 @@ sin cambiar ninguna forma de la tienda. La 16, los terceros (§7.9): clientes, d
 | **Un campo protegido no viaja** | Sin el permiso `tienda.ver_precios`, la clave `precios` **no está**: `null` dice «no tiene valor»; ausente, «no es para vos» |
 | **Lo que no se publica nunca** | `costo_promedio`, `ganancia`, `precio_manual`, `stock`, `stock_reservado`, `stock_minimo`, proveedores. La disponibilidad viaja por niveles |
 
+El mismo contrato está en **OpenAPI 3.1**, en `docs/openapi.yaml` (tramo K): una operación por cada ruta de `/api/v1`,
+con su seguridad, su permiso (`x-permiso`, el `can:` de la ruta) y la sección de este documento que la explica
+(`x-api-md`). Lo verifica `tests/Feature/Api/OpenApiTest.php` contra el enrutador, en las dos direcciones. Este documento
+sigue siendo la fuente: el OpenAPI no agrega formas, y su versión es la revisión de acá.
+
 ## 2. Respuesta correcta
 
 Un recurso:
@@ -1763,7 +1768,7 @@ multiplicadores y porcentajes, con tres decimales (`"2.500"`, `"15.000"`).
       "orden": 10, "activo": true, "productos": 1
     }
   ],
-  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 4, "criterios": []
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 4, "criterios": {}
 }
 ```
 
@@ -1841,7 +1846,7 @@ porcentaje de 0 o de −100, o una ganancia menor que 1 son 422.
       "costo": "20000.00", "costo_nuevo": null
     }
   ],
-  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1, "criterios": [],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1, "criterios": {},
   "conteos": { "total": 1, "alcanzados": 1, "sin_cambio": 0, "sin_costo": 0, "manuales_afuera": 0, "bajo_costo": 0 },
   "criterio_texto": "Categoría Memorias y sus subcategorías"
 }
@@ -2034,7 +2039,7 @@ transición que la tabla no admite es **409 `regla_de_negocio`** con el mismo me
       "costo_ultimo": "2500.00"
     }
   ],
-  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1, "criterios": [],
+  "pagina": 1, "por_pagina": 20, "ultima_pagina": 1, "total": 1, "criterios": {},
   "grupos": [
     { "proveedor": { "id": 2, "razon_social": "Distribuidora Austral" }, "productos": [1], "estimado": "25000.00" }
   ],
@@ -2326,7 +2331,7 @@ que daba la web. Una cuenta de la tienda pedida por `/personal/{id}` es 404: el 
 | `PUT /yo/contrasena` | ninguno (protegida) | Cambia la propia: `password_actual`, `password` + `password_confirmation`. **Rota la credencial** |
 | `POST /contrasena/restablecer` | pública | Fija la contraseña con el enlace: `token`, `email`, `password` + `password_confirmation` |
 
-`GET /personal` (`estado`: `activos` o `inactivos`; `situacion`: `en_actividad`, `de_baja` o `sin_ficha`):
+`GET /personal` (`estado`: `activos` o `inactivos`; `situacion`: `en_actividad` o `dados_de_baja`):
 
 ```json
 {

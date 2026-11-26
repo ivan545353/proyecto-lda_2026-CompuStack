@@ -410,6 +410,35 @@ login. Había que cerrar la sesión y volver a entrar. Se resolvió con la regla
 `cambiosDeSesionProvider` y se vuelven a pedir al abrir la sesión. Sólo leen al armarse; el carrito y la confirmación
 quedan como estaban, porque la guarda los saca y volver a armar la confirmación reiniciaría la reserva.
 
+### HL-137 — `criterios` salía como lista en tres listados
+
+*Registrado en el tramo K.* `api.md` §2 dice que `criterios` es siempre un objeto, y `Paginado::respuesta()` ya convertía
+`[]` en `{}`. Pero tres endpoints rearmaban la respuesta para sumar claves al sobre: la vista previa del ajuste masivo,
+sus lotes y `compras/sugeridos`. Lo hacían con `getData(true)`, que decodifica `{}` como `[]`, y salían con
+`"criterios": []`. El hallazgo que traía `estado-etapa-3.md` nombraba también impuestos, factores, roles, permisos,
+`personal/roles` y `stock/usuarios`, pero esos ya devolvían `{}`. Se resolvió en `Paginado`: `respuesta()` recibe las
+claves de más (`$extra`), y los controladores dejan de rearmar la respuesta. **No cambia ninguna forma documentada: el
+código pasa a cumplirla.** La app no lee ninguno de los tres. Lo fijan dos tests nuevos, que leen el JSON crudo
+(`"criterios":{}`) porque `json()` no distingue un objeto vacío de una lista vacía. Los tres ejemplos de `api.md` que
+mostraban `[]` se corrigieron.
+
+### HL-138 — `api.md` documentaba valores de `situacion` que el código no acepta
+
+*Registrado en el tramo K, escribiendo el OpenAPI a partir del código.* `api.md` §7.13 decía que el filtro `situacion` de
+`GET /personal` acepta `en_actividad`, `de_baja` o `sin_ficha`. `PersonalFiltroRequest::SITUACIONES` acepta
+`en_actividad` y `dados_de_baja`, y con cualquier otro valor da 422 con ese texto. El error era del documento: se
+corrigió `api.md` sin subir la revisión, porque la forma es la del código desde el tramo I. El OpenAPI tomó los
+enumerados de los Form Requests y los modelos, no de `api.md`.
+
+### HL-139 — La edición de un rol de sistema guarda la descripción con lo que llega
+
+*Registrado en el tramo K, armando la operación rechazada de la colección.* En un rol de sistema, `PATCH /roles/{id}`
+cambia sólo la descripción y los permisos. `RolService::actualizar` guarda `descripcion` con lo que llegó o `null`, así
+que **un `PATCH` con sólo `permisos` deja al rol sin descripción**. La pantalla de *Roles* la manda siempre, así que en
+la administración no pasa. **No se tocó**: completar la que falta sería corregir en lugar de rechazar (M-31), y
+exigirla cambiaría el comportamiento de un endpoint publicado. La colección la manda en los dos `PATCH` del guion, y
+`Api/GuionEtapa3Test` afirma que queda intacta.
+
 ---
 
 ## 4. Alcance
@@ -774,6 +803,24 @@ y dejarlos como primer candidato de recorte (§9) si el tiempo aprieta.
 El alcance dice que no. Pero algunos métodos reciben hoy un `Request` o dependen de la sesión para
 saber quién opera. **Propongo la regla**: si un servicio necesita cambiar, el cambio se limita a
 recibir el dato en lugar de buscarlo, nunca a mover una regla. Y si un tramo propone más, para.
+
+### D-35 — El OpenAPI, en YAML y a mano, verificado contra el enrutador
+
+*Decidida en el tramo K, con el usuario.* `docs/openapi.yaml` (OpenAPI 3.1) se escribe a mano a partir de `api.md` y del
+código, sin un generador: generarlo sería sumar una librería, y la fuente ya estaba escrita. YAML y no JSON porque se lee
+y se revisa en un diff. `symfony/yaml` se declara en `require-dev` (ya estaba en `vendor/` como dependencia indirecta)
+para que `Api/OpenApiTest` lo lea y lo compare con las rutas reales en las dos direcciones. `x-permiso` es el `can:` de la
+ruta: el documento no puede afirmar un permiso que el servidor no exige (regla 16). `api.md` sigue siendo la fuente, y la
+versión del OpenAPI es su revisión.
+
+### D-36 — La demostración sin interfaces, en Postman
+
+*Decidida en el tramo K, con el usuario.* La colección `.http` sirvió para probar cada endpoint mientras se construía,
+pero en la defensa la API se muestra con **Postman** (`docs/demostracion/compustack-etapa-3.postman_collection.json`).
+Lo pidió el usuario como la mejor opción para demostrar sin las interfaces: muestra la respuesta y el PDF, y cada
+pedido lleva su test, que dice en verde qué se comprobó. Recorre lo más importante: la venta completa de mostrador, con la operación rechazada en el medio (el
+vendedor no puede cobrar); la compra de la tienda con Mercado Pago de prueba (D-23), y el permiso que se quita y se
+devuelve. `Api/GuionEtapa3Test` fija las mismas secuencias. Los dos ensayos los hace el usuario.
 
 ---
 
